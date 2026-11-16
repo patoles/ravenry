@@ -17,6 +17,14 @@
 // variants in the strip by letter and name, and no Pick: a browser does not
 // answer a checkpoint (server/person.mjs), so the caption says where to.
 //
+// One video plays at a time (the pickvideo round's fourth part,
+// 2026-11-16): the viewer has one player; a move to another picture, the
+// close, a new layout let the one left go (paused, its source dropped). The
+// thumbnails (the answer card's tiles, the strip) are pictures of each
+// video's first frame (frameTag below), drawn once with no player of their
+// own: kept as <video> elements, each held a player, loading on even once
+// left behind.
+//
 // The server sends the 6 with the card's picture (brief.pictures[auto]
 // .gallery: key, name, url, at, by, made, w, h, rel, path) and serves each
 // only while it passes the picture rules (server/pictures.mjs).
@@ -53,6 +61,96 @@ export function cardPicture(p, x, { esc, escRaw }) {
     return `<button class="picard pc-tile" data-gallery="${escRaw(p.id)}"${y.key ? ` data-gallery-key="${escRaw(y.key)}"` : ''} aria-label="${esc(`Open picture ${i + 1} of ${n}, ${y.name}`)}"><img src="${escRaw(y.url)}" alt="">${k === 0 ? `<span class="pic-hint">${ICON.pictures}<span class="num">${n}</span></span>` : ''}</button>`;
   });
   return `<div class="pc-b${n === 2 ? ' n2' : ''}">${tiles.join('')}</div>`;
+}
+
+// A video's first frame as a picture: drawn once by a player of its own,
+// one video after another, shown over a thumbnail waiting for it while it
+// loads, that player let go at once. url -> object URL.
+const frames = new Map();
+const framing = new Map();
+let frameLine = Promise.resolve();
+function grabFrame(url) {
+  return new Promise((resolve) => {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.tabIndex = -1;
+    for (const a of ['muted', 'playsinline', 'webkit-playsinline']) v.setAttribute(a, '');
+    v.setAttribute('aria-hidden', 'true');
+    // On the page, where the frame will show (an iPhone loads a video's first frame only for one it draws): over a
+    // thumbnail waiting for it, else a speck in a corner.
+    // A redraw that takes the thumbnail away moves it to the one that took its place.
+    const home = () => {
+      const host = [...document.querySelectorAll('img[data-frame]')].find((i) => i.dataset.frame === url && i.parentElement && i.getClientRects().length);
+      if (v.isConnected && (host ? v.parentElement === host.parentElement : v.parentElement === document.body)) return;
+      Object.assign(v.style, host
+        ? { left: '', bottom: '', position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none', opacity: '1' }
+        : { inset: '', position: 'fixed', left: '0', bottom: '0', width: '2px', height: '2px', opacity: '0.01', pointerEvents: 'none' });
+      (host ? host.parentElement : document.body).appendChild(v);
+    };
+    home();
+    const moving = setInterval(home, 300);
+    let over = false, drawn = false, played = false;
+    const end = (out) => { if (over) return; over = true; clearTimeout(timer); clearInterval(moving); v.pause(); v.removeAttribute('src'); v.load(); v.remove(); resolve(out); };
+    const timer = setTimeout(() => end(null), 15000);
+    // Drawn: some pixel has colour (an engine that has not decoded the frame draws nothing).
+    const draw = () => {
+      if (drawn) return true;
+      const w = v.videoWidth, h = v.videoHeight;
+      if (!w || !h || v.readyState < 2) return false;
+      const k = Math.min(1, 1920 / w);
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+      const g = c.getContext('2d');
+      if (!g) { end(null); return true; }
+      try {
+        g.drawImage(v, 0, 0, c.width, c.height);
+        const px = g.getImageData(0, 0, c.width, c.height).data;
+        let seen = false;
+        for (let i = 3; i < px.length; i += 4 * 97) if (px[i]) { seen = true; break; }
+        if (!seen) return false;
+        drawn = true;
+        c.toBlob((b) => end(b ? URL.createObjectURL(b) : null), 'image/jpeg', 0.86);
+      } catch { end(null); }
+      return true;
+    };
+    const tryDraw = () => {
+      if (over || draw() || played) return;
+      // Not decoded until it plays (some engines): a moment of it, muted, then drawn.
+      played = true;
+      v.addEventListener('timeupdate', () => { if (!over && v.currentTime > 0) { v.pause(); if (!draw()) end(null); } });
+      const pl = v.play();
+      if (pl && pl.catch) pl.catch(() => end(null));
+    };
+    v.addEventListener('seeked', tryDraw);
+    v.addEventListener('loadeddata', () => { if (!v.seeking) tryDraw(); });
+    v.addEventListener('error', () => end(null));
+    v.src = `${url}#t=0.001`;
+  });
+}
+function frameOf(url) {
+  if (frames.has(url)) return Promise.resolve(frames.get(url));
+  let p = framing.get(url);
+  if (!p) {
+    // Asked again (three times in all) while a thumbnail on the page waits for it.
+    const waits = () => [...document.querySelectorAll('img[data-frame]')].some((i) => i.dataset.frame === url);
+    const tries = async () => { for (let k = 0; k < 3; k++) { const u = await grabFrame(url); if (u || !waits()) return u; } return null; };
+    p = frameLine.then(tries).then((u) => {
+      // A frame that could not be drawn is asked for again by the next thumbnail drawn.
+      if (u) frames.set(url, u);
+      framing.delete(url);
+      // Every thumbnail of this video on the page now shows it.
+      if (u) for (const im of document.querySelectorAll('img[data-frame]')) if (im.dataset.frame === url && im.getAttribute('src') !== u) im.setAttribute('src', u);
+      return u;
+    });
+    frameLine = p.catch(() => null);
+    framing.set(url, p);
+  }
+  return p;
+}
+// A video's thumbnail: its first frame as a picture (once drawn; asked for now when not).
+export function frameTag(url, escRaw) {
+  const now = frames.get(url);
+  if (!now) void frameOf(url);
+  return `<img data-frame="${escRaw(url)}"${now ? ` src="${escRaw(now)}"` : ''} alt="">`;
 }
 
 export function createGallery(d) {
@@ -258,8 +356,15 @@ export function createGallery(d) {
     zoomAt(z.s * Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002)), e.clientX, e.clientY);
   }
 
+  // The viewer's player lets its video go (a picture shown, the close, a new layout): paused, its source dropped.
+  function letGo() {
+    const vid = layer && layer.querySelector('#gl-vid');
+    if (vid && vid.getAttribute('src')) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
+  }
+
   // The skeleton, made again only when the layout (phone or desktop) changes.
   function build() {
+    letGo();
     const phone = d.phone.matches;
     g.phone = phone;
     g.strip = '';
@@ -293,14 +398,24 @@ export function createGallery(d) {
       ? `<button class="x-btn" data-gl-close aria-label="Close the pictures">${ICON.x}</button><span class="fs-name">${esc(name)}</span><span class="t2" style="font-size: 13px">Pictures</span><span style="flex: 1"></span><span class="num t2" style="font-size: 13px">${i + 1} of ${n}</span>`
       : `<span class="fs-name">${esc(name)}</span><span class="t2" style="font-size: 13px">Pictures from this session</span><span style="flex: 1"></span><span class="t3" style="font-size: 12px">Left and right arrows to move, Esc to close</span><button class="btn sm" data-gl-close>Close</button>`);
     const im = layer.querySelector('#gl-im');
-    const vid = layer.querySelector('#gl-vid');
-    // A video plays in the picture's place, at once, muted and looping, with its controls.
+    let vid = layer.querySelector('#gl-vid');
+    // A video plays in the picture's place, at once, muted and looping, with its controls. Another video gets a
+    // player of its own, made then; the one left lets its video go (a player whose source was dropped and set
+    // again could load for ever on an iPhone).
     if (x && x.video) {
       im.hidden = true; vid.hidden = false;
-      if (vid.getAttribute('src') !== x.video) { zoomClear(); vid.muted = true; vid.setAttribute('src', x.video); vid.setAttribute('aria-label', x.name); const pl = vid.play(); if (pl && pl.catch) pl.catch(() => {}); }
+      if (vid.getAttribute('src') !== x.video) {
+        zoomClear();
+        letGo();
+        const nv = vid.cloneNode(false);
+        vid.replaceWith(nv);
+        vid = nv;
+        vid.muted = true; vid.setAttribute('src', x.video); vid.setAttribute('aria-label', x.name);
+        const pl = vid.play(); if (pl && pl.catch) pl.catch(() => {});
+      }
     } else {
       im.hidden = false; vid.hidden = true;
-      if (vid.getAttribute('src')) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
+      letGo();
       if (x && im.getAttribute('src') !== x.url) { zoomClear(); im.setAttribute('src', x.url); } // each picture opens whole
     }
     if (x) im.alt = x.name;
@@ -324,7 +439,7 @@ export function createGallery(d) {
     if (g.strip !== keys) {
       g.strip = keys;
       strip.innerHTML = g.pick
-        ? g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb pk-th" data-gl-go="${k}" aria-label="${esc(y.name)}">${y.video ? `<video src="${escRaw(y.video)}#t=0.001" preload="metadata" muted playsinline tabindex="-1"></video>` : `<img src="${escRaw(y.url)}" alt="">`}<span class="pk-lt">${esc(y.letter)}</span></button>${g.phone ? '' : `<span class="gl-time pk-nm">${esc(y.label)}</span>`}</span>`).join('')
+        ? g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb pk-th" data-gl-go="${k}" aria-label="${esc(y.name)}">${y.video ? frameTag(y.video, escRaw) : `<img src="${escRaw(y.url)}" alt="">`}<span class="pk-lt">${esc(y.letter)}</span></button>${g.phone ? '' : `<span class="gl-time pk-nm">${esc(y.label)}</span>`}</span>`).join('')
         : g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb" data-gl-go="${k}" aria-label="${esc(`${y.name}${y.at ? ', ' + agoWords(y.at) : ''}`)}"><img src="${escRaw(y.url)}" alt=""></button>${g.phone ? '' : `<span class="gl-time num"></span>`}</span>`).join('');
     }
     strip.querySelectorAll('.gl-cell').forEach((c, k) => {
@@ -390,6 +505,7 @@ export function createGallery(d) {
   function close({ back = true } = {}) {
     if (!isOpen()) return;
     g.pid = null; g.list = []; g.key = null; g.strip = ''; g.pick = null;
+    letGo();
     layer.hidden = true;
     layer.innerHTML = '';
     zoomClear();
