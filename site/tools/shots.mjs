@@ -4,20 +4,22 @@
 //   node site/tools/shots.mjs [--out DIR] [--og]
 //
 // Serves site/ on 127.0.0.1 (a port of its own), then for each width (1440
-// and 390, at 2x) writes DIR/page-<width>.png (the whole page) and
-// DIR/hero-<width>.png (the first screen). DIR defaults to a new folder in
+// and 390, at 2x) writes DIR/page-<width>.png (the whole page),
+// DIR/hero-<width>.png (the first screen) and DIR/privacy-<width>.png (the
+// privacy page, privacy.html, whole). DIR defaults to a new folder in
 // the system's temp folder; the pictures are for review, never committed.
 // --og also writes site/assets/og-image.png, the 1200x630 link preview, from
 // the hero.
 //
 // The check, which fails the run (exit 1):
+// - for each page, index.html and privacy.html:
 // - every request the page makes goes to the local server and gets a 200
 //   (no 404, no font, script, picture or tracker from anywhere else: any
 //   other request is blocked and listed);
 // - every link and asset in the page resolves: #anchors name an element,
 //   relative paths are served, and the only links that leave the page are
 //   the GitHub downloads and the issue link the config block at the top of
-//   index.html names;
+//   index.html names (privacy.html's issue link must be that one too);
 // - no script error, and nothing wider than the screen.
 // Playwright: the hub's dev dependency (npm install in hub/), else one installed
 // beside the page.
@@ -56,7 +58,7 @@ const problems = [];
 const external = [];
 const browser = await chromium.launch({ headless: true });
 
-async function open(viewport, scale) {
+async function open(viewport, scale, file = '') {
   const page = await browser.newPage({ viewport, deviceScaleFactor: scale, colorScheme: 'dark' });
   page.on('pageerror', (e) => problems.push(`script error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') problems.push(`console error: ${m.text()}`); });
@@ -66,39 +68,46 @@ async function open(viewport, scale) {
     external.push(u);
     return route.abort();
   });
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(BASE + file, { waitUntil: 'networkidle' });
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(200);
   return page;
 }
 
-for (const width of [1440, 390]) {
-  const page = await open({ width, height: width < 600 ? 844 : 900 }, 2);
+// The pages: the download page first, since its config names the links that may leave.
+const PAGES = [{ file: '', shot: 'page', hero: true }, { file: 'privacy.html', shot: 'privacy', hero: false }];
+let allowed = null;
+for (const pg of PAGES) for (const width of [1440, 390]) {
+  const page = await open({ width, height: width < 600 ? 844 : 900 }, 2, pg.file);
+  const label = pg.file || 'index.html';
   const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  if (over > 0) problems.push(`${width}: ${over}px wider than the screen`);
-  await page.screenshot({ path: path.join(OUT, `hero-${width}.png`) });
-  await page.screenshot({ path: path.join(OUT, `page-${width}.png`), fullPage: true });
+  if (over > 0) problems.push(`${label} ${width}: ${over}px wider than the screen`);
+  if (pg.hero) await page.screenshot({ path: path.join(OUT, `hero-${width}.png`) });
+  await page.screenshot({ path: path.join(OUT, `${pg.shot}-${width}.png`), fullPage: true });
 
   if (width === 1440) {
     const found = await page.evaluate(() => {
-      const S = window.RAVENRY_SITE;
+      const S = window.RAVENRY_SITE || null;
       const refs = [];
       for (const el of document.querySelectorAll('a[href]')) refs.push({ kind: 'link', text: el.textContent.trim(), url: el.getAttribute('href'), abs: el.href });
       for (const el of document.querySelectorAll('link[href]')) refs.push({ kind: 'asset', text: el.rel, url: el.getAttribute('href'), abs: el.href });
       for (const el of document.querySelectorAll('script[src], img[src]')) refs.push({ kind: 'asset', text: el.tagName.toLowerCase(), url: el.getAttribute('src'), abs: el.src });
       for (const el of document.querySelectorAll('meta[property="og:image"]')) refs.push({ kind: 'asset', text: 'og:image', url: el.content, abs: new URL(el.content, location.href).href });
       for (const r of refs) if (r.url.startsWith('#')) r.target = !!document.getElementById(r.url.slice(1));
-      return { refs, allowed: [S.downloads, S.reportUrl] };
+      return { refs, allowed: S ? [S.downloads, S.reportUrl] : null };
     });
+    if (found.allowed) allowed = found.allowed;
+    if (!allowed) problems.push(`${label}: no allowed links (index.html's config is read first)`);
+    console.log(`-- ${label}`);
     for (const r of found.refs) {
       let verdict;
       if (r.url.startsWith('#')) verdict = r.target ? 'ok (anchor)' : 'MISSING anchor';
       else if (r.abs.startsWith(BASE)) {
         const res = await fetch(r.abs);
         verdict = res.status === 200 ? `ok (${res.status})` : `BROKEN (${res.status})`;
-      } else if (r.abs === found.allowed[1] || (r.abs.startsWith(found.allowed[0]) && !r.abs.slice(found.allowed[0].length).includes('/'))) verdict = 'ok (GitHub, not fetched)';
+      } else if (allowed && (r.abs === allowed[1] || (r.abs.startsWith(allowed[0]) && !r.abs.slice(allowed[0].length).includes('/')))) verdict = 'ok (GitHub, not fetched)';
       else verdict = 'NOT ALLOWED (leaves the page)';
-      if (!verdict.startsWith('ok')) problems.push(`${r.kind} "${r.text}" ${r.url}: ${verdict}`);
+      if (!verdict.startsWith('ok')) problems.push(`${label}: ${r.kind} "${r.text}" ${r.url}: ${verdict}`);
       console.log(`${verdict.padEnd(26)} ${r.kind.padEnd(5)} ${r.text.slice(0, 24).padEnd(24)} ${r.abs.startsWith(BASE) ? r.url : r.abs}`);
     }
   }

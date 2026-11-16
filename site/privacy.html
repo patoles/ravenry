@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy · Ravenry</title>
+<meta name="description" content="What Ravenry keeps, where it keeps it, and what leaves your Mac and your phone. Ravenry has no servers and collects nothing.">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="site.css">
+</head>
+<body class="doc">
+<!-- The privacy policy. Every claim here is what the code does: check it
+     against the source before changing a word, and change the date below. -->
+<nav><div class="wrap"><a class="home" href="index.html"><svg width="22" height="22" viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(4.77 -2.10) scale(0.8954)"><path d="M95 34 C89 28 82 24 75 23 C66 21 58 24 54 30 C50 36 46 40 40 46 C32 54 24 64 18 74 L6 92 L20 94 L28 84 C36 80 48 78 56 76 C68 72 76 62 76 52 C76 46 74 43 78 40 C84 37 90 36 95 34 Z" fill="currentColor"/><path d="M50 74 h5 v12 h-5 Z M60 72 h5 v14 h-5 Z M34 85 H86 a3 3 0 0 1 0 6 H34 a3 3 0 0 1 0 -6 Z" fill="currentColor"/><circle cx="65" cy="32" r="6.5" fill="#0A84FF"/></g></svg>Ravenry</a><span class="sp"></span><a class="dl" href="index.html#get">Download</a></div></nav>
+
+<main class="wrap">
+<header class="doc-head">
+  <div class="eyebrow">Privacy</div>
+  <h1>Your work stays <span>yours.</span></h1>
+  <p class="when">Effective 16 November 2026. This covers Ravenry for Mac, the Android app and the iPhone app.</p>
+</header>
+
+<section class="short" aria-labelledby="short">
+  <h2 id="short">The short version</h2>
+  <ul>
+    <li><b>We don't collect anything.</b> Ravenry has no servers and no accounts, and no analytics, crash reports or tracking of any kind.</li>
+    <li><b>Your sessions stay on your Mac.</b> Your phone talks straight to your Mac, over your Wi-Fi or your own Tailscale. Nothing goes through us.</li>
+    <li><b>A few things leave your devices, only when you use them:</b> the alerts you set up, the update check, and the Claude Code or Codex you already use. Each one is below.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="stays">
+  <h2 id="stays">What stays on your devices</h2>
+  <h3>On your Mac</h3>
+  <ul>
+    <li>Ravenry reads your Claude Code and Codex sessions (their transcripts and what their terminals show) to put them on the board. It reads them on your Mac and copies them nowhere.</li>
+    <li>It keeps your projects, briefs, decisions, ideas, pages, plans, settings, the phones you paired and its logs in <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code>. Bot tokens, webhooks and alert topics are in a file only your user can read.</li>
+    <li>Photos and voice notes you send from your phone land in that project's folder on your Mac, in <code>.inbox</code>, which git ignores. The phone deletes its copy once it is sent.</li>
+    <li>A secret you type goes straight to the command that asked for it. It is never written down: not to a file, a log or an alert.</li>
+    <li>If you turn on rule suggestions, Ravenry keeps the messages you typed in your sessions in <code>~/.ravenry/repeats</code>, since Claude Code deletes its own transcripts after 30 days.</li>
+    <li>When you add another machine over ssh, the board reaches it over your own ssh connection.</li>
+  </ul>
+  <h3>On your phone</h3>
+  <ul>
+    <li>The app keeps which Mac it is paired with and a sign-in token, encrypted with a key that never leaves the phone. It is never backed up or moved to a new phone: a new phone pairs again.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="leaves">
+  <h2 id="leaves">What leaves them, and to whom</h2>
+  <dl class="who">
+    <div><dt>Your phone and your Mac</dt><dd>They talk directly, encrypted, and the phone only trusts your Mac's own key. On your Wi-Fi, or through Tailscale when you turn on Away from this Mac's Wi-Fi.</dd></div>
+    <div><dt>Tailscale</dt><dd>Only with Away from this Mac's Wi-Fi on. Ravenry joins your own Tailscale network as a device called ravenry, so Tailscale sees that device, your account and its addresses, as it does for any of your devices. What your phone and Mac say to each other is encrypted end to end. Ravenry turns off Tailscale's log uploads. Tailscale's own privacy policy applies.</dd></div>
+    <div><dt>Android alerts</dt><dd>Through UnifiedPush and the app you pick for it, such as ntfy. Each alert is encrypted on your Mac for your phone alone, so the service that carries it sees only scrambled bytes, their size and the time. With no such app, alerts come over the connection the Ravenry app keeps to your Mac.</dd></div>
+    <div><dt>iPhone alerts, through ntfy</dt><dd>
+      <p>Sent to ntfy.sh unless you set your own ntfy server in Alerts, and readable there in plain text. So an alert says little:</p>
+      <ul>
+        <li>a title with the project's name and what it waits for, like "paper-boat asks". For some, a tab's name;</li>
+        <li>a fixed line, like "Answer on the board." or "On (your Mac's name). Run or refuse on the board.";</li>
+        <li>a link to your Mac's board on your Wi-Fi.</li>
+      </ul>
+      <p>Never the question, the command, the agent's words or a secret. Each iPhone gets its own topic, a long random name that works like a password: anyone who knows it can read those alerts. Remove the iPhone in Alerts to retire its topic.</p>
+    </dd></div>
+    <div><dt>Telegram, Discord, Slack or ntfy</dt><dd>Only if you set one up in Alerts. The same short alert goes to that service, with the bot token or webhook you gave: the project's name, what it waits for, which Mac, and the board's link. Never the session's text. That service's own policy applies.</dd></div>
+    <div><dt>GitHub, for updates</dt><dd>Ravenry for Mac checks GitHub, where its releases live, a little after it starts and every 4 hours, and downloads a new version from there. The check says which version you have and nothing about you. GitHub sees your IP address, as with any download. The Android app does not check: you download a new version yourself.</dd></div>
+    <div><dt>Claude Code and Codex</dt><dd>
+      <p>Ravenry runs the Claude Code and Codex you installed, signed in to your own account. What they send to Anthropic or OpenAI is between you and them.</p>
+      <p>Ravenry also asks them a few things itself, on your login: when you use the Ideas thread, mockups or Plans, and for rule suggestions, which are off unless you turn them on. Then, once a day, it sends the messages you typed in your sessions, to find the corrections you keep repeating. Ravenry has no key of its own and talks to Anthropic or OpenAI no other way.</p>
+    </dd></div>
+  </dl>
+</section>
+
+<section aria-labelledby="perms">
+  <h2 id="perms">Permissions, and why</h2>
+  <dl class="who">
+    <div><dt>Camera</dt><dd>To scan the pairing code your Mac shows. On Android, also to take a photo for an agent, which goes to your Mac and nowhere else.</dd></div>
+    <div><dt>Microphone</dt><dd>On Android, to record a voice note for an agent, which goes to your Mac and nowhere else. Voice typing in an answer uses your phone's own voice typing, under its own terms.</dd></div>
+    <div><dt>Face ID or fingerprint</dt><dd>To check it's you before a command runs, or before an agent types into another tab, from your phone. Your phone does the check; Ravenry only learns yes or no.</dd></div>
+    <div><dt>Notifications</dt><dd>To show you alerts.</dd></div>
+    <div><dt>Local network</dt><dd>On iPhone, to reach your Mac on your Wi-Fi.</dd></div>
+    <div><dt>On your Mac</dt><dd>Ravenry asks iTerm2 and cmux about their tabs, to show your sessions. It is also a terminal, so macOS may ask for the camera, microphone or contacts on behalf of a program you run in it. Ravenry itself never uses them.</dd></div>
+  </dl>
+</section>
+
+<section aria-labelledby="delete">
+  <h2 id="delete">Keeping it, and deleting it</h2>
+  <ul>
+    <li>We hold nothing about you, so there is nothing for us to delete.</li>
+    <li>On your Mac, choose Uninstall Ravenry… in the Ravenry menu and tick "Also delete Ravenry's own data". Or delete <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code> yourself. Photos and voice notes stay in each project's <code>.inbox</code> folder until you delete them.</li>
+    <li>On your phone, Sign out in the app's settings, or uninstall the app: what it kept goes with it.</li>
+    <li>ntfy, Telegram, Discord and Slack keep the alerts they carried by their own rules.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="kids">
+  <h2 id="kids">Children</h2>
+  <p>Ravenry is a tool for developers and isn't made for children. It collects nothing from anyone, children included.</p>
+</section>
+
+<section aria-labelledby="changes">
+  <h2 id="changes">Changes</h2>
+  <p>If what Ravenry does with your data changes, this page changes first, with a new date at the top.</p>
+</section>
+
+<section aria-labelledby="contact">
+  <h2 id="contact">Questions</h2>
+  <p>Ask us on GitHub: <a href="https://github.com/patoles/ravenry/issues/new">report a problem</a>. Issues there are public, so leave anything private out.</p>
+</section>
+</main>
+
+<footer><div class="wrap"><span>Ravenry will be open source soon, under the GPL.</span><span><a href="index.html">Download</a> · © 2026 Ravenry</span></div></footer>
+</body></html>

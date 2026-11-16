@@ -87,4 +87,37 @@ footer .wrap { display:flex; justify-content:space-between; gap:20px; flex-wrap:
 .dls details b { color:var(--tx); font-weight:500; }
 .getsub { color:var(--tx2); font-size:21px; max-width:640px; margin:0 auto; font-weight:500; line-height:1.45; }
 a:focus-visible, summary:focus-visible { outline:2px solid var(--work); outline-offset:3px; }
+footer a { color:var(--tx); } footer a:hover { text-decoration:underline; }
+
+/* The privacy page (privacy.html, body.doc): one reading column, the same type and colours. */
+.doc nav .home { display:flex; align-items:center; gap:10px; }
+.doc main.wrap { max-width:760px; padding-bottom:90px; }
+.doc-head { padding:84px 0 44px; }
+.doc-head .eyebrow { font-size:17px; }
+.doc h1 { font-size:clamp(40px,6vw,64px); margin:0 0 20px; max-width:none; }
+.doc .when { color:var(--tx2); font-size:15px; margin:0; }
+.doc section { padding:44px 0 4px; border-top:1px solid var(--line); }
+.doc h2 { font-size:clamp(26px,3.4vw,32px); letter-spacing:-.025em; line-height:1.15; margin:0 0 18px; max-width:none; }
+.doc h3 { font-size:17px; margin:26px 0 8px; color:var(--tx); }
+.doc p, .doc li, .doc dd { font-size:17px; line-height:1.55; color:var(--tx2); }
+.doc p { margin:0 0 14px; }
+.doc ul { margin:0 0 14px; padding-left:20px; } .doc li + li { margin-top:8px; }
+.doc b { color:var(--tx); font-weight:600; }
+.doc code { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:.88em; color:var(--tx); background:#161618; border-radius:5px; padding:1px 5px; overflow-wrap:anywhere; }
+.doc main a { color:var(--work); } .doc main a:hover { text-decoration:underline; }
+.doc .short { border:0; margin-bottom:44px; background:#111113; border-radius:22px; padding:30px 32px 18px; }
+.doc .short h2 { font-size:22px; letter-spacing:-.015em; }
+.doc .short li { font-size:18px; }
+.doc .who { margin:0; display:grid; gap:0; }
+.doc .who > div { display:grid; grid-template-columns:200px 1fr; gap:24px; padding:18px 0; border-top:1px solid var(--line); }
+.doc .who > div:first-child { border-top:0; padding-top:4px; }
+.doc .who dt { color:var(--tx); font-weight:600; font-size:17px; line-height:1.55; }
+.doc .who dd { margin:0; } .doc .who dd > :last-child { margin-bottom:0; }
+.doc .who dd ul { margin-top:-4px; }
+@media (max-width:820px) {
+  .doc-head { padding:56px 0 32px; }
+  .doc section { padding-top:36px; }
+  .doc .short { padding:24px 22px 12px; }
+  .doc .who > div { grid-template-columns:1fr; gap:4px; }
+}
 @media (prefers-reduced-motion:no-preference) { html { scroll-behavior:smooth; } }

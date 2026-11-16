@@ -8,6 +8,7 @@ trackers: it uses the system fonts and the files in this folder only.
 | File | What it is |
 | --- | --- |
 | `index.html` | The page. Its settings block is at the very top (below). |
+| `privacy.html` | The privacy policy, linked from the page's footer and from each app's settings. Every claim in it is what the code does: check the source before changing a word, and change its Effective date. Its issue link is the page's `reportUrl`. |
 | `site.css` | The page's look. |
 | `product.css`, `product.js` | The product pictures. The Mac app and the cards are drawn in HTML with demo content only, so they stay sharp at any size. The phones are the Android app's real screens in a drawn frame: `assets/phone-*.webp`. |
 | `assets/` | The favicon and Apple touch icon (from `hub/brand/ravenry`), `og-image.png`, the 1200x630 link preview, and the phone screens: `phone-card.webp` (an alert tapped, the app open on the question), `phone-board.webp` (the same question on the board) and `phone-alerts.webp` (the notification shade). They are emulator screenshots of the Android app paired with a demo board (apps/desktop/tools/demo-hub.mjs, real `ravenry ask`, `approve` and `secret` checkpoints), 600 px wide for 2x screens. |
@@ -39,7 +40,7 @@ At the top of `index.html`, `window.RAVENRY_SITE`:
 
 `shots.mjs` serves this folder on 127.0.0.1, opens it in headless Chromium (the
 hub's Playwright: `npm install` in `hub/`), writes `page-<width>.png` and
-`hero-<width>.png` for review, and fails on: a request that gets no 200, any
+`hero-<width>.png` for review, and `privacy-<width>.png` for the privacy page, and fails on: a request that gets no 200, any
 request that leaves the page, a link or asset that does not resolve (anchors
 included), a link outside the downloads and the issue link, a script error, or
 anything wider than the screen. `--og` remakes `assets/og-image.png` from the
