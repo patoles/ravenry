@@ -106,8 +106,11 @@ async function pictures(dir) {
   };
   let pw = null;
   try { pw = await import(path.join(REPO, 'hub', 'node_modules', 'playwright', 'index.mjs')); } catch { /* not installed here */ }
-  if (pw) {
-    const b = await pw.chromium.launch();
+  // Its browser may be missing even where the package is (a fresh
+  // machine, or no browser built for this one): the fixtures then.
+  let b = null;
+  if (pw) { try { b = await pw.chromium.launch(); } catch { b = null; } }
+  if (b) {
     const p = await b.newPage({ viewport: { width: 640, height: 220 } });
     for (const [n, s] of Object.entries(SHOT)) { await p.setContent(`<body style="margin:0">${s}</body>`); await p.screenshot({ path: path.join(dir, `${n}.png`) }); }
     await b.close();
