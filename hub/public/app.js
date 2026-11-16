@@ -247,6 +247,19 @@ function project(id) { return ui.snap && ui.snap.projects.find((p) => p.id === i
 // make their project and session Needs you from the moment they open, as the
 // Mac's sidebar has them; the answer card shows the checkpoint (cpTopHtml).
 function withCheckpoints(snap) {
+  // A card asked from a pane in no project (a plain shell, a session the
+  // board does not follow): a row of its own in Needs you, named by its
+  // pane, whose page is its card. Every open card reaches the board, the
+  // phone's and the iPad's too (the pickvideo round, 2026-11-16).
+  for (const c of snap.checkpoints || []) {
+    if (!c || c.state !== 'open' || c.projectId) continue;
+    const w = c.words || {};
+    const id = `cp:${c.id}`;
+    c.projectId = id;
+    (snap.projects = snap.projects || []).push({ id, name: c.paneName || w.who || 'A question', state: 'you', since: c.created_at || null, unowned: true, cpOnly: true, cp: c.id,
+      line: w.head || c.title || '', headline: w.head || c.title || '', quick: [], dialog: null, draft: null, flags: [], folder: null, folderShort: '', shared: [], waitingOn: null,
+      brief: null, briefExpected: null, plans: [], plan: null, planGate: null, planPages: [], planDraft: null, timeline: [], handoffRecent: null, primary: null, machine: c.machine || null, workspaces: [], sessions: [] });
+  }
   const open = (snap.checkpoints || []).filter((c) => c && c.state === 'open' && c.projectId);
   for (const p of snap.projects || []) {
     const cps = open.filter((c) => c.projectId === p.id);
@@ -515,7 +528,7 @@ function unRow(p, k) {
   const s = mainSession(p);
   const line = p.line || (p.headline || '').replace(/^Last: /, '');
   const word = (ST[p.state] || ST.idle).word.toLowerCase();
-  return `<button class="row un-row ${sel ? 'sel' : ''}" data-id="${escRaw(p.id)}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(`${p.name}, not in a project, ${word}${line ? ': ' + line : ''}`)}">
+  return `<button class="row un-row ${sel ? 'sel' : ''}" data-id="${escRaw(p.id)}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(`${p.name}, ${p.cpOnly ? 'a pane in no project' : 'not in a project'}, ${word}${line ? ': ' + line : ''}`)}">
 <span style="display: flex; align-items: center; gap: 8px; width: 100%"><span class="un-name" style="font-weight: ${sel ? 650 : k === 'you' ? 550 : 500}">${UN_ICON}<span style="overflow: hidden; text-overflow: ellipsis">${esc(p.name)}</span></span>${s ? asTag(s.assistant, '', s) : ''}<span class="num t3" style="font-size: 11.5px">${esc(since)}</span></span>
 ${line ? `<span class="t2 un-sub">${esc(line)}</span>` : ''}
 </button>`;
@@ -715,9 +728,29 @@ function pinColumn() {
 window.addEventListener('resize', pinColumn);
 window.addEventListener('scroll', pinColumn, { passive: true });
 
+// A card from a pane in no project (withCheckpoints): its page is its card,
+// under the pane's name; nothing else (no session, folder, plan or screen).
+function renderCpSheet(p) {
+  const sheet = $('#sheet');
+  if (ui.built !== p.id) {
+    if (lv.full) closeFull({ back: false });
+    ui.built = p.id;
+    ui.html = Object.fromEntries(Object.entries(ui.html).filter(([k]) => KEEP_HTML.includes(k)));
+    sheet.innerHTML = `<div class="strip" id="d-strip"></div><div class="body"><div class="headbox" id="d-headbox"><div id="d-head" style="display: flex; flex-direction: column; gap: 6px"></div><div id="d-meta" class="t2" style="display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px"></div></div><div class="cols"><div class="col-l"><div class="card" id="d-ask" style="padding: 18px; display: flex; flex-direction: column; gap: 14px; background: var(--you-t)"><div id="d-ask-top" style="display: flex; flex-direction: column; gap: 14px"></div></div></div></div></div>`;
+  }
+  const cp = ((ui.snap && ui.snap.checkpoints) || []).find((c) => c && c.id === p.cp);
+  setHtml('d-strip', `<span class="t3" style="font-size: 12.5px; flex: 1 1 auto">Not in a project<span style="padding: 0 6px">/</span><span style="color: var(--tx2)">${esc(p.name)}</span></span>`);
+  const since = parseT(p.since);
+  setHtml('d-head', `<div style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: ${ST.you.c}">${stateIcon(ST.you, 'pulse')}${esc(since ? 'Needs you since ' + longSince(since) : 'Needs you')}<span class="sr-only">. </span></div>
+<h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">${esc(p.name)}</h1>`);
+  setHtml('d-meta', `<span>A pane in no project</span>${p.machine ? `<span class="on-m">On ${esc(p.machine)}</span>` : ''}`);
+  setHtml('d-ask-top', cp ? cpTopHtml(p, cp) : '');
+}
+
 function renderSheet() {
   const p = project(ui.sel);
   if (!p) { if (ui.built !== null || !$('#sheet').innerHTML || ui.emptyHtml !== emptyHtml()) buildSheet(null); return; }
+  if (p.cpOnly) { renderCpSheet(p); return; }
   if (ui.built !== p.id) buildSheet(p);
   const { s, w, state } = view(p);
   const t = ST[state];

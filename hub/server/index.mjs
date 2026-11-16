@@ -2625,7 +2625,7 @@ function checkpointsView(projects) {
     const ck = checked(cp, p ? p.id : null);
     // The video each variant plays (a video, a page that holds one): its URL.
     if (cp.kind === 'pick' && Array.isArray(rest.variants)) rest.variants = rest.variants.map((v, n) => { const u = picks.videoUrl(cp.id, v, n, kept); return u ? { ...v, video: u } : v; });
-    return cpWords({ ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(ck ? { checked: ck } : {}), ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file, ...(v.video ? { video: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}?as=video` } : {}) })) } } : {}) }, projects);
+    return cpWords({ ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(!p && askerPanes.has(cp.id) ? { paneName: askerPanes.get(cp.id) } : {}), ...(ck ? { checked: ck } : {}), ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file, ...(v.video ? { video: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}?as=video` } : {}) })) } } : {}) }, projects);
   });
 }
 
@@ -2636,6 +2636,8 @@ function onCheckpoint(cp, where) {
   if (!checkpoints.take(cp, where)) return;
   const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
   const p = tab && snapshot && snapshot.projects ? snapshot.projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
+  // A card asked from a pane in no project (a plain shell): its pane's name, for the board's row of it.
+  if (!p && cp.pane && !where.machine) paneName(cp.pane).then((n) => { if (n) { askerPanes.set(cp.id, n); if (askerPanes.size > 200) askerPanes.delete(askerPanes.keys().next().value); wantTick = true; setTimeout(tick, 30); } }, () => {});
   const alert = (names = {}) => { try { alerts.checkpointAlert(cp, { project: p || null, machine: where.machine, boardUrl: boardUrl(), paneName: names.name || null, askerName: names.session || null }); } catch (e) { console.error('alerts:', e.message); } };
   // A drive names the pane it would act on, and the pane that asks, as the
   // sidebar and the tabs do, whether or not a session runs in them.
@@ -2718,6 +2720,8 @@ async function deliverAnswer(cp) {
 // A drive's pane and asker as people know them, by checkpoint id, for the
 // board's checkpoints and the phone's alert: { name, session }.
 const driveNames = new Map();
+// A card asked from a pane in no project: its pane's name, by checkpoint id (onCheckpoint).
+const askerPanes = new Map();
 
 // A pane as the sidebar and the tabs name it: the topic of the session that
 // runs in it, else its name, its title or its command's program; null when
