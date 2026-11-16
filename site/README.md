@@ -9,8 +9,8 @@ trackers: it uses the system fonts and the files in this folder only.
 | --- | --- |
 | `index.html` | The page. Its settings block is at the very top (below). |
 | `site.css` | The page's look. |
-| `product.css`, `product.js` | The product pictures (the Mac app, the phone, the cards), drawn in HTML with demo content only, so they stay sharp at any size. |
-| `assets/` | The favicon and Apple touch icon (from `hub/brand/ravenry`) and `og-image.png`, the 1200x630 link preview. |
+| `product.css`, `product.js` | The product pictures. The Mac app and the cards are drawn in HTML with demo content only, so they stay sharp at any size. The phones are the Android app's real screens in a drawn frame: `assets/phone-*.webp`. |
+| `assets/` | The favicon and Apple touch icon (from `hub/brand/ravenry`), `og-image.png`, the 1200x630 link preview, and the phone screens: `phone-card.webp` (an alert tapped, the app open on the question), `phone-board.webp` (the same question on the board) and `phone-alerts.webp` (the notification shade). They are emulator screenshots of the Android app paired with a demo board (apps/desktop/tools/demo-hub.mjs, real `ravenry ask`, `approve` and `secret` checkpoints), 600 px wide for 2x screens. |
 | `tools/shots.mjs` | The review pictures and the link check (below). Not needed to host the page. |
 
 ## The settings

@@ -37,7 +37,7 @@ const OUT = outArg >= 0 ? path.resolve(args[outArg + 1]) : fs.mkdtempSync(path.j
 const OG = args.includes('--og');
 fs.mkdirSync(OUT, { recursive: true });
 
-const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp' };
 const served = [];
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
