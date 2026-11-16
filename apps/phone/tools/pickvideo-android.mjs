@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // A pick's videos in the Android app, on a headless emulator (the
 // pickvideo round, 2026-11-16): a made-up board on a throwaway HOME
-// (apps/desktop/tools/demo-hub.mjs) where paper-boat's session waits on a
-// real `ravenry pick` of a video (A), a page that holds the same video as a
-// data: URI (B) and a picture (C). The app pairs through the board's link,
-// opens the pick, and as the person: a tap on A's first frame opens the
+// (apps/desktop/tools/demo-hub.mjs) where a plain shell pane in no project
+// ("Video test") waits on a real `ravenry pick` of a video (A, or
+// PICKVIDEO_CLIP), a page that holds the same video as a data: URI (B) and a
+// picture (C); once the hub has kept them the agent's files change and go.
+// The app pairs through the board's link; its home shows the card's chip
+// (a card in no project), whose page shows the first frames; then the
+// pick's own screen, and as the person: a tap on A's first frame opens the
 // viewer, where it plays (its time read from the WebView moves on); the
 // strip moves to B, which plays the same way (the app's shell passes a
 // player's Range to the hub, MainActivity.hubResource); Circle a part stops
@@ -81,12 +84,13 @@ function gridPng(w, h, a, b) {
   ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
-let CLIP = process.env.PICKVIDEO_CLIP || '';
-if (!CLIP) {
-  CLIP = path.join(WORK, 'take-one.mp4');
+const CLIP = path.join(WORK, 'take-one.mp4');
+if (process.env.PICKVIDEO_CLIP) fs.copyFileSync(process.env.PICKVIDEO_CLIP, CLIP);
+else {
   const ff = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((f) => fs.existsSync(f)) || 'ffmpeg';
   execFileSync(ff, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=6', '-c:v', 'libx264', '-profile:v', 'main', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-y', CLIP]);
 }
+const VW = Number(execFileSync((['/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe'].find((f) => fs.existsSync(f)) || 'ffprobe'), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width', '-of', 'csv=p=0', CLIP], { encoding: 'utf8' }).trim());
 const PAGE = path.join(WORK, 'take-two.html');
 fs.writeFileSync(PAGE, `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#0d0f12;height:100%;display:flex;align-items:center;justify-content:center}video{max-width:100%;max-height:100vh}</style></head><body><video src="data:video/mp4;base64,${fs.readFileSync(CLIP).toString('base64')}" controls autoplay muted loop playsinline></video></body></html>`);
 const PIC = path.join(WORK, 'still.png');
@@ -103,17 +107,19 @@ try {
   execFileSync(BIN, ['serve', '--detach'], { env: localEnv });
   hub = await startDemoHub({ dir: path.join(WORK, 'hub'), port: await freePort(), runtime: RT, alerts: false, panes: ['paper-boat'],
     env: { MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: BIN, RAVENRY_STATE_DIR: path.join(WORK, 'hub-state'), RAVENRY_HUB_NAME: 'MacBook Pro', RAVENRY_PHONE_HOSTS: '10.0.2.2', RAVENRY_PHONE_PORT: String(await freePort()) } });
-  const s = hub.sessions['paper-boat'];
-  const hook = (ev) => `printf '%s' '${JSON.stringify({ hook_event_name: ev, session_id: s.sid, cwd: s.folder, transcript_path: s.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) })}' | '${BIN}' hook --assistant claude >/dev/null 2>&1`;
+  // A plain shell pane in no project, as main's was.
   const variants = VARS.map(([l, f, w]) => `--variant ${q(`${l}=${f}`)} --describe ${q(`${l}=${w}`)}`).join(' ');
-  const script = path.join(WORK, 'session.sh');
-  fs.writeFileSync(script, [hook('SessionStart'), hook('UserPromptSubmit'), "printf '\\033]0;✳ The intro video\\007'",
-    `'${BIN}' pick ${q('Which take should I keep?')} ${variants} --timeout 30m >${q(OUTFILE)} 2>&1`, `echo "EXIT $?" >>${q(OUTFILE)}`, 'exec sleep 100000'].join('\n') + '\n', { mode: 0o755 });
-  execFileSync(BIN, ['new', '--cwd', s.folder, '--name', 'The intro video', '--size', '90x30', '--label', 'ravenry.session=claude', '--', '/bin/sh', script], { env: localEnv });
-  const cp = await until(async () => { const st = await hub.state(); return (st.checkpoints || []).find((c) => c.kind === 'pick' && c.state === 'open' && c.variants && c.variants[1] && c.variants[1].video) || null; }, 30000);
-  check('pick_with_videos', !!cp, cp ? cp.id : `agent: ${(() => { try { return fs.readFileSync(OUTFILE, 'utf8'); } catch { return 'nothing'; } })()}`);
+  const script = path.join(WORK, 'shell.sh');
+  fs.writeFileSync(script, [`'${BIN}' pick ${q('Which take should I keep?')} ${variants} --timeout 30m >${q(OUTFILE)} 2>&1`, `echo "EXIT $?" >>${q(OUTFILE)}`, 'exec sleep 100000'].join('\n') + '\n', { mode: 0o755 });
+  fs.mkdirSync(path.join(WORK, 'scratch'), { recursive: true });
+  execFileSync(BIN, ['new', '--cwd', path.join(WORK, 'scratch'), '--name', 'Video test', '--size', '90x30', '--', '/bin/sh', script], { env: localEnv });
+  const cp = await until(async () => { const st = await hub.state(); return (st.checkpoints || []).find((c) => c.kind === 'pick' && c.state === 'open' && c.variants && c.variants[1] && c.variants[1].video && c.paneName && c.pick_record && c.pick_record.variants.every((v) => v.kept)) || null; }, 60000);
+  check('pick_with_videos_in_no_project', !!cp && cp.projectId == null, cp ? `${cp.id} pane ${cp.paneName}` : `agent: ${(() => { try { return fs.readFileSync(OUTFILE, 'utf8'); } catch { return 'nothing'; } })()}`);
   if (!cp) throw new Error('no pick');
   const ID = cp.id;
+  // The agent's files change and go: the hub's copies are the only source from here.
+  fs.writeFileSync(CLIP, fs.readFileSync(CLIP).subarray(0, 4096));
+  fs.rmSync(PAGE);
   const r = await fetch(`${hub.url}/api/phone/access`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify({ on: true }) });
   const card = await r.json();
   if (!r.ok || !card.app) throw new Error(`phone access did not turn on: ${JSON.stringify(card)}`);
@@ -185,10 +191,17 @@ try {
   const paired = await until(async () => { const d = await (await fetch(`${hub.url}/api/phone/devices`)).json(); return d && d.devices && d.devices.find((x) => x.platform === 'android'); }, 30000);
   check('paired', !!paired);
   if (!paired) throw new Error('the app did not pair');
-  await until(() => board('document.querySelector(".grp") ? true : null'), 30000, 1000);
-  await board(`location.href = '/phone/index.html#/cp/${ID}'`);
+  // The app's home: the card in no project has its chip; its page shows the first frames.
+  const chip = await until(() => board(`(() => { const c = document.querySelector('#pchips .pchip[data-id="cp:${ID}"]'); return c ? c.innerText.replace(/\\s+/g, ' ') : null; })()`), 30000, 1000);
+  if (chip) await tapBoard(`#pchips .pchip[data-id="cp:${ID}"]`);
+  const home = await until(() => board(`(() => { const t = document.getElementById('d-ask-top'); const b = t && t.querySelector('[data-act="cp-open"][data-cp="${ID}"]'); return b ? t.innerText.replace(/\\n/g, ' / ') : null; })()`), 30000, 800);
+  check('android_home_card_in_no_project', !!chip && /Video test/.test(chip) && !!home && home.includes('Which take should I keep?'), `chip ${chip}; card ${home}`);
+  shot('android-home-dark.png');
+  // Its Compare: the pick's own screen.
+  if (home) await tapBoard(`#d-ask-top [data-act="cp-open"][data-cp="${ID}"]`);
+  else await board(`location.href = '/phone/index.html#/cp/${ID}'`);
   // The track: each video's first frame.
-  const track = await until(() => board(`(() => { const s = [...document.querySelectorAll('.ptrack .pimg')]; if (s.length !== 3) return null; const v = s.slice(0, 2).map((x) => ${VID}(x.querySelector('video'))); return v.every((x) => x && x.rs >= 2 && x.w === 640) ? v : null; })()`), 30000, 800);
+  const track = await until(() => board(`(() => { const s = [...document.querySelectorAll('.ptrack .pimg')]; if (s.length !== 3) return null; const v = s.slice(0, 2).map((x) => ${VID}(x.querySelector('video'))); return v.every((x) => x && x.rs >= 2 && x.w === ${VW}) ? v : null; })()`), 30000, 800);
   check('android_track_first_frames', !!track, JSON.stringify(track || await board(`[...document.querySelectorAll('.ptrack video')].map((v) => ${VID}(v))`)));
   await sleep(500);
   shot('android-swipe-dark.png');
