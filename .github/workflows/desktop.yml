@@ -124,6 +124,12 @@ jobs:
       # (apps/desktop/tools/run-app.mjs), and ubuntu-26.04 has none; without
       # it the launch shell never starts and the selection test timed out
       # on its first step (2026-11-16).
+      # Debian's /etc/zsh/zshrc runs compinit, which asks before it loads
+      # functions from folders others may write, and the runner image
+      # leaves some so (the daemon's zsh tests skip it for that:
+      # skip_global_compinit). A person's machine does not, so they are
+      # made safe here: a first run with a fresh HOME (first-run.mjs, whose
+      # shell is the login zsh) then reaches its prompt, as it would for them.
       - name: Electron and what it needs on Linux
         run: |
           node node_modules/electron/install.js
@@ -131,6 +137,14 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends zsh
           sudo apt-get install -y -q xvfb libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libgtk-3-0t64 libgbm1 libasound2t64 libxss1 libxtst6
           zsh --version
+          audit() { zsh -c 'autoload -U compaudit; compaudit' 2>/dev/null || true; }
+          dirs=$(audit)
+          echo "compinit's insecure folders: ${dirs:-none}"
+          if [ -n "$dirs" ]; then echo "$dirs" | xargs sudo chmod g-w,o-w; fi
+          dirs=$(audit)
+          if [ -n "$dirs" ]; then echo "$dirs" | xargs sudo chown root:root; fi
+          dirs=$(audit)
+          if [ -n "$dirs" ]; then echo "still insecure: $dirs"; exit 1; fi
       - name: packages/client against the real daemon
         run: npm --workspace @ravenry/client test
       - name: The app end to end (headless Electron, xvfb)
