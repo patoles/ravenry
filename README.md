@@ -12,12 +12,19 @@ Repository: github.com/patoles/ravenry-app
 | Folder | What |
 | --- | --- |
 | `daemon/` | `ravenryd`, the Go daemon on every machine: terminals, screen state through libghostty-vt, waits and input for agents, the protocol server, and its command line. The hook command is still to come. |
-| `hub/` | The hub, in Node: today's Ravenry board (0.4.x), which becomes the always-on hub the apps talk to. |
-| `apps/desktop/` | The Electron desktop app. Placeholder. |
-| `apps/android/` | The Android app, Kotlin and WebView. Placeholder. |
+| `hub/` | The hub, in Node: the board and the always-on server every app talks to. |
+| `apps/macos/` | The native Mac app, Swift and AppKit, that draws the daemon's screen with its own Metal renderer. The app testers get. |
+| `apps/ios/` | The iPhone and iPad app: a thin Swift shell around the phone board. |
+| `apps/android/` | The Android app: a thin Kotlin shell around one WebView that shows the phone board. |
+| `apps/phone/` | The phone board's own layer and pages, shared by the Android and iOS apps. |
+| `apps/desktop/` | The Electron desktop app (macOS and Linux), behind the native Mac app on some features (see `docs/FEATURES.md`). |
+| `shared/` | What every client shares: strings, icons, themes, design tokens, settings. |
+| `site/` | The testers' download page, published with `tools/publish-testers.mjs`. |
 | `packages/` | The protocol spec, the plugin SDK, specs and adapter contracts. `packages/protocol/` holds the draft of protocol v1 and its JSON Schema. |
-| `docs/` | [ARCHITECTURE.md](docs/ARCHITECTURE.md): the processes, the transports and what is frozen at launch. |
-| `tools/` | `audit.mjs`, the personal-data audit. |
+| `docs/` | [ARCHITECTURE.md](docs/ARCHITECTURE.md): the processes, the transports and what is frozen at launch. [FEATURES.md](docs/FEATURES.md): every feature and where each client stands. [PHONE.md](docs/PHONE.md): the contract between the hub and the phone apps. [RENDERING.md](docs/RENDERING.md): the render stream. [PUBLISHING.md](docs/PUBLISHING.md): the testers' release. |
+| `tools/` | `audit.mjs`, the personal-data audit; `features-check.mjs`; `publish-testers.mjs`. |
+
+Each app folder has its own README that says how to build and run it.
 
 ## Run the hub
 
