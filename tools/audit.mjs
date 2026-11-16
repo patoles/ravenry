@@ -284,6 +284,23 @@ function listFiles(dir) {
   return walk(dir).sort();
 }
 
+// The bytes of an MP4/QuickTime file outside its picture data: every top
+// level box but mdat, as text. null when the boxes do not add up.
+function videoText(buf) {
+  let at = 0, out = '';
+  while (at + 8 <= buf.length) {
+    let size = buf.readUInt32BE(at);
+    const type = buf.toString('latin1', at + 4, at + 8);
+    let head = 8;
+    if (size === 1) { if (at + 16 > buf.length) return null; size = Number(buf.readBigUInt64BE(at + 8)); head = 16; }
+    else if (size === 0) size = buf.length - at;
+    if (size < head || at + size > buf.length || !/^[\x20-\x7e]{4}$/.test(type)) return null;
+    if (type !== 'mdat') out += buf.toString('latin1', at + head, at + size) + '\n';
+    at += size;
+  }
+  return at === buf.length ? out : null;
+}
+
 export function audit(dir, termsFile) {
   const { terms, source } = loadTerms(termsFile);
   const rules = [...(terms || []), ...SHAPES];
@@ -304,6 +321,17 @@ export function audit(dir, termsFile) {
       const names = fontText(buf);
       if (names === null) { hits.other.push(rel); continue; }
       for (const t of names) scanText(rel, t, rules, hits, ' (font name table)');
+      continue;
+    }
+    if (/\.(mp4|m4v|mov)$/i.test(rel)) {
+      // A video: its text (encoder and metadata tags, titles, paths) lives
+      // in the boxes around the picture data; every run of 6 or more
+      // printable characters there is audited. The picture data (mdat) is
+      // not text. A file whose boxes do not add up cannot be read.
+      const meta = videoText(buf);
+      if (meta === null) { hits.other.push(rel); continue; }
+      hits.images.push(rel);
+      for (const m of meta.matchAll(/[\x20-\x7e]{6,}/g)) scanText(rel, m[0], rules, hits, ' (video metadata)');
       continue;
     }
     if (!TEXT_EXT.test(rel) && buf.includes(0)) { hits.other.push(rel); continue; }
