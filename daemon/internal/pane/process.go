@@ -2,6 +2,7 @@ package pane
 
 import (
 	"errors"
+	"os"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -45,15 +46,56 @@ func (p *Pane) Foreground() (*Process, error) {
 	}
 	f, first := p.pty, p.pid
 	p.mu.Unlock()
+	// The process in front can end between the question and the reading
+	// (a command that finishes, Ctrl+C): /proc/<pid> is gone by then, and
+	// pane.process failed with "open /proc/<pid>/cmdline: no such file or
+	// directory" (2026-11-16, on Linux). One that is gone is asked about
+	// again: the terminal names the next in front, the shell at last.
+	var last error
+	for range 5 {
+		pid, err := p.foregroundPID(f, first)
+		if err != nil {
+			return nil, err
+		}
+		if beforeProcessInfo != nil {
+			beforeProcessInfo(pid)
+		}
+		pr, err := ProcessInfo(pid)
+		if err == nil {
+			return pr, nil
+		}
+		if alive(pid) {
+			return nil, err
+		}
+		last = err
+	}
+	p.mu.Lock()
+	exited := p.exit != nil
+	p.mu.Unlock()
+	if exited {
+		return nil, ErrExited
+	}
+	return nil, last
+}
+
+// beforeProcessInfo, set by a test, runs between finding the process in
+// front and reading it: a process that ends there is the race Foreground
+// asks again for.
+var beforeProcessInfo func(pid int)
+
+// foregroundPID is the process in front of the pane's terminal f: the
+// leader of its foreground group, else the oldest of the group, else the
+// pane's first process.
+func (p *Pane) foregroundPID(f *os.File, first int) (int, error) {
 	pgrp := 0
 	sc, err := f.SyscallConn()
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	// Control, not Fd: Fd would put the pty in blocking mode under the
 	// read loop.
 	if cerr := sc.Control(func(fd uintptr) { pgrp, err = unix.IoctlGetInt(int(fd), unix.TIOCGPGRP) }); cerr != nil {
-		return nil, cerr
+		return 0, cerr
 	}
 	pid := first
 	if err == nil && pgrp > 0 {
@@ -70,5 +112,5 @@ func (p *Pane) Foreground() (*Process, error) {
 			}
 		}
 	}
-	return ProcessInfo(pid)
+	return pid, nil
 }
