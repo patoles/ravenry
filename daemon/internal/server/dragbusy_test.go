@@ -43,10 +43,17 @@ func TestRenderDragBusy(t *testing.T) {
 	if err := os.WriteFile(file, []byte(hist.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c",
+	// Made at the stream's size, the history written at it: written at the
+	// default 80 columns its long lines took two rows each, the 10,000 rows
+	// the pane keeps held only 6,536 rows once drawn again at 150, and the
+	// test waited for 7,500 in vain whenever the program wrote it all
+	// before the stream opened (a busy machine, 1 run in 10, 2026-11-16).
+	// It waits for that now, so it is the same every run.
+	wide, high := 150, 40
+	p := newPane(t, c, map[string]any{"cols": wide, "rows": high, "command": []string{"/bin/sh", "-c",
 		`cat "$1"; i=0; while :; do printf '\r\033[J\033[38;2;215;119;87m* Working (%d)\033[0m\r' $i; i=$((i+1)); sleep 0.1; done`,
 		"sh", file}})
-	wide, high := 150, 40
+	waitFor(t, c, p.ID, `Working`, 0)
 	st, err := c.Render(ctx(t), p.ID, client.RenderOptions{Cols: wide, Rows: high, FPS: 120, Window: 2})
 	if err != nil {
 		t.Fatal(err)
