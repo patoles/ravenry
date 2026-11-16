@@ -653,14 +653,22 @@ class MainActivity : FragmentActivity() {
             // A player's part of a video (a pick's, the pickvideo round): asked for and passed on as the hub answers it (206).
             val r = hub().execute("GET", path, headers = if (range != null) mapOf("Range" to range) else emptyMap())
             val type = r.header("Content-Type")?.substringBefore(';')?.trim() ?: "application/octet-stream"
-            val bytes = r.body?.bytes() ?: ByteArray(0)
-            r.close()
             // The hub's own policy goes with it: a pick's HTML or SVG variant
             // comes with `Content-Security-Policy: sandbox`, so it never runs
             // as the page, whatever frame shows it.
             val headers = mutableMapOf("Cache-Control" to "no-cache", "X-Content-Type-Options" to "nosniff")
             r.header("Content-Security-Policy")?.let { headers["Content-Security-Policy"] = it }
             for (k in listOf("Content-Range", "Accept-Ranges")) r.header(k)?.let { headers[k] = it }
+            val body = r.body
+            if (range != null && body != null && (r.code == 206 || r.code == 200)) {
+                // A player's part (the pickvideo round's fourth part, 2026-11-16): passed on as it comes, not once the
+                // whole of it has (the player asks for the rest of the file at each start and seek); the player
+                // closing it (a seek, another video, the viewer gone) stops the hub's answer.
+                r.header("Content-Length")?.let { headers["Content-Length"] = it }
+                return WebResourceResponse(type, null, r.code, r.message.ifEmpty { if (r.code == 206) "Partial Content" else "OK" }, headers, body.byteStream())
+            }
+            val bytes = body?.bytes() ?: ByteArray(0)
+            r.close()
             if (r.code == 206) headers["Content-Length"] = bytes.size.toString()
             WebResourceResponse(type, null, r.code, r.message.ifEmpty { "OK" }, headers, ByteArrayInputStream(bytes))
         } catch (e: Exception) {
