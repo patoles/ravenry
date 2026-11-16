@@ -2,7 +2,9 @@ package server
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"ravenryd/internal/client"
 	"ravenryd/internal/proto"
 	"ravenryd/internal/rframe"
+	"ravenryd/internal/testprog"
 )
 
 // renderClient keeps a client's copy of the screen from a render stream,
@@ -256,10 +259,18 @@ func TestRenderScrollback(t *testing.T) {
 }
 
 // TestRenderMouse sends mouse events to a program that asked for them.
+// The program is testprog's rawecho: in raw mode before it says ready,
+// and it prints each read at once. It was od -c behind stty raw, which
+// depended on the machine's od: the uutils od of Ubuntu 26.04 prints
+// nothing until it has read 8 KiB or the end of its input, so the 21
+// bytes never showed on GitHub's runner (2026-11-16); and the events
+// could come before stty had made the terminal raw.
 func TestRenderMouse(t *testing.T) {
 	d := startDaemon(t)
 	c := d.dial(client.Options{})
-	p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", `printf '\033[?1000h\033[?1006h\033[?1004hready\n'; stty -echo raw; od -c`}})
+	argv, env := testprog.Command("rawecho")
+	env["RAVENRY_TESTPROG_INIT"] = "\033[?1000h\033[?1006h\033[?1004h"
+	p := newPane(t, c, map[string]any{"command": argv, "env": env})
 	st, err := c.Render(ctx(t), p.ID, client.RenderOptions{Cols: 40, Rows: 10})
 	if err != nil {
 		t.Fatal(err)
@@ -276,6 +287,30 @@ func TestRenderMouse(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// od prints the bytes: ESC [ < 0 ; 3 ; 3 M (column 3, row 3).
-	r.until("033   [   <   0   ;   3   ;   3")
+	// The program reads the press and the release at column 3, row 3, in
+	// SGR form, then the focus report, and nothing else.
+	want := "\x1b[<0;3;3M\x1b[<0;3;3m\x1b[I"
+	got := ""
+	for deadline := time.Now().Add(5 * time.Second); got != want && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		got = programRead(t, c, p.ID)
+	}
+	if got != want {
+		t.Fatalf("the program read %q, want %q", got, want)
+	}
+}
+
+// programRead is what testprog's rawecho in a pane has read so far: the
+// bytes of its "read" lines, in order.
+func programRead(t *testing.T, c *client.Client, id string) string {
+	t.Helper()
+	rd := call[proto.ReadResult](t, c, "pane.read", map[string]any{"pane": id, "since": 0})
+	got := ""
+	for _, m := range regexp.MustCompile(`read ("(?:[^"\\]|\\.)*")`).FindAllStringSubmatch(*rd.Text, -1) {
+		u, err := strconv.Unquote(m[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		got += u
+	}
+	return got
 }
