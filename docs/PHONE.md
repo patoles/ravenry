@@ -28,6 +28,10 @@ settings). The shell adds only what a page cannot do:
 - a fingerprint (BiometricPrompt, Face ID on iOS) before every Run from the
   phone;
 - a camera photo and a voice note dropped into a session;
+- the phone's own file picker for the board's Attach (Android's document
+  picker; iOS's menu of Photo Library, Take Photo or Video and Choose Files), which
+  needs no permission: the files go to the project's `.inbox` on the Mac
+  as the Mac's Attach puts them (`POST /api/inbox/<project>`, 64 MB a file);
 - the connection to the hub in the background, and push;
 - the private keyboard for a secret.
 
@@ -858,7 +862,8 @@ The shell sends events as `{ "event": "...", ... }`.
 | --- | --- | --- |
 | `hello` | | `{ v, platform, app, hub: { name, port }, device: { id, name }, features }` |
 | `hub.call` | `method`, `path`, `body` | `{ status, body }` |
-| `http` | `method`, `path`, `headers` (Content-Type, X-Filename, Accept), `b64` | the board's fetch: `{ status, type, b64 }`; a computer that does not answer: an error with the reach words, and the event `reach` |
+| `http` | `method`, `path`, `headers` (Content-Type, X-Filename, Accept), `b64` or `upload` | the board's fetch: `{ status, type, b64 }`; a computer that does not answer: an error with the reach words, and the event `reach`. With `upload`, the body is that upload's parts put together (`http.part`), deleted once sent |
+| `http.part` | `upload` (an id the page makes), `b64` | one part of a body too big for one message, added in order (the shell's feature `http.parts`); the page sends a file the board attaches this way, 512 KB a part, read from the file a part at a time, since one message of a whole file in base64 ran Android's WebView out of memory (a 60 MB file, 2026-11-16). Over 96 MB in all the shell refuses it |
 | `reach.now`, `reach.retry` | | the last reason the computer did not answer (`{ reason, words }` or null); try again (the board reloads when it answers) |
 | `open.tailscale` | | the Tailscale app, or its page in the store |
 | `bars` | `light`, `color` | the system bars take the board's background and theme |
@@ -898,7 +903,7 @@ the checkpoint itself and forgets the text. Only the number of characters
 goes to the page. On iOS, a secure `UITextField` does the same.
 
 **Features** in `hello` say what this shell can do (`push`, `biometric`,
-`photo`, `voice`, `speech`, `secret`), so the page hides what a shell
+`photo`, `voice`, `speech`, `secret`, `http.parts`), so the page hides what a shell
 lacks. A browser running the phone board for development has none of
 them.
 

@@ -59,6 +59,13 @@
 // phone's browser (an ACTION_VIEW of that address, the app no longer in
 // front).
 //
+// --attach-only: pair with the real link, then the board's Attach only
+// (docs/FEATURES.md PHONE-038): a document and a photo picked together in
+// Android's own document picker (driven by touch, from its Downloads), then a
+// picker cancelled, then a photo from its Images, then a plan's box: each
+// file lands in the project's .inbox on the hub byte for byte (sha256), as
+// the Mac's Attach puts it, and shows as a chip; a cancel changes nothing.
+//
 // --launch-only: pair with the real link, then the launch's checks only (an
 // AVD of Android 12 or older for today's version, where the rest is not run).
 //
@@ -70,6 +77,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 guardSpawns();
@@ -87,6 +95,7 @@ const AVD = opt('--avd', 'ravenry-pixel');
 const LAUNCH_ONLY = args.includes('--launch-only');
 const OPENON_ONLY = args.includes('--openon-only');
 const PRIVACY_ONLY = args.includes('--privacy-only');
+const ATTACH_ONLY = args.includes('--attach-only');
 const HUB_DIR = opt('--hub', null);
 // The host's GPU, headless all the same (no window): frame times mean something.
 const GPU = opt('--gpu', 'host');
@@ -181,7 +190,7 @@ try {
   const shot = (name) => { const f = path.join(OUT, name); fs.writeFileSync(f, adbBin('exec-out', 'screencap', '-p')); console.log('shot', f); return f; };
   // A fingerprint, enrolled as a person does in Settings after a PIN (as
   // tools/pick-shots.mjs does; the sensor is touched with `adb emu finger touch`).
-  if (!LAUNCH_ONLY && !OPENON_ONLY && !PRIVACY_ONLY) {
+  if (!LAUNCH_ONLY && !OPENON_ONLY && !PRIVACY_ONLY && !ATTACH_ONLY) {
     const fp = () => screen();
     adb('shell', 'locksettings', 'set-pin', '1234');
     adb('shell', 'am', 'start', '-a', 'android.settings.FINGERPRINT_ENROLL');
@@ -390,6 +399,159 @@ try {
     check(c4 === c0, `a cold start: ${c0}, opened on the Mac last`, String(c4 || await onChip()));
   }
 
+  // The board's Attach (PHONE-038): Android's own document picker, files into the project's .inbox.
+  async function attachSection() {
+    const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+    const state = await (await fetch(`${HUB}/api/state`)).json();
+    const proj = (state.projects || []).find((p) => p.folder === info.wide.folder);
+    if (!proj) throw new Error(`no project holds ${info.wide.folder}`);
+    const inbox = path.join(info.wide.folder, '.inbox');
+    const inboxNow = () => (fs.existsSync(inbox) ? fs.readdirSync(inbox).filter((f) => !f.startsWith('.')).sort() : []);
+    // A document and a photo on the phone, as a person's Downloads holds them.
+    const doc = Buffer.concat([Buffer.from('%PDF-1.4\n% Ravenry attach check\n'), crypto.randomBytes(300 * 1024)]);
+    const photo = adbBin('exec-out', 'screencap', '-p');
+    const files = { 'site-notes.pdf': doc, 'garden-photo.png': photo };
+    const src = path.join(OUT, 'attach-src');
+    fs.mkdirSync(src, { recursive: true });
+    for (const [n, b] of Object.entries(files)) { fs.writeFileSync(path.join(src, n), b); adb('push', path.join(src, n), `/sdcard/Download/${n}`); }
+    adb('shell', 'content', 'call', '--uri', 'content://media', '--method', 'scan_volume', '--arg', 'external_primary');
+    // A chip is the saved path; "Saving <name>..." while it goes (fileChip).
+    const chips = () => page('JSON.stringify([...document.querySelectorAll("#chips .chip")].map((e) => e.textContent.trim()))').then((v) => JSON.parse(v || '[]'));
+    const settled = (c) => !c.some((t) => t.startsWith('Saving '));
+    const picker = () => find((n) => /documentsui/.test(n.pkg));
+    const named = (re, nodes) => nodes.find((n) => re.test(n.text) && /documentsui/.test(n.pkg)) || null;
+    // A root of the picker (its drawer: Recent, Images, Downloads...). The
+    // drawer can be slow to show in uiautomator's dump: asked again until it is.
+    async function toRoot(word) {
+      const inDrawer = () => (find('Open from') ? find((n) => n.text === word && /documentsui/.test(n.pkg) && n.x < 700) : null);
+      let r = null;
+      for (let i = 0; i < 4 && !r; i++) {
+        const roots = await until(() => find((n) => n.desc === 'Show roots'), 8000, 500);
+        if (roots && !find('Open from')) tap(roots);
+        r = await until(inDrawer, 5000, 700);
+      }
+      if (!r) throw new Error(`the picker shows no ${word}: ${screen().map((x) => x.text || x.desc).filter(Boolean).join(' | ')}`);
+      tap(r);
+      await sleep(1500);
+    }
+    async function openPicker(selector) {
+      await tapPage(selector);
+      const up = await until(picker, 10000, 400);
+      return !!up;
+    }
+
+    await tapUntil(`#pchips .pchip[data-id="${proj.id}"]`, () => page(`document.querySelector('#pchips .pchip[data-id="${proj.id}"][aria-current="true"]') && document.querySelector('#composer label.attach') ? 1 : null`));
+    await sleep(800);
+    const before = inboxNow();
+    // 1. A document and a photo together (the picker's own multiple select).
+    const shown = await openPicker('#composer label.attach');
+    check(shown, 'Attach in the project\'s message box opens Android\'s document picker', shown ? picker().pkg : 'no picker');
+    if (!shown) { shot('attach-no-picker.png'); return; }
+    shot('attach-picker.png');
+    await toRoot('Downloads');
+    const a = await until(() => { const sc = screen(); return named(/^garden-photo\.png$/, sc) && named(/^site-notes\.pdf$/, sc); }, 15000, 700);
+    if (!a) throw new Error(`Downloads shows no site-notes.pdf and garden-photo.png: ${screen().map((x) => x.text || x.desc).filter(Boolean).join(' | ')}`);
+    adb('shell', 'input', 'swipe', String(a.x), String(a.y), String(a.x), String(a.y), '900');
+    await sleep(800);
+    const b = await until(() => named(/^garden-photo\.png$/, screen()), 5000, 400);
+    tap(b);
+    await sleep(600);
+    const sel = await until(() => find((n) => /^select$/i.test(n.text) || /^select$/i.test(n.desc)), 5000, 400);
+    shot('attach-picker-two.png');
+    tap(sel);
+    const back = await until(async () => { const c = await chips(); return c.length >= 2 && settled(c) ? c : null; }, 30000, 500);
+    const got = inboxNow().filter((f) => !before.includes(f));
+    const same = (n) => fs.existsSync(path.join(inbox, n)) && sha(fs.readFileSync(path.join(inbox, n))) === sha(files[n]);
+    check(back && back.some((t) => t.endsWith('/site-notes.pdf')) && back.some((t) => t.endsWith('/garden-photo.png')), 'the two files show as chips in the message box, as on the Mac', JSON.stringify(back));
+    check(got.length === 2 && same('site-notes.pdf') && same('garden-photo.png'), 'both land in the project\'s .inbox on the hub, byte for byte (sha256)', `${got.join(', ')}: ${got.map((n) => `${n} ${files[n] ? sha(fs.readFileSync(path.join(inbox, n))).slice(0, 12) + (same(n) ? ' =' : ' !=') : '?'}`).join('; ')}`);
+    await sleep(600);
+    shot('attach-card-dark.png');
+
+    // 2. Cancel: the picker opened and closed with Back changes nothing.
+    const c0 = await chips(); const i0 = inboxNow();
+    const shown2 = await openPicker('#composer label.attach');
+    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+    const gone = await until(() => (!picker() ? 1 : null), 8000, 400);
+    await sleep(1500);
+    const c1 = await chips(); const i1 = inboxNow();
+    check(shown2 && gone && JSON.stringify(c0) === JSON.stringify(c1) && JSON.stringify(i0) === JSON.stringify(i1), 'a cancelled picker changes nothing: the same chips, nothing new in the .inbox', `${c1.length} chips, ${i1.length} files`);
+
+    // 3. After a cancel, Attach still opens; one photo by itself (a single tap picks it).
+    const shown3 = await openPicker('#composer label.attach');
+    if (shown3) {
+      await toRoot('Downloads');
+      const ph = await until(() => named(/^garden-photo\.png$/, screen()), 10000, 500);
+      if (ph) tap(ph);
+    }
+    const one = await until(async () => { const c = await chips(); return c.length >= 3 && settled(c) ? c : null; }, 30000, 500);
+    const got3 = inboxNow().filter((f) => !i1.includes(f));
+    check(shown3 && one && got3.length === 1 && sha(fs.readFileSync(path.join(inbox, got3[0]))) === sha(photo), 'after a cancel Attach opens again: the photo picked by itself lands too (garden-photo-2.png, as the Mac names a second copy), byte for byte, as a third chip', `${got3.join(', ')}; ${one ? one.length : 0} chips`);
+
+    // --attach-mb N[,M]: a file of N MB through the same box, timed: up to the hub's 64 MB it lands byte
+    // for byte (sent to the shell in parts, src/board.ts); over it the box says so and nothing is sent.
+    for (const MB of String(opt('--attach-mb', '')).split(',').filter(Boolean).map(Number)) {
+      const big = crypto.randomBytes(MB * 1024 * 1024);
+      const name = `big-${MB}mb.bin`;
+      fs.writeFileSync(path.join(src, name), big);
+      adb('push', path.join(src, name), `/sdcard/Download/${name}`);
+      adb('shell', 'content', 'call', '--uri', 'content://media', '--method', 'scan_volume', '--arg', 'external_primary');
+      const i5 = inboxNow(); const c5 = await chips();
+      adb('logcat', '-c');
+      let picked5 = false;
+      if (await openPicker('#composer label.attach')) {
+        await toRoot('Downloads');
+        const d = await until(() => named(new RegExp(`^${name.replace('.', '\\.')}$`), screen()), 10000, 500);
+        if (d) { tap(d); picked5 = true; }
+      }
+      const at = Date.now();
+      let said = '';
+      const end = await until(async () => {
+        const c = await chips();
+        const t = await page('document.querySelector("#toast") ? document.querySelector("#toast").textContent : ""');
+        if (t && /Could not save/.test(t)) said = t;
+        return c.some((x) => x.includes(name) && !x.startsWith('Saving ')) || said ? c : null;
+      }, 240000, 1000);
+      const secs = Math.round((Date.now() - at) / 100) / 10;
+      const got5 = inboxNow().filter((f) => !i5.includes(f));
+      const log = adb('logcat', '-d');
+      const reachBar = await page('(() => { const b = document.querySelector(".rv-reach"); return b && !b.hidden && b.offsetParent ? b.textContent.trim() : ""; })()');
+      const alive = !!adb('shell', 'pidof', APP).trim();
+      const crashed = /Renderer process \(\d+\) crash detected|OutOfMemoryError/.test(log);
+      if (MB <= 64) {
+        const ok5 = got5.length === 1 && sha(fs.readFileSync(path.join(inbox, got5[0]))) === sha(big);
+        check(picked5 && ok5 && !crashed, `a ${MB} MB file through Attach lands byte for byte (the hub's limit is 64 MB a file)`, `${secs} s from the pick to its chip; ${got5.join(', ')}; the page crashed: ${crashed}; app alive: ${alive}`);
+      } else {
+        check(picked5 && got5.length === 0 && /64 MB at most/.test(said) && !reachBar && !crashed && JSON.stringify(await chips()) === JSON.stringify(c5), `a ${MB} MB file: the box says so and nothing is sent (no chip, nothing in the .inbox, no "Mac didn't answer")`, `${secs} s; said ${JSON.stringify(said)}; reach bar ${JSON.stringify(reachBar)}`);
+      }
+      fs.writeFileSync(path.join(OUT, `attach-${MB}mb-logcat.txt`), log.split('\n').filter((l) => /ravenry|chromium|OutOfMemory|FATAL/i.test(l)).join('\n'));
+      shot(`attach-${MB}mb-dark.png`);
+      adb('shell', 'rm', '-f', `/sdcard/Download/${name}`);
+      fs.rmSync(path.join(src, name), { force: true });
+    }
+
+    // 4. A plan's box (New plan's goal), in a project with a brief: the same picker, its .inbox.
+    const shownIds = JSON.parse(await page('JSON.stringify([...document.querySelectorAll("#pchips .pchip[data-id]")].map((e) => e.dataset.id))') || '[]');
+    const pp = (state.projects || []).find((p) => p.brief && p.folder && fs.existsSync(p.folder) && shownIds.includes(p.id) && p.id !== proj.id);
+    if (!pp) throw new Error('no project on the phone has a brief and a folder here');
+    const pinbox = path.join(pp.folder, '.inbox');
+    const pinboxNow = () => (fs.existsSync(pinbox) ? fs.readdirSync(pinbox).filter((f) => !f.startsWith('.')).sort() : []);
+    await tapUntil(`#pchips .pchip[data-id="${pp.id}"]`, () => page(`document.querySelector('[data-act="plan-new"][data-pid="${pp.id}"]') ? 1 : null`), 6000);
+    await tapUntil(`[data-act="plan-new"][data-pid="${pp.id}"]`, () => page('document.querySelector(\'[data-plbox="goal"] label.attach\') ? 1 : null'));
+    const i2 = pinboxNow();
+    const shown4 = await openPicker('[data-plbox="goal"] label.attach');
+    if (shown4) {
+      await toRoot('Downloads');
+      const d = await until(() => named(/^site-notes\.pdf$/, screen()), 8000, 500);
+      if (d) tap(d);
+    }
+    const plChip = await until(() => page('(() => { const c = [...document.querySelectorAll(\'[data-plbox="goal"] .chip\')].map((e) => e.textContent.trim()); return c.length && !c.some((t) => t.startsWith("Saving ")) ? JSON.stringify(c) : null; })()'), 30000, 500);
+    const got4 = pinboxNow().filter((f) => !i2.includes(f));
+    check(shown4 && plChip && got4.length === 1 && sha(fs.readFileSync(path.join(pinbox, got4[0]))) === sha(doc), `a plan's box (New plan's goal, ${pp.name}): Attach opens the same picker and the document lands in that project's .inbox, byte for byte, as its chip`, `${got4.join(', ')}; ${plChip}`);
+    await sleep(500);
+    shot('attach-plan-dark.png');
+    for (const n of Object.keys(files)) adb('shell', 'rm', '-f', `/sdcard/Download/${n}`);
+  }
+
   sections: {
   if (OPENON_ONLY) {
     adb('shell', `am start -a android.intent.action.VIEW -d '${info.phone.link}' ${APP}`);
@@ -426,6 +588,15 @@ try {
     await sleep(2500);
     shot('privacy-browser.png');
     adb('shell', 'am', 'force-stop', top || 'com.android.chrome');
+    break sections;
+  }
+  if (ATTACH_ONLY) {
+    adb('shell', `am start -a android.intent.action.VIEW -d '${info.phone.link}' ${APP}`);
+    await tapWhen('Pair', 30000);
+    const paired = await until(() => page('document.querySelector("#pchips .pchip") ? location.pathname : null'), 40000, 1000);
+    check(paired === '/', 'the real link pairs, and the home is the board (the project chips)', String(paired));
+    await sleep(1500);
+    await attachSection();
     break sections;
   }
   if (LAUNCH_ONLY) {

@@ -9,6 +9,7 @@ assets. The shell adds only what a page cannot: pairing (QR code, typed
 code, the `ravenry://pair` link), TLS with the pinned key, the device
 token, notifications with action buttons and a reply line, a fingerprint
 before every Run, a camera photo and a voice note into a session, the
+document picker for the board's Attach (no storage permission), the
 connection held in the background, push through UnifiedPush, the private
 keyboard for a secret, and the words when the Mac does not answer
 (Tailscale off or not installed on this phone, or the Mac: `Reach.kt`).

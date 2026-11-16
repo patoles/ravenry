@@ -1006,6 +1006,7 @@
   "phone.runFirst.ios": "Face ID first.",
   "phone.bioNotConfirmed.android": "Not run: the fingerprint was not confirmed.",
   "phone.bioNotConfirmed.ios": "Not run: Face ID did not confirm it.",
+  "phone.fileTooBig": "A file can be 64 MB at most.",
   "device.word.phone": "phone",
   "device.word.ipad": "iPad",
   "device.model.iphone": "iPhone",

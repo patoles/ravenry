@@ -112,7 +112,7 @@ class NativeShell implements Shell {
 // ---------------------------------------------------------------- the browser stand-in
 
 const b64 = {
-  from(bytes: Uint8Array): string { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); },
+  from(bytes: Uint8Array): string { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); },
   to(s: string): Uint8Array<ArrayBuffer> { const t = atob(s); const out = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) out[i] = t.charCodeAt(i); return out; },
 };
 export { b64 };

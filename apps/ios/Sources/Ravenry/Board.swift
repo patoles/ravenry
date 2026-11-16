@@ -40,6 +40,8 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     private var eventsWanted = false
     private var sockets: [Int: URLSessionWebSocketTask] = [:]
     private var nextSid = 1
+    /// A body's parts on their way (`http.part`: a file the board attaches, src/board.ts), by upload.
+    private var parts: [String: Data] = [:]
     private var light = false
     private var keyboardTop: CGFloat?
     let secret = SecretField()
@@ -252,7 +254,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     private func hub() -> HubClient? { Hub.client() }
 
     var features: [String] {
-        var f = ["secret", "alerts.state"]
+        var f = ["secret", "alerts.state", "http.parts"]
         let ctx = LAContext()
         _ = ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
         if ctx.biometryType != .none { f.append("biometric") }
@@ -274,7 +276,9 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
         case "http":
             let method = (o["method"] as? String ?? "GET").uppercased()
             guard let path = o["path"] as? String, path.hasPrefix("/") else { fail(id, "A path starts with /."); return }
-            let body = (o["b64"] as? String).flatMap { Data(base64Encoded: $0) }
+            // A body sent in parts (http.part) is the parts put together, taken here.
+            var body = (o["b64"] as? String).flatMap { Data(base64Encoded: $0) }
+            if let u = o["upload"] as? String { guard let d = parts.removeValue(forKey: u) else { fail(id, "Not an upload."); return }; body = d }
             var headers: [String: String] = [:]
             for (k, v) in o["headers"] as? [String: Any] ?? [:] where ["content-type", "x-filename", "accept"].contains(k.lowercased()) { headers[k] = v as? String }
             let asked = Date()
@@ -286,6 +290,14 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
                     reply(id, ["status": r.status, "type": r.header("Content-Type") ?? "application/octet-stream", "b64": r.data.base64EncodedString()])
                 } catch { fail(id, unreachable(error, asked: asked)) }
             }
+        case "http.part":
+            // One part of a body too big for one message, added in order; `http` with `upload` sends it.
+            guard let u = o["upload"] as? String, u.range(of: "^[A-Za-z0-9_-]{4,64}$", options: .regularExpression) != nil else { fail(id, "Not an upload."); return }
+            guard let d = (o["b64"] as? String).flatMap({ Data(base64Encoded: $0) }) else { parts[u] = nil; fail(id, "It could not be read."); return }
+            // A cap above the hub's 64 MB a file (POST /api/inbox, which src/board.ts checks first).
+            if (parts[u]?.count ?? 0) + d.count > 96 * 1024 * 1024 { parts[u] = nil; fail(id, "Too big to send."); return }
+            parts[u, default: Data()].append(d)
+            reply(id)
         case "hub.call":
             let method = o["method"] as? String ?? "GET"
             guard let path = o["path"] as? String, path.hasPrefix("/") else { fail(id, "A path starts with /."); return }

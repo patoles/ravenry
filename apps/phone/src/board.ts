@@ -129,19 +129,42 @@ async function confirmRun(sh: Shell, path: string, bytes: Uint8Array | null): Pr
   try { await sh.call('biometric', { title: 'Run this command?' }); return true; } catch { return false; }
 }
 
+// A file the board attaches (POST /api/inbox/<project>, the Mac's route and
+// its limit: 64 MB a file, hub/server/index.mjs) goes to the shell in parts
+// of PART bytes (`http.part`), read from the file a part at a time: one
+// message of a whole file in base64 ran the WebView out of memory (Android,
+// a 60 MB file, 2026-11-16: the page crashed and the file was lost). A shell
+// without `http.parts` (an older app) gets the body in one message.
+const PART = 512 * 1024;
+const INBOX_MAX = 64 * 1024 * 1024;
+const blobOf = (init?: RequestInit): Blob | null => (init && init.body instanceof Blob ? init.body : null);
+const jsonError = (status: number, error: string): Response => new Response(JSON.stringify({ error }), { status, headers: { 'Content-Type': 'application/json' } });
+
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const url = new URL(input instanceof Request ? input.url : String(input), location.href);
   if (url.origin !== location.origin || !url.pathname.startsWith('/api/')) return realFetch(input, init);
   const sh = await ready;
   const method = String((init && init.method) || (input instanceof Request ? input.method : 'GET')).toUpperCase();
-  const bytes = method === 'GET' || method === 'HEAD' ? null : await bodyBytes(input, init);
+  const blob = method === 'GET' || method === 'HEAD' ? null : blobOf(init);
+  // Over the hub's limit, said before a byte goes (the hub would cut the upload off, which reads as a Mac not answering).
+  if (blob && url.pathname.startsWith('/api/inbox/') && blob.size > INBOX_MAX) return jsonError(413, t('phone.fileTooBig'));
+  const parts = !!blob && blob.size > PART && sh.has('http.parts');
+  const bytes = method === 'GET' || method === 'HEAD' || parts ? null : await bodyBytes(input, init);
   const path = url.pathname + url.search;
   if (!(await confirmRun(sh, url.pathname, bytes))) {
-    return new Response(JSON.stringify({ error: t(sh.hello.platform === 'ios' ? 'phone.bioNotConfirmed.ios' : 'phone.bioNotConfirmed.android') }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+    return jsonError(403, t(sh.hello.platform === 'ios' ? 'phone.bioNotConfirmed.ios' : 'phone.bioNotConfirmed.android'));
   }
   let r: { status: number; type?: string; b64?: string };
   try {
-    r = await sh.call('http', { method, path, headers: headersOf(input, init), b64: bytes ? b64.from(bytes) : null });
+    if (parts && blob) {
+      const upload = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+      for (let at = 0; at < blob.size; at += PART) {
+        await sh.call('http.part', { upload, b64: b64.from(new Uint8Array(await blob.slice(at, at + PART).arrayBuffer())) });
+      }
+      r = await sh.call('http', { method, path, headers: headersOf(input, init), upload });
+    } else {
+      r = await sh.call('http', { method, path, headers: headersOf(input, init), b64: bytes ? b64.from(bytes) : null });
+    }
   } catch (e) {
     // As a browser's fetch: the network failed. The bar says why.
     throw new TypeError((e as Error).message || 'The computer did not answer.');

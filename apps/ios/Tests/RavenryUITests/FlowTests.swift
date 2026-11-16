@@ -621,6 +621,127 @@ final class FlowTests: XCTestCase {
         safari.terminate()
     }
 
+    /// The board's Attach on an iPhone (PHONE-038): the web view's own file input (iOS's menu: Photo Library, Take
+    /// Photo, Choose File), each file then posted through the shell as on the Mac (POST /api/inbox). A document from
+    /// Files (On My iPhone, put there by tools/ios-e2e.mjs) and a photo from the library land in the project's .inbox
+    /// byte for byte, each as a chip; a picker cancelled changes nothing, and Attach opens again after.
+    func test9h_AttachAFileAndAPhoto() throws {
+        if shotsOnly { return }
+        executionTimeAllowance = 300
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("garden-planner", timeout: 30), "paired, the board")
+        let (_, st) = hub("GET", "/api/state")
+        let folder = ((st["projects"] as? [[String: Any]] ?? []).first { $0["id"] as? String == "garden-planner" }?["folder"] as? String) ?? ""
+        XCTAssertFalse(folder.isEmpty, "garden-planner's folder on the Mac")
+        let inbox = folder + "/.inbox"
+        func inboxNow() -> [String] { ((try? FileManager.default.contentsOfDirectory(atPath: inbox)) ?? []).filter { !$0.hasPrefix(".") }.sorted() }
+        func chips() -> [String] {
+            guard let s = js("return [...document.querySelectorAll('#chips .chip')].map((e) => e.textContent.trim());"), let d = s.data(using: .utf8) else { return [] }
+            return (try? JSONSerialization.jsonObject(with: d) as? [String]) ?? []
+        }
+        let saved = { (n: Int) in self.until(40) { let c = chips(); return c.count >= n && !c.contains { $0.hasPrefix("Saving ") } } }
+        // A tap where the person taps: the label's middle, in the web view (a script's click opens no picker).
+        func tapAttach() -> Bool {
+            guard let s = js("const e = document.querySelector('#composer label.attach'); if (!e) return null; e.scrollIntoView({ block: 'center' }); const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2];"),
+                  let d = s.data(using: .utf8), let xy = (try? JSONSerialization.jsonObject(with: d)) as? [Double], xy.count == 2 else { return false }
+            a.webViews.firstMatch.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: xy[0], dy: xy[1])).tap()
+            return true
+        }
+        func any(_ format: String) -> XCUIElement { a.descendants(matching: .any).matching(NSPredicate(format: format)).firstMatch }
+        XCTAssertTrue(press("garden-planner"), "the chip garden-planner")
+        XCTAssertTrue(until(10) { js("return !!document.querySelector('#composer label.attach');") == "true" }, "the message box's Attach")
+        let before = inboxNow()
+
+        // 1. A document from Files.
+        XCTAssertTrue(tapAttach(), "Attach tapped")
+        let choose = any("label BEGINSWITH 'Choose File'")
+        XCTAssertTrue(choose.waitForExistence(timeout: 10), "iOS's menu for a file input: Choose File")
+        mark("attach menu: \(["Photo Library", "Take Photo", "Take Photo or Video", "Choose File", "Choose Files"].filter { any("label == '\($0)'").exists })")
+        shot("attach-menu")
+        choose.tap()
+        let doc = any("label CONTAINS 'site-notes'")
+        if !doc.waitForExistence(timeout: 8) {
+            let browse = a.buttons["Browse"]
+            if browse.waitForExistence(timeout: 5) { browse.tap(); if !any("label == 'On My iPhone'").waitForExistence(timeout: 3) { browse.tap() } }
+            let mine = any("label == 'On My iPhone'")
+            if mine.waitForExistence(timeout: 8) { mine.tap() }
+        }
+        XCTAssertTrue(doc.waitForExistence(timeout: 15), "Files shows site-notes.pdf")
+        shot("attach-files")
+        doc.tap()
+        let open = a.buttons["Open"]
+        if open.waitForExistence(timeout: 4) && open.isEnabled { open.tap() }
+        XCTAssertTrue(saved(1), "the document's chip in the message box: \(chips())")
+        let got = inboxNow().filter { !before.contains($0) }
+        let src = env["RAVENRY_ATTACH_DOC"] ?? ""
+        let same = got.count == 1 && FileManager.default.contentsEqual(atPath: inbox + "/" + got[0], andPath: src)
+        mark("attach doc: \(got), the same bytes as \(src): \(same); chips \(chips())")
+        XCTAssertTrue(same, "site-notes.pdf in garden-planner's .inbox, byte for byte: \(got)")
+        Thread.sleep(forTimeInterval: 0.6)
+        shot("attach-card")
+
+        // 2. Cancel: the picker opened and cancelled changes nothing; Attach opens again after.
+        let c0 = chips(), i0 = inboxNow()
+        XCTAssertTrue(tapAttach(), "Attach tapped again")
+        XCTAssertTrue(choose.waitForExistence(timeout: 10), "the menu again")
+        choose.tap()
+        let cancel = a.buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10), "the picker's Cancel")
+        cancel.tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertEqual(chips(), c0, "a cancelled picker leaves the chips")
+        XCTAssertEqual(inboxNow(), i0, "and the .inbox")
+
+        // 3. A photo from the library (the photo picker needs no access to the library).
+        XCTAssertTrue(tapAttach(), "Attach after a cancel")
+        let lib = any("label == 'Photo Library'")
+        XCTAssertTrue(lib.waitForExistence(timeout: 10), "the menu after a cancel: Photo Library")
+        lib.tap()
+        // The photo picker (out of the app's process): its cells say "Photo, <date>".
+        let photo = any("label BEGINSWITH 'Photo,' AND NOT (label CONTAINS ', Photo,')")
+        if !photo.waitForExistence(timeout: 20) { mark("photo picker: \(String(a.debugDescription.prefix(6000)))") }
+        Thread.sleep(forTimeInterval: 1)
+        shot("attach-photos")
+        XCTAssertTrue(photo.exists, "the photo picker shows the library's photo")
+        mark("photo picked: \(photo.label)")
+        photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        for name in ["Add", "Done"] { let b = a.buttons[name]; if b.waitForExistence(timeout: 3) && b.isEnabled { b.tap(); break } }
+        XCTAssertTrue(saved(c0.count + 1), "the photo's chip: \(chips())")
+        let got3 = inboxNow().filter { !i0.contains($0) }
+        let size = got3.first.flatMap { (try? FileManager.default.attributesOfItem(atPath: inbox + "/" + $0))?[.size] as? Int } ?? 0
+        let psrc = env["RAVENRY_ATTACH_PHOTO"] ?? ""
+        let psame = got3.count == 1 && FileManager.default.contentsEqual(atPath: inbox + "/" + got3[0], andPath: psrc)
+        mark("attach photo: \(got3), \(size) bytes, the same bytes as the library's: \(psame); chips \(chips())")
+        XCTAssertTrue(got3.count == 1 && size > 0 && psame, "the photo in garden-planner's .inbox, byte for byte: \(got3)")
+        Thread.sleep(forTimeInterval: 0.6)
+        shot("attach-card-photo")
+
+        // 4. A big file (tools/ios-e2e.mjs --attach-mb N): sent to the shell in parts, it lands byte for byte.
+        guard let big = env["RAVENRY_ATTACH_BIG"], !big.isEmpty else { return }
+        let name = (big as NSString).lastPathComponent, stem = (name as NSString).deletingPathExtension
+        let c4 = chips().count, i4 = inboxNow()
+        XCTAssertTrue(tapAttach(), "Attach for the big file")
+        XCTAssertTrue(choose.waitForExistence(timeout: 10), "the menu: Choose File")
+        choose.tap()
+        let bigDoc = any("label CONTAINS '\(stem)'")
+        if !bigDoc.waitForExistence(timeout: 8) {
+            let browse = a.buttons["Browse"]
+            if browse.waitForExistence(timeout: 5) { browse.tap() }
+            let mine = any("label == 'On My iPhone'")
+            if mine.waitForExistence(timeout: 8) { mine.tap() }
+        }
+        XCTAssertTrue(bigDoc.waitForExistence(timeout: 15), "Files shows \(name)")
+        bigDoc.tap()
+        if open.waitForExistence(timeout: 4) && open.isEnabled { open.tap() }
+        let t0 = Date()
+        XCTAssertTrue(until(120) { let c = chips(); return c.count > c4 && !c.contains { $0.hasPrefix("Saving ") } }, "the big file's chip: \(chips())")
+        let got4 = inboxNow().filter { !i4.contains($0) }
+        let bsame = got4.count == 1 && FileManager.default.contentsEqual(atPath: inbox + "/" + got4[0], andPath: big)
+        mark("attach big: \(got4), the same bytes: \(bsame), \(Int(Date().timeIntervalSince(t0))) s from the pick to its chip")
+        XCTAssertTrue(bsame, "\(name) in the .inbox, byte for byte: \(got4)")
+        shot("attach-card-big")
+    }
+
     func test9d_ACardInNoProjectAndItsVideos() throws {
         if shotsOnly { return }
         continueAfterFailure = true

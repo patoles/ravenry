@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { connLabel, distributorName, dropLine, KEYS, mmss, parentOf, quickAnswers, regionOf, strip, waitOf } from '../src/logic.ts';
-import { BRIDGE_VERSION, Wire } from '../src/shell.ts';
+import { BRIDGE_VERSION, Wire, b64 } from '../src/shell.ts';
 import { board } from '../../desktop/src/renderer/model.ts';
 import type { HubProject } from '../../desktop/src/renderer/model.ts';
 // @ts-ignore: the hub's module, plain JavaScript
@@ -101,4 +101,13 @@ test('the circled part is the box around the finger\'s path, in fractions of the
   assert.deepEqual(regionOf([[-0.2, 0.9], [0.1, 1.4]]), { x: 0, y: 0.9, w: 0.1, h: 0.1 });
   assert.equal(regionOf([[0.5, 0.5], [0.51, 0.505]]), null);
   assert.equal(regionOf([[0.5, 0.5]]), null);
+});
+
+test('the bridge\'s base64 carries any bytes both ways, a part of a file at once (512 KB)', () => {
+  const bytes = new Uint8Array(512 * 1024 + 3);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7919 + (i >> 9)) & 255;
+  const s = b64.from(bytes);
+  assert.equal(s, Buffer.from(bytes).toString('base64'));
+  assert.deepEqual(b64.to(s), bytes);
+  assert.equal(b64.from(new Uint8Array(0)), '');
 });

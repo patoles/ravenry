@@ -12,17 +12,20 @@
 //   goes to the hub, the pair link and Which iPhone is this (an iPhone
 //   through ntfy made first, on a stand-in ntfy server here: nothing goes
 //   to ntfy.sh), a wrong pin is refused, the launch's Ink ends on the board,
-//   cards that arrive while the board is open, and a launch from an alert
-//   (a pick, a secret, a command) ends on its checkpoint's screen;
+//   cards that arrive while the board is open, a launch from an alert
+//   (a pick, a secret, a command) ends on its checkpoint's screen, and
+//   Attach (a document from Files and a photo into the project's .inbox);
 // - after: the token in the simulator's Keychain, and the secret in no log
 //   and nowhere in the web view's storage.
 //
 //   node tools/ios-e2e.mjs --udid <booted simulator> --out <dir> [--theme dark|light] [--shots-only]
 //     [--hub DIR] (a packaged app's hub folder in place of ../../hub, as it ships)
+//     [--attach-mb N] (test9h: a file of N MB attached too)
 //     [--board-swap] (test9e: a copy of the hub, its board files swapped as an update of the Mac does)
 //     PICKVIDEO_CLIP, PICKVIDEO_CLIP2: the videos of test9d's pick (else made here with ffmpeg)
 //
 // Pictures go to <out>/shots, the app's log and the marks to <out>.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -262,6 +265,23 @@ async function openCard(c) {
 // ------------------------------------------------------------ the tests
 
 simctl('ui', UDID, 'appearance', THEME);
+// test9h (Attach): a document in Files (On My iPhone, the simulator's local
+// storage) and a photo in the library, as a person's phone holds them.
+const ATTACH = path.join(OUT, `attach-${THEME}`);
+fs.mkdirSync(ATTACH, { recursive: true });
+const ATTACH_DOC = path.join(ATTACH, 'site-notes.pdf');
+fs.writeFileSync(ATTACH_DOC, Buffer.concat([Buffer.from('%PDF-1.4\n% Ravenry attach check\n'), crypto.randomBytes(300 * 1024)]));
+let ATTACH_BIG = '';
+const ATTACH_PHOTO = path.join(PICTURE, fs.readdirSync(PICTURE).find((x) => /\.png$/i.test(x)));
+try {
+  const local = simctl('get_app_container', UDID, 'com.apple.DocumentsApp', 'groups').split('\n').map((l) => l.split('\t')).find((x) => x[0] === 'group.com.apple.FileProvider.LocalStorage');
+  const store = path.join(local[1], 'File Provider Storage');
+  fs.mkdirSync(store, { recursive: true });
+  fs.copyFileSync(ATTACH_DOC, path.join(store, 'site-notes.pdf'));
+  // --attach-mb N: a file of N MB too, sent to the shell in parts (apps/phone/src/board.ts).
+  if (opt('--attach-mb')) { ATTACH_BIG = path.join(ATTACH, `big-${opt('--attach-mb')}mb.bin`); fs.writeFileSync(ATTACH_BIG, crypto.randomBytes(Number(opt('--attach-mb')) * 1024 * 1024)); fs.copyFileSync(ATTACH_BIG, path.join(store, path.basename(ATTACH_BIG))); }
+  simctl('addmedia', UDID, ATTACH_PHOTO);
+} catch (x) { console.log('  attach files: ' + String(x.message).slice(0, 200)); }
 const card = (await mac('GET', '/api/phone?code=new')).body.app;
 const runEnv = {
   ...cleanEnv,
@@ -271,6 +291,7 @@ const runEnv = {
   TEST_RUNNER_RAVENRY_TEST_HUB: `127.0.0.1:${info.phone.port}`, TEST_RUNNER_RAVENRY_TEST_PIN: PIN, TEST_RUNNER_RAVENRY_TEST_TOKEN: UNIT_TOKEN || '',
   TEST_RUNNER_RAVENRY_TEST_LINK: card.link,
   // test9g: the address Settings' Privacy row opens (shared/strings/en.json privacy.url).
+  TEST_RUNNER_RAVENRY_ATTACH_DOC: ATTACH_DOC, TEST_RUNNER_RAVENRY_ATTACH_PHOTO: ATTACH_PHOTO, TEST_RUNNER_RAVENRY_ATTACH_BIG: ATTACH_BIG,
   TEST_RUNNER_RAVENRY_PRIVACY_URL: JSON.parse(fs.readFileSync(path.join(REPO, 'shared', 'strings', 'en.json'), 'utf8'))['privacy.url'],
   // test9e: the board files of an older and a newer Mac (folders swapped over the test hub's, a --hub copy).
   TEST_RUNNER_RAVENRY_BOARD_OLD: SWAP.old || '', TEST_RUNNER_RAVENRY_BOARD_NEW: SWAP.new || '',

@@ -39,6 +39,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -104,6 +105,17 @@ class MainActivity : FragmentActivity() {
         if (granted) ok?.invoke() else no?.invoke()
     }
 
+    // The board's Attach (an <input type="file"> in the composer and the
+    // plan's boxes): Android's own document picker, which needs no storage
+    // permission (it hands the app only what the person picked). The page
+    // then reads the files and posts them as on the Mac (POST /api/inbox).
+    private var chooser: android.webkit.ValueCallback<Array<Uri>>? = null
+    private val pickFiles = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val cb = chooser ?: return@registerForActivityResult
+        chooser = null
+        cb.onReceiveValue(if (r.resultCode == RESULT_OK) picked(r.data) else null)
+    }
+
     private val speech = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val id = speechReply ?: return@registerForActivityResult
         speechReply = null
@@ -153,6 +165,8 @@ class MainActivity : FragmentActivity() {
         WindowCompat.getInsetsController(window, box).isAppearanceLightStatusBars = !night
         WindowCompat.getInsetsController(window, box).isAppearanceLightNavigationBars = !night
 
+        // Parts of a body a page that is gone was sending (http.part).
+        uploads.execute { File(cacheDir, "uploads").listFiles()?.forEach { it.delete() } }
         secret = SecretField(this, box)
         secret.onCount = { n -> event(JSONObject().put("event", "secret.count").put("n", n)) }
         secret.onSend = { sendSecret(null) }
@@ -188,6 +202,17 @@ class MainActivity : FragmentActivity() {
                 (resultMsg.obj as WebView.WebViewTransport).webView = catcher
                 resultMsg.sendToTarget()
                 return true
+            }
+
+            override fun onShowFileChooser(view: WebView, callback: android.webkit.ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+                chooser?.onReceiveValue(null)
+                chooser = callback
+                val types = params.acceptTypes.orEmpty().map { it.trim() }.filter { it.contains('/') }.distinct()
+                val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(types.singleOrNull() ?: "*/*")
+                    .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
+                if (types.size > 1) i.putExtra(Intent.EXTRA_MIME_TYPES, types.toTypedArray())
+                return try { pickFiles.launch(i); true } catch (e: Exception) { chooser = null; false }
             }
 
             override fun onConsoleMessage(m: ConsoleMessage): Boolean {
@@ -351,6 +376,8 @@ class MainActivity : FragmentActivity() {
                 val path = o.str("path", "")
                 if (!path.startsWith("/")) { reply(id, false, error = "A path starts with /."); return }
                 val bytes = o.str("b64")?.let { Base64.getDecoder().decode(it) }
+                // A body sent in parts (http.part) is read from its file as it goes, then deleted.
+                val parts = o.str("upload")?.let { partFile(it) ?: run { reply(id, false, error = "Not an upload."); return } }
                 val hs = o.optJSONObject("headers")
                 val headers = mutableMapOf<String, String>()
                 hs?.keys()?.forEach { k -> if (k.lowercase() in PASS_HEADERS) hs.str(k)?.let { headers[k] = it } }
@@ -358,7 +385,11 @@ class MainActivity : FragmentActivity() {
                     val asked = SystemClock.elapsedRealtime()
                     try {
                         val type = headers.entries.firstOrNull { it.key.equals("content-type", true) }?.value
-                        val body = if (method == "GET" || method == "HEAD") null else (bytes ?: ByteArray(0)).toRequestBody(type?.toMediaTypeOrNull())
+                        val body = when {
+                            method == "GET" || method == "HEAD" -> null
+                            parts != null -> parts.asRequestBody(type?.toMediaTypeOrNull())
+                            else -> (bytes ?: ByteArray(0)).toRequestBody(type?.toMediaTypeOrNull())
+                        }
                         hub().execute(method, path, body, headers).use { r ->
                             val out = r.body?.bytes() ?: ByteArray(0)
                             answered()
@@ -366,7 +397,23 @@ class MainActivity : FragmentActivity() {
                         }
                     } catch (e: Exception) {
                         reply(id, false, error = unreachable(e, asked))
+                    } finally {
+                        parts?.delete()
                     }
+                }
+            }
+            // One part of a body too big for one message (src/board.ts: a file the
+            // board attaches), added to its file in order; `http` with `upload` sends it.
+            "http.part" -> {
+                val f = partFile(o.str("upload", "")) ?: run { reply(id, false, error = "Not an upload."); return }
+                val b64 = o.str("b64", "")
+                uploads.execute {
+                    try {
+                        val chunk = Base64.getDecoder().decode(b64)
+                        if (f.length() + chunk.size > PARTS_MAX) { f.delete(); reply(id, false, error = "Too big to send."); return@execute }
+                        java.io.FileOutputStream(f, true).use { it.write(chunk) }
+                        reply(id, true)
+                    } catch (e: Exception) { f.delete(); reply(id, false, error = "It could not be read.") }
                 }
             }
             "reach.now" -> reply(id, true, lastReach ?: JSONObject.NULL)
@@ -563,6 +610,20 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** A body's parts on their way (`http.part`), one file per upload, in the app's cache. */
+    private val uploads = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private fun partFile(upload: String): File? {
+        if (!Regex("[A-Za-z0-9_-]{4,64}").matches(upload)) return null
+        return File(File(cacheDir, "uploads").apply { mkdirs() }, upload)
+    }
+
+    /** The documents the picker gave back: one, or several (its clip). */
+    private fun picked(data: Intent?): Array<Uri>? {
+        val clip = data?.clipData
+        val out = if (clip != null) (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri } else listOfNotNull(data?.data)
+        return out.distinct().toTypedArray().takeIf { it.isNotEmpty() }
+    }
+
     /** A small copy of the photo for the page, about 300 px, as a data URL. */
     private fun thumb(f: File): String? = runCatching {
         val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -677,7 +738,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun features(): List<String> {
-        val f = mutableListOf("secret", "alerts.state")
+        val f = mutableListOf("secret", "alerts.state", "http.parts")
         if (runCatching { UnifiedPush.getDistributors(this).isNotEmpty() }.getOrDefault(false)) f += "push"
         val bio = BiometricManager.from(this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
         if (bio != BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE && bio != BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE) f += "biometric"
@@ -902,3 +963,5 @@ private const val STATE_URL = "ravenry.page"
 
 /** The request headers the board's fetch may set on a hub request. */
 private val PASS_HEADERS = setOf("content-type", "x-filename", "accept")
+/** A cap on a body sent in parts, above the hub's 64 MB a file (POST /api/inbox, which src/board.ts checks first), so the cache never fills. */
+private const val PARTS_MAX = 96L * 1024 * 1024
