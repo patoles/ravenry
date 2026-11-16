@@ -2623,7 +2623,9 @@ function checkpointsView(projects) {
     const dn = cp.kind === 'drive' && rest.drive ? driveNames.get(cp.id) : null;
     if (dn) rest.drive = { ...rest.drive, name: dn.name || null, session: dn.session || null };
     const ck = checked(cp, p ? p.id : null);
-    return cpWords({ ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(ck ? { checked: ck } : {}), ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) }, projects);
+    // The video each variant plays (a video, a page that holds one): its URL.
+    if (cp.kind === 'pick' && Array.isArray(rest.variants)) rest.variants = rest.variants.map((v, n) => { const u = picks.videoUrl(cp.id, v, n, kept); return u ? { ...v, video: u } : v; });
+    return cpWords({ ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(ck ? { checked: ck } : {}), ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file, ...(v.video ? { video: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}?as=video` } : {}) })) } } : {}) }, projects);
   });
 }
 
@@ -2750,6 +2752,9 @@ function projectIdOf(name) {
 // a client that draws pictures and never a web page (the native Mac app),
 // in headless Chromium with JavaScript off and the network refused
 // (server/mockups.mjs render); a picture variant is served as it is.
+// ?as=video: the video a variant plays (a video's own file, a page's video
+// kept beside it, server/picks.mjs). A video is served in parts as a player
+// asks (Range, 206), so it starts at once and scrubs.
 const variantShots = new Map();
 async function variantPng(k) {
   const png = k.file.replace(/\.html?$/, '.png');
@@ -2761,7 +2766,8 @@ async function variantPng(k) {
   }
   return variantShots.get(png);
 }
-async function serveVariant(res, id, n, asPng = false) {
+async function serveVariant(req, res, id, n, as = null) {
+  const asPng = as === 'png';
   const cp = checkpoints.get(id);
   let k = picks.keptFile(id, n);
   if (!k && cp && cp.kind === 'pick' && Array.isArray(cp.variants) && cp.variants[n]) {
@@ -2780,13 +2786,30 @@ async function serveVariant(res, id, n, asPng = false) {
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': d.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" });
     return res.end(d);
   }
-  const type = picks.TYPES[k.ext];
-  const sandboxed = k.type === 'html' || k.ext === 'svg';
-  const data = fs.readFileSync(k.file);
-  res.writeHead(200, {
-    'Content-Type': type, 'Content-Length': data.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-    'Content-Security-Policy': sandboxed ? 'sandbox' : "default-src 'none'",
-  });
+  if (asPng && k.type === 'video') return sendJson(res, 415, { error: 'That variant is a video: play it (?as=video).' });
+  if (as === 'video' && !k.video) return sendJson(res, 404, { error: 'That variant plays no video.' });
+  const file = as === 'video' ? k.video : k.file;
+  const ext = as === 'video' ? k.videoExt : k.ext;
+  const type = picks.TYPES[ext];
+  const sandboxed = as !== 'video' && (k.type === 'html' || ext === 'svg');
+  const head = { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': sandboxed ? 'sandbox' : "default-src 'none'" };
+  if (picks.VIDEO.has(ext)) {
+    const size = fs.statSync(file).size;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || '').trim());
+    head['Accept-Ranges'] = 'bytes';
+    if (m && (m[1] || m[2])) {
+      let from = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+      let to = m[1] && m[2] ? Math.min(size - 1, Number(m[2])) : size - 1;
+      if (!(from <= to) || from >= size) { res.writeHead(416, { ...head, 'Content-Range': `bytes */${size}` }); return res.end(); }
+      from = Math.max(0, from); to = Math.max(from, to);
+      res.writeHead(206, { ...head, 'Content-Range': `bytes ${from}-${to}/${size}`, 'Content-Length': to - from + 1 });
+      return fs.createReadStream(file, { start: from, end: to }).pipe(res);
+    }
+    res.writeHead(200, { ...head, 'Content-Length': size });
+    return fs.createReadStream(file).pipe(res);
+  }
+  const data = fs.readFileSync(file);
+  res.writeHead(200, { ...head, 'Content-Length': data.length });
   res.end(data);
 }
 
@@ -2997,7 +3020,8 @@ function keepPick(cp, where) {
   const finalState = ['answered', 'declined', 'cancelled', 'expired'].includes(cp.state);
   const go = kept && kept.variants.every((v) => v.file) ? Promise.resolve(kept)
     : picks.keep(cp, { projectId: cp.pane ? projectOfPane(cp.pane) : null, machine: where.machine || null, read: (f) => term.ravenryReadFile(where.daemon, f, { max: picks.MAX_FILE }) });
-  go.then(() => { if (finalState) picks.closed(cp); }).catch((e) => console.error('picks:', e.message));
+  // Kept now: the board learns which variants play a video (a page's video is found once it is kept).
+  go.then((r) => { if (finalState) picks.closed(cp); if (r && r !== kept && !finalState) { wantTick = true; setTimeout(tick, 30); } }).catch((e) => console.error('picks:', e.message));
 }
 
 // The project whose session runs in a pane of this hub's daemons.
@@ -4070,7 +4094,7 @@ async function handleRequest(req, res) {
     }
     {
       const m = req.method === 'GET' && /^\/api\/checkpoints\/([a-z0-9]{1,16})\/variants\/(\d)$/.exec(p);
-      if (m) return serveVariant(res, m[1], Number(m[2]), url.searchParams.get('as') === 'png');
+      if (m) return serveVariant(req, res, m[1], Number(m[2]), url.searchParams.get('as'));
     }
     {
       // A worktree session's review comments (server/reviews.mjs), oldest

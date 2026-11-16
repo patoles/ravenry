@@ -370,7 +370,7 @@ export function checkpointMessage(cp, { project = null, machine = null, paneName
     const vs = Array.isArray(cp.variants) ? cp.variants : [];
     msg.title = `${name} wants you to pick`;
     msg.detail = `${vs.length} variants.`;
-    msg.checkpoint.variants = vs.map((v, i) => ({ label: String(v.label || ''), type: v.type === 'html' ? 'html' : 'image', ...(typeof v.description === 'string' && v.description ? { description: clip(v.description, 200) } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${i}` }));
+    msg.checkpoint.variants = vs.map((v, i) => ({ label: String(v.label || ''), type: v.type === 'html' || v.type === 'video' ? v.type : 'image', ...(typeof v.description === 'string' && v.description ? { description: clip(v.description, 200) } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${i}` }));
     msg.actions = fit(vs.map((v, i) => ({ id: `pick:${i}`, label: String(v.label || '') })), 3);
   } else {
     msg.title = `${name} waits for you`;

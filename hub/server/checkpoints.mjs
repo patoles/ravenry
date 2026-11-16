@@ -72,7 +72,7 @@ function clean(cp) {
     const a = out.answer;
     out.answer = { at: a.at, ...(a.choice != null ? { choice: a.choice, option: a.option } : {}), ...(a.text != null ? { text: a.text } : {}), ...(a.approved ? { approved: true } : {}), ...(typeof a.command === 'string' && a.command ? { command: a.command } : {}), ...(a.delivered ? { delivered: true } : {}), ...(a.declined ? { declined: true } : {}), ...(typeof a.allow === 'string' && a.allow ? { allow: a.allow } : {}), ...(a.pick && typeof a.pick === 'object' ? { pick: cleanPick(a.pick) } : {}), ...(typeof a.reason === 'string' && a.reason ? { reason: a.reason } : {}), ...(a.by ? { by: a.by } : {}) };
   }
-  if (out.variants) out.variants = (Array.isArray(out.variants) ? out.variants : []).slice(0, 4).map((v) => ({ label: String(v && v.label || ''), path: String(v && v.path || ''), type: v && v.type === 'html' ? 'html' : 'image', ...(Number.isFinite(v && v.size) ? { size: v.size } : {}), ...(v && typeof v.pane === 'string' ? { pane: v.pane } : {}), ...(v && typeof v.description === 'string' && v.description ? { description: v.description.slice(0, 200) } : {}) }));
+  if (out.variants) out.variants = (Array.isArray(out.variants) ? out.variants : []).slice(0, 4).map((v) => ({ label: String(v && v.label || ''), path: String(v && v.path || ''), type: v && (v.type === 'html' || v.type === 'video') ? v.type : 'image', ...(Number.isFinite(v && v.size) ? { size: v.size } : {}), ...(v && typeof v.pane === 'string' ? { pane: v.pane } : {}), ...(v && typeof v.description === 'string' && v.description ? { description: v.description.slice(0, 200) } : {}) }));
   if (out.drive) { const d = out.drive; out.drive = { pane: String(d.pane || ''), ...(d.agent && typeof d.agent === 'object' ? { agent: cleanSource(d.agent) } : {}), ...(typeof d.input === 'string' ? { input: d.input } : {}), ...(['input', 'close', 'restart', 'override'].includes(d.action) ? { action: d.action } : {}), ...(typeof d.reason === 'string' && d.reason ? { reason: d.reason.slice(0, 1000) } : {}) }; }
   return out;
 }
@@ -82,10 +82,11 @@ function cleanSource(s) {
   return { kind: String(s.kind || ''), ...(typeof s.pane === 'string' ? { pane: s.pane } : {}), ...(typeof s.client === 'string' ? { client: s.client } : {}), ...(typeof s.by === 'string' ? { by: s.by } : {}) };
 }
 
-// A pick answer: the variant's label, a region on it (each 0 to 1), a note.
+// A pick answer: the variant's label, a region on it (each 0 to 1; on a
+// video, t: the second of the frame it was drawn on), a note.
 function cleanPick(p) {
   const r = p.region;
-  return { label: String(p.label || ''), ...(r && typeof r === 'object' ? { region: { x: +r.x, y: +r.y, w: +r.w, h: +r.h } } : {}), ...(typeof p.note === 'string' && p.note ? { note: p.note } : {}) };
+  return { label: String(p.label || ''), ...(r && typeof r === 'object' ? { region: { x: +r.x, y: +r.y, w: +r.w, h: +r.h, ...(Number.isFinite(r.t) ? { t: +r.t } : {}) } } : {}), ...(typeof p.note === 'string' && p.note ? { note: p.note } : {}) };
 }
 
 // A pick from a client: { label, region?, note? }, checked against the
@@ -100,7 +101,10 @@ export function checkPick(cp, p) {
     const r = p.region;
     const ok = r && typeof r === 'object' && ['x', 'y', 'w', 'h'].every((k) => typeof r[k] === 'number' && r[k] >= 0 && r[k] <= 1) && r.x + r.w <= 1.000001 && r.y + r.h <= 1.000001 && r.w > 0 && r.h > 0;
     if (!ok) return 'The region is { x, y, w, h }, each from 0 to 1 of the picture, inside it.';
-    out.region = { x: r.x, y: r.y, w: r.w, h: r.h };
+    const extraR = Object.keys(r).filter((k) => !['x', 'y', 'w', 'h', 't'].includes(k));
+    if (extraR.length) return `This board does not know pick.region.${extraR.join(', pick.region.')}, so it did not pass the answer on.`;
+    if (r.t != null && !(typeof r.t === 'number' && Number.isFinite(r.t) && r.t >= 0 && r.t <= 86400)) return 'The region\'s t is the second of the video\'s frame it was drawn on, from 0.';
+    out.region = { x: r.x, y: r.y, w: r.w, h: r.h, ...(r.t != null ? { t: Math.round(r.t * 1000) / 1000 } : {}) };
   }
   if (p.note != null) {
     if (typeof p.note !== 'string' || Buffer.byteLength(p.note) > MAX_NOTE) return `The note is text, at most ${MAX_NOTE} bytes.`;
@@ -247,7 +251,14 @@ export async function answer(body, send) {
   if (hasReason && b.reason.trim()) params.reason = b.reason.trim();
   if (!KINDS.has(cp.kind) && k !== 'decline') return { ok: false, status: 400, error: 'This board does not know that kind of checkpoint; it can only decline it.' };
   try {
-    const r = await send(cp.daemon, params);
+    let r;
+    try { r = await send(cp.daemon, params); } catch (e) {
+      // A ravenryd older than a video's frame time (Go's decoder: unknown field "t"): the region without it.
+      if (!(e && e.code === 'bad_request' && params.pick && params.pick.region && params.pick.region.t != null && /unknown field "t"/.test(e.message || ''))) throw e;
+      const { t: _t, ...region } = params.pick.region;
+      params.pick = { ...params.pick, region };
+      r = await send(cp.daemon, params);
+    }
     take(r.checkpoint, { machine: cp.machine, daemon: cp.daemon });
     return { ok: true, checkpoint: byId.get(cp.id) };
   } catch (e) {

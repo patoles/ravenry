@@ -4,7 +4,9 @@
 //   - a pick's pictures are kept in Ravenry's data with its project
 //     (server/picks.mjs), as <n>.<ext> beside pick.json, which records the
 //     variants and, once closed, the answer; a variant that is not a
-//     picture or an HTML page is not kept;
+//     picture, an HTML page or a video is not kept; a video is kept as a
+//     video, and a page that holds one (a data: URI, a file beside it) has
+//     its video kept beside it as <n>.video.<ext>;
 //   - checkpoints.answer passes a pick (checked against the variants, the
 //     region inside the picture, the note's size) and a drive's allow (once
 //     or session, never always) to the daemon, and refuses what does not fit;
@@ -16,7 +18,9 @@
 //     their types, HTML and SVG sandboxed (CSP sandbox, nosniff), nothing
 //     past the variants, the copies stay when the agent's files go, and the
 //     person's pick through the hub lands in the record and reaches the
-//     agent.
+//     agent; a video in parts (Range, 206), a page's video with ?as=video,
+//     each variant's video URL in the board's view, and a region's t (the
+//     frame's second) reaches the agent.
 // Usage: node tools/picks-test.mjs [RAVENRYD_BIN=../daemon/ravenryd]
 import { withStubMachine } from './test-guard.mjs';
 import fs from 'node:fs';
@@ -47,6 +51,13 @@ fs.writeFileSync(path.join(FILES, 'b.svg'), '<svg xmlns="http://www.w3.org/2000/
 fs.writeFileSync(path.join(FILES, 'c.html'), '<!doctype html><title>C</title><script>fetch("/api/state")</script><p>Variant C</p>');
 fs.writeFileSync(path.join(FILES, 'd.txt'), 'not a picture');
 const read = async (f) => { try { return { ok: true, data: fs.readFileSync(f) }; } catch { return { ok: false, error: 'gone' }; } };
+// A video (its bytes are the hub's to keep and serve, never decoded here), a page with it as a data: URI, a page that names a file beside it.
+const MP4 = Buffer.concat([Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.from([0, 0, 2, 0]), Buffer.from('isomiso2')]), Buffer.alloc(300000, 7)]);
+fs.writeFileSync(path.join(FILES, 'e.mp4'), MP4);
+fs.writeFileSync(path.join(FILES, 'f.html'), `<!doctype html><body><video src="data:video/mp4;base64,${MP4.toString('base64')}" controls autoplay muted loop playsinline></video></body>`);
+fs.mkdirSync(path.join(FILES, 'clips'));
+fs.writeFileSync(path.join(FILES, 'clips', 'g.webm'), Buffer.from('1a45dfa3', 'hex'));
+fs.writeFileSync(path.join(FILES, 'g.html'), '<!doctype html><video controls muted><source src="clips/g.webm" type="video/webm"></video>');
 
 // ------------------------------------------------------------ kept copies
 const cp = {
@@ -62,6 +73,21 @@ check('a variant\'s description is kept with it', pj.variants[0].description ===
 check('a variant that is not a picture or a page is not kept', pj.variants[3].file === null && !!pj.variants[3].error && !fs.existsSync(path.join(dir, '3.txt')));
 check('the kept file of a variant; none for the others', picks.keptFile('cpick001', 0).file === path.join(dir, '0.png') && picks.keptFile('cpick001', 3) === null && picks.keptFile('cpick001', 9) === null && picks.keptFile('../x', 0) === null);
 check('a pick with no project is kept under picks/', picks.dirFor('cnoproj1', null) === path.join(MC, 'picks', 'cnoproj1') && picks.dirFor('cbad', '../escape') === path.join(MC, 'picks', 'cbad'));
+{
+  const vcp = { id: 'cvideo01', kind: 'pick', state: 'open', title: 'Which take?', created_at: '2026-11-16T10:00:00.000Z', variants: [{ label: 'A', path: path.join(FILES, 'e.mp4'), type: 'video' }, { label: 'B', path: path.join(FILES, 'f.html'), type: 'html' }, { label: 'C', path: path.join(FILES, 'g.html'), type: 'html' }, { label: 'D', path: path.join(FILES, 'c.html'), type: 'html' }] };
+  const vr = await picks.keep(vcp, { projectId: 'game', read });
+  const vd = path.join(MC, 'projects', 'game', 'picks', 'cvideo01');
+  check('a video is kept as a video', vr.variants[0].type === 'video' && vr.variants[0].file === '0.mp4' && fs.readFileSync(path.join(vd, '0.mp4')).equals(MP4), JSON.stringify(vr.variants[0]));
+  check('a page that holds a video (a data: URI): its video kept beside it', vr.variants[1].video === '1.video.mp4' && fs.readFileSync(path.join(vd, '1.video.mp4')).equals(MP4), JSON.stringify(vr.variants[1]));
+  check('a page whose video is a file beside it: read from the agent\'s machine and kept', vr.variants[2].video === '2.video.webm' && fs.readFileSync(path.join(vd, '2.video.webm')).toString('hex') === '1a45dfa3', JSON.stringify(vr.variants[2]));
+  check('a page with no video plays none', !('video' in vr.variants[3]) && picks.videoUrl('cvideo01', vcp.variants[3], 3, vr) === null);
+  const k0 = picks.keptFile('cvideo01', 0), k1 = picks.keptFile('cvideo01', 1);
+  check('the kept files say what they play', k0.video === path.join(vd, '0.mp4') && k1.video === path.join(vd, '1.video.mp4') && k1.type === 'html' && !('video' in picks.keptFile('cvideo01', 3)));
+  check('the URL each plays from', picks.videoUrl('cvideo01', vcp.variants[0], 0, vr) === '/api/checkpoints/cvideo01/variants/0' && picks.videoUrl('cvideo01', vcp.variants[1], 1, vr) === '/api/checkpoints/cvideo01/variants/1?as=video');
+  check('a video named by its type but not its file is not kept', (await picks.keep({ ...vcp, id: 'cvideo02', variants: [{ label: 'A', path: path.join(FILES, 'a.png'), type: 'video' }, vcp.variants[0]] }, { projectId: 'game', read })).variants[0].file === null);
+  check('the first <video>\'s src, or its first <source>\'s; none is none', picks.pageVideoSrc('<video src="a.mp4"></video><video src="b.mp4"></video>') === 'a.mp4' && picks.pageVideoSrc("<video controls><source src='x.webm'></video>") === 'x.webm' && picks.pageVideoSrc('<img src="a.png">') === null);
+  check('a page\'s video on the web is never fetched', (await picks.pageVideo('<video src="https://example.com/a.mp4"></video>', '/x/p.html', async () => { throw new Error('read'); })) === null);
+}
 const done = picks.closed({ ...cp, state: 'answered', answer: { pick: { label: 'B', region: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, note: 'this, but bigger' }, by: 'phone', at: '2026-11-07T10:05:00.000Z' } });
 check('once closed, the answer is in the record', done.answer.label === 'B' && done.answer.note === 'this, but bigger' && done.answer.region.w === 0.3 && done.answer.by === 'phone' && JSON.parse(fs.readFileSync(path.join(dir, 'pick.json'), 'utf8')).answer.label === 'B');
 
@@ -88,6 +114,22 @@ const allowOnPick = await checkpoints.answer({ id: 'cpick002', approve: true, al
 check('allow goes only with a drive', !allowOnPick.ok && allowOnPick.status === 400);
 const good = await checkpoints.answer({ id: 'cpick002', pick: { label: 'C', region: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, note: ' this, but with the logo on the left ' }, by: 'desktop' }, send);
 check('a pick goes to the daemon with its region and note', good.ok && JSON.stringify(sent.at(-1)) === JSON.stringify({ checkpoint: 'cpick002', by: 'desktop', pick: { label: 'C', region: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, note: 'this, but with the logo on the left' } }), JSON.stringify(sent.at(-1)));
+checkpoints.take({ ...open, id: 'cpick005' }, { daemon: 'd1' });
+for (const [r, want] of [[{ x: 0.1, y: 0.1, w: 0.2, h: 0.2, t: -1 }, 'second'], [{ x: 0.1, y: 0.1, w: 0.2, h: 0.2, t: '3' }, 'second'], [{ x: 0.1, y: 0.1, w: 0.2, h: 0.2, z: 1 }, 'does not know']]) {
+  const rb = await checkpoints.answer({ id: 'cpick005', pick: { label: 'A', region: r } }, send);
+  check(`a bad region on a video is refused (${want})`, !rb.ok && rb.status === 400 && rb.error.includes(want), rb.error);
+}
+checkpoints.take({ ...open, id: 'cpick004' }, { daemon: 'd1' });
+const timed = await checkpoints.answer({ id: 'cpick004', pick: { label: 'A', region: { x: 0.25, y: 0.25, w: 0.5, h: 0.5, t: 3.20449 } }, by: 'phone' }, send);
+check('a region on a video\'s frame goes to the daemon with its second', timed.ok && JSON.stringify(sent.at(-1).pick.region) === JSON.stringify({ x: 0.25, y: 0.25, w: 0.5, h: 0.5, t: 3.204 }), JSON.stringify(sent.at(-1)));
+{
+  // A ravenryd older than t refuses the field: the region goes again without it.
+  const tries = [];
+  const old = async (_d, params) => { tries.push(JSON.parse(JSON.stringify(params))); if (params.pick.region.t != null) { const e = new Error('json: unknown field "t"'); e.code = 'bad_request'; throw e; } return { checkpoint: { ...open, state: 'answered' } }; };
+  checkpoints.take({ ...open, id: 'cpick003', state: 'open' }, { daemon: 'd1' });
+  const ro = await checkpoints.answer({ id: 'cpick003', pick: { label: 'A', region: { x: 0.25, y: 0.25, w: 0.5, h: 0.5, t: 1.5 } } }, old);
+  check('an older ravenryd gets the region without its second', ro.ok && tries.length === 2 && tries[1].pick.region.t === undefined && tries[1].pick.region.w === 0.5, JSON.stringify(tries));
+}
 open = { id: 'cdrive01', kind: 'drive', state: 'open', title: 'Type into the server pane?', pane: 'pagent01', assistant: 'claude', drive: { pane: 'pserver1', agent: { kind: 'agent', pane: 'pagent01' }, input: 'npm run dev' }, created_at: 'x' };
 checkpoints.take(open, { daemon: 'd1' });
 const always = await checkpoints.answer({ id: 'cdrive01', approve: true, allow: 'always' }, send);
@@ -99,6 +141,8 @@ check('a drive allowed for the session goes to the daemon', sess.ok && sent.at(-
 const pm = checkpointMessage({ ...cp, variants: cp.variants.slice(0, 4) });
 check('a pick\'s alert carries each variant\'s description', pm.checkpoint.variants[0].description === 'The hull stays flat.' && !('description' in pm.checkpoint.variants[1]));
 check('a pick\'s alert: the variants with their URLs, buttons by label (the fourth behind Open)', pm.kind === 'pick' && pm.checkpoint.variants.length === 4 && pm.checkpoint.variants[2].url === '/api/checkpoints/cpick001/variants/2' && pm.checkpoint.variants[2].type === 'html' && pm.actions.map((x) => x.id).join() === 'pick:0,pick:1,open', JSON.stringify(pm));
+const vm = checkpointMessage({ ...cp, id: 'cvideo01', variants: [{ label: 'A', path: '/x/e.mp4', type: 'video' }, cp.variants[0]] });
+check('a pick\'s alert says a video is a video (never a picture to draw)', vm.checkpoint.variants[0].type === 'video' && vm.checkpoint.variants[1].type === 'image', JSON.stringify(vm.checkpoint.variants));
 const dm = checkpointMessage(open);
 check('a drive\'s alert: what it would type, Allow once and This session behind a fingerprint, Refuse', dm.kind === 'drive' && dm.body === 'npm run dev' && dm.actions.map((x) => `${x.id}${x.biometric ? '+bio' : ''}`).join() === 'allow:once+bio,allow:session+bio,refuse', JSON.stringify(dm));
 const closeOpen = { ...open, id: 'cdrive02', drive: { ...open.drive, action: 'close', input: undefined } };
@@ -170,6 +214,31 @@ if (made) {
   check('the person\'s pick through the hub reaches the agent', ans.status === 200 && w.checkpoint.state === 'answered' && w.checkpoint.answer.pick.label === 'C' && w.checkpoint.answer.pick.note === 'this, but darker', ans.text + JSON.stringify(w.checkpoint.answer));
   const rj = await until(async () => { const r = picks.record(made.id, MC2); return r && r.answer ? r : null; });
   check('and lands in the pick\'s record', !!rj && rj.answer.label === 'C' && rj.answer.region.h === 0.2, JSON.stringify(rj));
+}
+let vmade = null;
+try {
+  vmade = (await dc.request('checkpoint.new', { kind: 'pick', title: 'Which take?', variants: [{ label: 'A', path: path.join(FILES, 'e.mp4') }, { label: 'B', path: path.join(FILES, 'f.html') }, { label: 'C', path: path.join(FILES, 'c.html') }] })).checkpoint;
+} catch (e) {
+  check('this ravenryd opens a pick with a video', false, `${e.code}: ${e.message}`);
+}
+if (vmade) {
+  const kv = await until(async () => { const c = (await getj('/api/checkpoints')).body.checkpoints.find((x) => x.id === vmade.id); return c && c.variants[1].video ? c : null; });
+  check('the board\'s view: each variant\'s video URL (a video\'s own, a page\'s ?as=video), none for a page with no video', !!kv && kv.variants[0].type === 'video' && kv.variants[0].video === `/api/checkpoints/${vmade.id}/variants/0` && kv.variants[1].video === `/api/checkpoints/${vmade.id}/variants/1?as=video` && !('video' in kv.variants[2]), JSON.stringify(kv && kv.variants));
+  const full = await raw(`/api/checkpoints/${vmade.id}/variants/0`);
+  check('a video with its type, whole, and that it takes parts', full.status === 200 && full.headers.get('content-type') === 'video/mp4' && full.headers.get('accept-ranges') === 'bytes' && full.body.equals(MP4), `${full.status} ${full.headers.get('content-type')} ${full.body.length}`);
+  const part = await fetch(`${base}/api/checkpoints/${vmade.id}/variants/0`, { headers: { Range: 'bytes=100-199' } });
+  const pb = Buffer.from(await part.arrayBuffer());
+  check('a part of it (Range): 206, its place, its bytes', part.status === 206 && part.headers.get('content-range') === `bytes 100-199/${MP4.length}` && pb.equals(MP4.subarray(100, 200)), `${part.status} ${part.headers.get('content-range')} ${pb.length}`);
+  const tail = await fetch(`${base}/api/checkpoints/${vmade.id}/variants/0`, { headers: { Range: 'bytes=-10' } });
+  const past = await fetch(`${base}/api/checkpoints/${vmade.id}/variants/0`, { headers: { Range: `bytes=${MP4.length}-` } });
+  check('its last bytes, and nothing past its end (416)', tail.status === 206 && Buffer.from(await tail.arrayBuffer()).equals(MP4.subarray(-10)) && past.status === 416 && past.headers.get('content-range') === `bytes */${MP4.length}`, `${tail.status} ${past.status}`);
+  const pv = await raw(`/api/checkpoints/${vmade.id}/variants/1?as=video`);
+  check('a page\'s video (?as=video): the video, not the page, not sandboxed', pv.status === 200 && pv.headers.get('content-type') === 'video/mp4' && pv.body.equals(MP4) && pv.headers.get('content-security-policy') !== 'sandbox', `${pv.status} ${pv.headers.get('content-type')}`);
+  check('a page with no video has none to play (404); a video is no picture to draw (415)', (await raw(`/api/checkpoints/${vmade.id}/variants/2?as=video`)).status === 404 && (await raw(`/api/checkpoints/${vmade.id}/variants/0?as=png`)).status === 415);
+  const waiter = dc.request('checkpoint.wait', { checkpoint: vmade.id, timeout_ms: 15000 });
+  const ans = await post('/api/checkpoints/answer', { id: vmade.id, pick: { label: 'B', region: { x: 0.1, y: 0.1, w: 0.5, h: 0.2, t: 2.5 }, note: 'this frame' } });
+  const w = await waiter;
+  check('a ring on a video\'s paused frame reaches the agent with its second', ans.status === 200 && w.checkpoint.answer.pick.label === 'B' && w.checkpoint.answer.pick.region.t === 2.5, ans.text + JSON.stringify(w.checkpoint.answer));
 }
 // drive.name for a plain pane: the person's "dev server", started with
 // ravenryd new --name, is no session, and an agent in another plain pane

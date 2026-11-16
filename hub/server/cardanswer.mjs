@@ -43,7 +43,7 @@ export function lineFor(cp) {
   if (cp.kind === 'pick') {
     const pk = a.pick || {};
     const r = pk.region;
-    return `${head}${one(pk.label)}${r ? ` (region ${f4(r.x)} ${f4(r.y)} ${f4(r.w)} ${f4(r.h)})` : ''}${pk.note && one(pk.note) ? `. Their note: ${one(pk.note)}` : ''}`;
+    return `${head}${one(pk.label)}${r ? ` (region ${f4(r.x)} ${f4(r.y)} ${f4(r.w)} ${f4(r.h)}${Number.isFinite(r.t) ? ` at ${r.t.toFixed(2)}` : ''})` : ''}${pk.note && one(pk.note) ? `. Their note: ${one(pk.note)}` : ''}`;
   }
   if (cp.kind === 'approve') {
     const edited = !!a.command;
