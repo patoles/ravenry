@@ -65,6 +65,7 @@ const ALLOWED = [
   { file: '.github/workflows/cla.yml', sha256: OWNER, why: 'the GitHub owner in the CLA document URL' },
   { file: 'docs/PUBLISHING.md', sha256: OWNER, why: 'the public repository and page the testers download from' },
   { file: 'site/index.html', sha256: OWNER, why: "the GitHub owner in the launch page's download and issue links" },
+  { file: 'docs/store/play/listing.md', sha256: OWNER, why: "the download page's address in the Play listing text" },
   { file: 'site/privacy.html', sha256: OWNER, why: "the GitHub owner in the privacy page's issue link (the launch page's reportUrl)" },
   { file: 'shared/strings/en.json', sha256: OWNER, why: "the GitHub owner in the privacy page's address (privacy.url), which every app's Privacy link opens" },
   { file: 'hub/NOTICE', sha256: NAME, why: 'the copyright holder and trademark owner' },
