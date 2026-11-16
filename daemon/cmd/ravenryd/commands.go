@@ -154,6 +154,12 @@ func init() {
 			{"since", valueFlag, "MARK", "new output starts here (default now; send prints one)"},
 			{"timeout", valueFlag, durationArg, "give up after (default 30s)"},
 		}, run: cmdWait},
+		{name: "events", group: "Waiting and input", summary: "what happens, one line per event as it happens (panes, agents, cards, sessions, hand-offs, daemons), from every daemon here, the board and the person's other machines, merged; runs until interrupted. `ravenry events --help` lists the events", flags: []flagDoc{
+			{"pane", listFlag, "PANE", "only events about this pane, by id or name (repeatable)"},
+			{"kind", listFlag, "KIND", "only these events: a name (pane.exited) or a group (pane, checkpoint, session) (repeatable)"},
+			{"once", boolFlag, "", "stop at the first match: print it and exit 0"},
+			{"timeout", valueFlag, durationArg, "stop after this long; exit 124 when nothing matched"},
+		}, run: cmdEvents},
 		// Who drives
 		{name: "inputs", group: "Who drives", args: "PANE", summary: "who typed what into a pane: the person, an agent (its pane) or a program, oldest first; secrets and password prompts never shown", flags: []flagDoc{
 			{"since", valueFlag, "SEQ", "after this record"},

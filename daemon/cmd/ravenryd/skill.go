@@ -62,6 +62,7 @@ Ask the person from here, with this Mac's ` + "`ravenry ask`" + `.
 | what is on screen | ` + "`ravenry capture PANE`" + ` |
 | type, press, paste | ` + "`ravenry send PANE --paste TEXT --key Enter`" + ` |
 | wait until it is done | ` + "`ravenry wait PANE --prompt`" + `, ` + "`--text`" + `, ` + "`--quiet`" + `, ` + "`--exit`" + ` |
+| when that finishes, when X happens | ` + "`ravenry events --once --kind pane.exited --pane NAME`" + ` |
 | ask me, check with me | ` + "`ravenry ask --wait \"...\" --option Done`" + ` |
 | I'll run it myself / needs my OK | ` + "`ravenry approve 'COMMAND'`" + ` |
 | a password, a token, a one-time code | ` + "`ravenry secret \"...\" -- PROGRAM ARGS`" + ` |
@@ -103,6 +104,35 @@ Ask the person from here, with this Mac's ` + "`ravenry ask`" + `.
   ` + "`new --hidden --ttl 30m`" + ` so it goes by itself.
 - **Do not stop or restart the daemon** (` + "`ravenryd serve`" + `): it holds every
   terminal of the person, and other versions may run beside it on purpose.
+
+## Follow what happens instead of polling
+
+` + "`ravenry events`" + ` prints one line per event as it happens: a pane started,
+its command ended (` + "`pane.prompt`" + `), it exited, an agent reported, a card was
+opened or answered, a session needs the person or stopped needing them, a
+hand-off is ready, a daemon or the board went away or came back. It
+follows every daemon on this Mac, the board, and the person's other
+machines through the board, merged; each line says its machine. When you
+would loop on ` + "`ls`" + `, ` + "`agents`" + ` or ` + "`capture`" + ` to see whether something happened,
+follow events instead.
+
+- **Wait for one thing, then act.** ` + "`--once`" + ` prints the first match and
+  exits 0; ` + "`--timeout`" + ` exits 124 when nothing matched:
+
+      ravenry events --once --kind pane.exited --pane build --timeout 30m && npm test
+
+- **Filter.** ` + "`--pane`" + ` takes a pane's id or its name; ` + "`--kind`" + ` an event
+  (` + "`pane.exited`" + `) or a group (` + "`pane`" + `, ` + "`checkpoint`" + `, ` + "`session`" + `); both repeat.
+  ` + "`ravenry events --help`" + ` lists every event and its fields; ` + "`--json`" + ` gives
+  one object a line to branch on.
+- **Start it before what you wait for.** It says only what happens after
+  it started (its line on standard error, ` + "`following ...`" + `, says it is
+  reading). For something already over, look (` + "`ls`" + `, ` + "`checkpoint ID`" + `).
+- **Cards.** Your own cards come with the person's answer (run it in your
+  pane); another agent's come without; a secret's value never comes.
+- **One pane's output is still ` + "`wait`" + `.** Text on a screen, or the command
+  you typed ending (` + "`wait --prompt --since MARK`" + `), is ` + "`ravenry wait`" + `; events
+  is for what happens across panes, agents, the board and machines.
 
 ## Checkpoints: when you need the person
 

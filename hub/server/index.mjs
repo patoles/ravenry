@@ -76,6 +76,7 @@ import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
 import * as sidebar from './sidebar.mjs';
+import * as feed from './feed.mjs';
 import * as openon from './openon.mjs';
 import * as cpwords from './cpwords.mjs';
 import * as models from './models.mjs';
@@ -1418,7 +1419,11 @@ async function tick() {
       if (nameStore.dirty && (named || now - nameStore.savedAt > 60000)) sessionNames.save(nameStore);
     } catch (e) { console.error('session names:', e.message); }
     snapshot.sessionNames = { rev: nameStore.rev || 0 };
-    snapshot.sidebar = sidebar.build(projects, { threshold: snapshot.settings.handoffThreshold ?? 50, marks: sidebar.marksOf(projects, snapshot.checkpoints, { reviewFiles, now }), now });
+    const marks = sidebar.marksOf(projects, snapshot.checkpoints, { reviewFiles, now });
+    snapshot.sidebar = sidebar.build(projects, { threshold: snapshot.settings.handoffThreshold ?? 50, marks, now });
+    // The feed for programs (server/feed.mjs, GET /api/feed: ravenry events),
+    // only from a full read, so a session a partial one missed is not ended.
+    if (fullRead) { try { feed.observe(projects, marks, now); } catch (e) { console.error('feed:', e.message); } }
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
     // one it is set to (its own, else startWith), for the meta line's "New
@@ -4263,6 +4268,12 @@ async function handleRequest(req, res) {
       const v = await refreshShip();
       return v ? sendJson(res, 200, v) : sendJson(res, 503, { error: 'Not ready yet.' });
     }
+    // The feed for programs on this computer (server/feed.mjs): `ravenry
+    // events` reads it. Never on the phone port or from the Wi-Fi.
+    if (req.method === 'GET' && p === '/api/feed') {
+      if (!req.mcLocal || req.mcTls) return sendJson(res, 403, { error: 'The event feed is for programs on this computer (ravenry events).' });
+      return feed.add(req, res);
+    }
     if (req.method === 'GET' && p === '/api/events') {
       // A phone's stream (the phone port) goes gzipped as it goes: each state is the whole snapshot.
       const gz = !!req.mcTls && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
@@ -4813,6 +4824,9 @@ if (process.env.MC_NO_EVENTS !== '1') {
     onCheckpoint,
     onLost: (daemon) => checkpoints.dropDaemon(daemon),
     decide: term.ravenryDecider,
+    // Another machine's daemon events and its connection, for the feed (server/feed.mjs).
+    onEvent: (e, where) => feed.relayDaemon(e, where),
+    onMachine: (name, up, version) => feed.machine(name, up, version),
   });
 }
 

@@ -134,8 +134,8 @@ export async function startMachines() {
   const { connect } = await nodeClient();
   machines.start({
     connect,
-    onUp: (m) => { const d = remoteEntry({ name: m.m.name, id: m.id, c: m.c, version: m.version }); if (statusOpts) follow(d).then(() => statusOpts && statusOpts.onChange()); },
-    onDown: (m) => { if (statusOpts) { if (statusOpts.onLost) statusOpts.onLost(m.id || `ssh:${m.m.name}`); statusOpts.onChange(); } },
+    onUp: (m) => { const d = remoteEntry({ name: m.m.name, id: m.id, c: m.c, version: m.version }); if (statusOpts) { if (statusOpts.onMachine) statusOpts.onMachine(m.m.name, true, d.version || null); follow(d).then(() => statusOpts && statusOpts.onChange()); } },
+    onDown: (m) => { if (statusOpts) { if (statusOpts.onMachine) statusOpts.onMachine(m.m.name, false, m.version || null); if (statusOpts.onLost) statusOpts.onLost(m.id || `ssh:${m.m.name}`); statusOpts.onChange(); } },
   });
 }
 export function stopMachines() { machinesOn = false; machines.stop(); }
@@ -535,6 +535,9 @@ async function follow(d) {
   d.following = true;
   const o = statusOpts;
   d.c.on('event', (e) => {
+    // Another machine's events go on to the feed (server/feed.mjs); this
+    // machine's the CLI reads from its daemons itself.
+    if (d.machine && o.onEvent) { try { o.onEvent(e, { machine: d.machine, version: d.version || null }); } catch { /* the feed's own problem */ } }
     if (e.event === 'agent.report') { take(d, e.report); o.onChange(); }
     else if (e.event === 'agent.decision') answer(d, e);
     else if (String(e.event).startsWith('checkpoint.') && e.checkpoint) { o.onCheckpoint(e.checkpoint, { machine: d.machine, daemon: d.id, event: e.event }); o.onChange(); }

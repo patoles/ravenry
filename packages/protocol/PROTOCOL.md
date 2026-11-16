@@ -24,7 +24,7 @@ RFC 2119.
    as the person, who drives a pane, files touched, pictures,
    recordings and replay, test conditions, the render stream
 5. [Streams and binary frames](#5-streams-and-binary-frames)
-6. [Events](#6-events)
+6. [Events](#6-events), and the feed for agents (`ravenry events`)
 7. [Input and keys](#7-input-and-keys)
 8. [Errors](#8-errors)
 9. [Finding the daemon, and updates](#9-finding-the-daemon-and-updates)
@@ -1573,6 +1573,89 @@ On any connection with a stream, whether or not it subscribed to events:
 A client that does not read its events falls behind; when more than 1024
 are queued for it, the daemon closes the connection rather than hold up
 the panes.
+
+### The feed for agents: `ravenry events`
+
+`ravenry events` (daemon/cmd/ravenryd/events.go) is what an agent follows
+instead of polling: one line per event as it happens, until interrupted,
+from every source merged:
+
+- every daemon on this machine, one per installed version, each on its own
+  connection (`events.subscribe`), looked for again every second
+  (`RAVENRY_SOCKET` does not pin it; `--socket` does);
+- the board (the hub) on 127.0.0.1: its own events, and the daemons of the
+  person's other machines, which the board reaches over ssh
+  (`GET /api/feed`, below).
+
+A card comes from the daemon that holds it, so each is said once although
+the board knows it too.
+
+    ravenry events [--pane P]... [--kind K]... [--once] [--timeout D] [--json]
+
+`--pane` takes a pane's id or name; `--kind` an event's name or a group
+(`pane`, `agent`, `checkpoint`, `session`, `handoff`, `daemon`, `board`;
+`pane.*` too), both repeatable; an unknown kind is refused (exit 1).
+`--once` prints the first match and exits 0. `--timeout D` stops after D:
+exit 0 when something matched, 124 when nothing did. Without `--json` each
+line is for a person (time, event, machine, what it is about); with it,
+one JSON object a line, its keys `event`, `at`, `machine` first, then the
+rest by name. The line on standard error, `ravenry events: following ...`,
+says when it is reading.
+
+Every event has `event`, `at` (when the feed learnt it, UTC with
+milliseconds) and `machine` (`local` for this one, else the machine's name
+on the board). An event about a pane has `pane` (its id) and, when known,
+`pane_name`; one that comes from a daemon has `daemon` (its version).
+
+| Event | Fields | When |
+| --- | --- | --- |
+| `pane.created` | `name`, `command`, `cwd`, `hidden` | A pane started. |
+| `pane.title` | `name`, `title` | Its title changed. |
+| `pane.cwd` | `name`, `cwd` | Its working folder changed. |
+| `pane.prompt` | `name`, `shell` (`state`, `command`, `exit_code`) | Its shell started or ended a command. |
+| `pane.updated` | `name`, `labels` | Its name or labels changed. |
+| `pane.exited` | `name`, `exit` (`code`, `signal`) | Its program exited. |
+| `pane.closed` | `name`, `exit` | It was closed and removed. |
+| `agent.report` | `report` (`assistant`, `event`, `source`, `state`, `need`, `message`, `session`) | An agent's hook, or a program, reported. |
+| `checkpoint.opened` | `checkpoint` (`id`, `kind`, `state`, `title`, `pane`, `assistant`, `expires_at`) | A card waits for the person. |
+| `checkpoint.running` | `checkpoint` | The person let an approved command (or a secret's) run. |
+| `checkpoint.answered` | `checkpoint` (with `closed_at`), `answer` and `run` for its asker only | The person answered it (an approved command: once it ended). |
+| `checkpoint.declined` | `checkpoint`, `answer` for its asker only | The person declined it. |
+| `checkpoint.cancelled` | `checkpoint` (`reason`, `answered_in`) | It was withdrawn. |
+| `checkpoint.expired` | `checkpoint` | Nobody answered in time. |
+| `session.started` | `session`, `surface`, `pane`, `project`, `project_name`, `assistant`, `name` | A session came on the board. |
+| `session.ended` | the same | It left the board (or a new session took its tab). |
+| `session.needs_you` | the same, `why`, `line` | It waits for the person: `why` is its state (`dialog`, `asked`, `draft`, `handback`) or the kind of its open card's mark. |
+| `session.needs_you_cleared` | the same | It no longer does. |
+| `handoff.ready` | the same, `handoff` (`file`) | It wrote its hand-off. |
+| `daemon.up` | `daemon`, `pid`, `socket` (this machine) | A daemon came, or came back; for another machine, its connection. |
+| `daemon.down` | the same | It went away, or its machine's connection dropped. |
+| `daemon.draining` | `newer` | A newer daemon runs beside it (section 9). |
+| `board.up` | `url` | The board answers again. |
+| `board.down` | `url` | The board stopped answering. |
+
+What is there when the feed starts is never said again: `daemon.up` and
+`board.up` are for one that comes after it started. The session events are
+the board's own reading (hub/docs/STATE-RULES.md): a session needs you when
+its row is in Needs you.
+
+**Answers.** A card's `answer` (and an approved command's `run`) is in the
+feed only of its own asker: `ravenry events` run in the pane that asked
+(`RAVENRY_PANE`), on this machine, as `ravenry checkpoint` gives it. A
+secret's answer is only ever `delivered`: its value never reaches a
+daemon's record, the board's feed or this one, and a secret's run is given
+without its output.
+
+**Names are API.** Events and fields are added, never renamed or taken
+away. A program reads the fields it knows and leaves the rest.
+
+The board's side, `GET /api/feed`, is server-sent events, for programs on
+this computer only: from 127.0.0.1, never on the phone port (403). Its
+`event: board` messages are the board's own events as above, its
+`event: daemon` messages `{ machine, daemon, event }`, a raw event of
+another machine's daemon (this machine's are never sent: the CLI reads
+them itself), without a card's `answer`, `run`, `env`, `secret`,
+`variants`, `drive` or `command`. A comment line comes every 15 s.
 
 ## 7. Input and keys
 
