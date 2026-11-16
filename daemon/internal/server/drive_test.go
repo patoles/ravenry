@@ -162,16 +162,29 @@ func TestAgentDrivesItsOwnPanesAndAsksForOthers(t *testing.T) {
 	call[proto.LeaseResult](t, person, "pane.lease", map[string]any{"pane": target.ID, "release": true})
 	nextEvent(t, person, "pane.lease", func(ev proto.Event) bool { return ev.Pane.ID == target.ID && ev.Pane.Lease == nil })
 	// Keystrokes from a display are the person's, gathered into one record.
+	// The record grows as the keys come: the echo of "ls" can be there
+	// before the Enter is (GitHub's runner, and 1 run in 10 on a Mac,
+	// 2026-11-16), so the Enter goes after the echo here, every time, and
+	// the record is read until it has it.
 	sub := call[proto.SubscribeResult](t, person, "pane.subscribe", map[string]any{"pane": target.ID})
-	for _, k := range []string{"l", "s", "\r"} {
+	key := func(k string) {
 		frame := proto.AppendFrame(nil, proto.FrameInput, sub.Channel, 0)
 		if err := person.WriteBinary(ctx(t), append(frame, k...)); err != nil {
 			t.Fatal(err)
 		}
 	}
+	key("l")
+	key("s")
 	waitFor(t, person, target.ID, `ls`, 0)
-	ins = inputs(t, person, target.ID)
-	if last := ins[len(ins)-1]; last.Kind != "keys" || last.Text != "ls<Enter>" || last.Source.Kind != "person" || last.Bytes != 3 {
+	key("\r")
+	var last proto.InputRecord
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		ins = inputs(t, person, target.ID)
+		if last = ins[len(ins)-1]; last.Text == "ls<Enter>" || time.Now().After(deadline) {
+			break
+		}
+	}
+	if last.Kind != "keys" || last.Text != "ls<Enter>" || last.Source.Kind != "person" || last.Bytes != 3 {
 		t.Fatalf("keystrokes: %+v", last)
 	}
 }
