@@ -5,6 +5,7 @@
 // real app.js, app.css and index.html, copied to a throwaway folder.
 //
 // Usage: node tools/static-files-test.mjs
+import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

@@ -9,6 +9,7 @@
 //
 // Usage: node tools/phone-bar-test.mjs --url http://127.0.0.1:4791 [--shots dir]
 //   (a demo board: apps/phone/tools/demo.mjs)
+import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 
