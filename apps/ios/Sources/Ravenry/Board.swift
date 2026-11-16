@@ -509,7 +509,9 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         if path.hasPrefix("/phone/hub/") {
             // Only the page itself: a frame of another origin never reads the hub through this door.
             guard req.httpMethod ?? "GET" == "GET", Self.allowed(req) else { return refuse(task, req) }
-            return hubResource(task, String(path.dropFirst("/phone/hub".count)) + query, range: Self.range(req))
+            let p = String(path.dropFirst("/phone/hub".count)) + query
+            if let r = Self.range(req), let part = MediaBlocks.part(r) { return mediaPart(task, p, part, range: r) }
+            return hubResource(task, p, range: Self.range(req))
         }
         if path.hasPrefix("/phone/") {
             var rel = String(path.dropFirst("/phone/".count))
@@ -522,6 +524,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         guard req.httpMethod ?? "GET" == "GET" else { return refuse(task, req) }
         if req.mainDocumentURL == url && (path == "/" || path == "/index.html") { return boardPage(task) }
         guard Self.allowed(req) else { return refuse(task, req) }
+        if let r = Self.range(req), let part = MediaBlocks.part(r) { return mediaPart(task, path + query, part, range: r) }
         hubResource(task, path + query, range: Self.range(req))
     }
 
@@ -611,6 +614,119 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
                 finish(task, r.status, r.data, type, extra)
             } catch { finish(task, 502, Data(), "text/plain") }
         }
+    }
+
+    /// A player's part of a file (a pick's video): answered from the file's blocks (MediaBlocks), each asked of the hub once.
+    /// A file the hub does not serve in parts, or a part too large to hold, is passed on as the hub answers it.
+    private func mediaPart(_ task: WKURLSchemeTask, _ path: String, _ part: (Int, Int?), range: String) {
+        Task {
+            guard let c = Hub.client() else { return finish(task, 502, Data(), "text/plain") }
+            let got = await MediaBlocks.shared.answer(path, part) { r in
+                guard let x = try? await c.execute("GET", path, headers: ["Range": r]) else { return nil }
+                return MediaBlocks.Fetched(status: x.status, data: x.data, contentRange: x.header("Content-Range"), type: x.header("Content-Type"))
+            }
+            switch got {
+            case .part(let data, let from, let total, let type):
+                finish(task, 206, data, type, ["Content-Range": "bytes \(from)-\(from + data.count - 1)/\(total)", "Accept-Ranges": "bytes", "Content-Length": "\(data.count)"])
+            case .outside(let total):
+                finish(task, 416, Data(), "text/plain", ["Content-Range": "bytes */\(total)"])
+            case .passOn:
+                hubResource(task, path, range: range)
+            case .failed:
+                Log.say("board: a video's part (\(range)) did not come from the Mac")
+                finish(task, 502, Data(), "text/plain")
+            }
+        }
+    }
+}
+
+/// A video's parts for the board's player (the pickvideo round's fourth part,
+/// 2026-11-16). WebKit's player on iOS reads a video through the app's
+/// handler in small parts, a few bytes to some KB at a time: five rounds
+/// between a pick's two videos (30 s and 15 s, 14 MB) made 5,731 requests,
+/// each a round trip to the Mac. On the person's iPad, over Wi-Fi, the video
+/// being watched could not get its parts as fast as it played and loaded for
+/// ever. Here each file is asked of the hub in blocks of 512 KB, each block
+/// once, and every part the player asks for is answered from them; the
+/// blocks are kept (48 MB at most, the least recently used going first), so
+/// a video come back to plays from them.
+actor MediaBlocks {
+    static let shared = MediaBlocks()
+    static let size = 512 * 1024
+    /// The most a part answered from blocks may be; larger ones are passed on.
+    static let largest = 8 * 1024 * 1024
+    let budget: Int
+    init(budget: Int = 48 * 1024 * 1024) { self.budget = budget }
+
+    /// The hub's answer to a block's request.
+    struct Fetched: Sendable { let status: Int; let data: Data; let contentRange: String?; let type: String? }
+    enum Answer: Equatable { case part(Data, from: Int, total: Int, type: String), outside(total: Int), passOn, failed }
+    private struct Block { let data: Data; let total: Int; let type: String }
+
+    private var blocks: [String: Block] = [:]
+    private var used: [String] = []
+    private var held = 0
+    private var asking: [String: Task<Block?, Never>] = [:]
+    /// How many blocks were asked of the hub (the checks read it).
+    private(set) var asked = 0
+
+    /// "bytes=a-b" or "bytes=a-": its first byte and its last (nil: to the end). Nil for a part from the end ("bytes=-n").
+    static func part(_ range: String) -> (Int, Int?)? {
+        guard range.hasPrefix("bytes=") else { return nil }
+        let s = range.dropFirst(6).split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard s.count == 2, let a = Int(s[0]), a >= 0 else { return nil }
+        if s[1].isEmpty { return (a, nil) }
+        guard let b = Int(s[1]), b >= a else { return nil }
+        return (a, b)
+    }
+
+    /// The part of `path` from `part.0` to `part.1` (the end when nil), from its blocks; `fetch` asks the hub for a range.
+    func answer(_ path: String, _ part: (Int, Int?), fetch: @escaping @Sendable (String) async -> Fetched?) async -> Answer {
+        let (a, b) = part
+        let k0 = a / Self.size
+        guard let first = await block(path, k0, fetch) else { return .failed }
+        guard first.total > 0 else { return .passOn }
+        if a >= first.total { return .outside(total: first.total) }
+        let e = min(b ?? first.total - 1, first.total - 1)
+        if e - a + 1 > Self.largest { return .passOn }
+        var out = Data(capacity: e - a + 1)
+        for k in k0...(e / Self.size) {
+            guard let bl = k == k0 ? first : await block(path, k, fetch), bl.total > 0 else { return .failed }
+            let lo = max(a, k * Self.size) - k * Self.size, hi = min(e, k * Self.size + bl.data.count - 1) - k * Self.size
+            guard lo <= hi, hi < bl.data.count else { return .failed }
+            out.append(bl.data[bl.data.startIndex + lo...bl.data.startIndex + hi])
+        }
+        return .part(out, from: a, total: first.total, type: first.type)
+    }
+
+    /// Block k of `path`: kept, being asked (the same answer then), or asked of the hub now (once more when it failed).
+    private func block(_ path: String, _ k: Int, _ fetch: @escaping @Sendable (String) async -> Fetched?) async -> Block? {
+        let key = "\(k) \(path)"
+        if let b = blocks[key] { used.removeAll { $0 == key }; used.append(key); return b }
+        if let t = asking[key] { return await t.value }
+        asked += 1
+        let r = "bytes=\(k * Self.size)-\((k + 1) * Self.size - 1)"
+        let t = Task { () -> Block? in
+            for _ in 0..<2 {
+                guard let f = await fetch(r) else { continue }
+                let total = f.contentRange?.split(separator: "/").last.flatMap { Int($0) }
+                // Past the file's end: no bytes, its size. A file the hub does not serve in parts: total 0, passed on as it is.
+                if f.status == 416, let total { return Block(data: Data(), total: total, type: "") }
+                guard f.status == 206, let total else { return f.status >= 500 ? nil : Block(data: Data(), total: 0, type: "") }
+                return Block(data: f.data, total: total, type: f.type ?? "application/octet-stream")
+            }
+            return nil
+        }
+        asking[key] = t
+        let b = await t.value
+        asking[key] = nil
+        if let b, b.total > 0, !b.data.isEmpty {
+            blocks[key] = b
+            used.append(key)
+            held += b.data.count
+            while held > budget, let old = used.first { used.removeFirst(); held -= blocks.removeValue(forKey: old)?.data.count ?? 0 }
+        }
+        return b
     }
 }
 
