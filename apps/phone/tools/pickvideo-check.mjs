@@ -125,6 +125,8 @@ try {
 
   browser = await chromium.launch({ headless: true });
   // A video element's state: its time, whether it plays, its frame.
+  // A thumbnail's first frame: a picture drawn once (no player of its own, the pickvideo round's fourth part).
+  const FRAME = `(b) => { const i = b && b.querySelector('img'); return b && !b.querySelector('video') && i && i.complete && i.naturalWidth ? { w: i.naturalWidth, h: i.naturalHeight, frame: !!i.dataset.frame || /^blob:/.test(i.getAttribute('src') || '') } : null; }`;
   const VID = `(v) => v ? { t: v.currentTime, paused: v.paused, rs: v.readyState, w: v.videoWidth, h: v.videoHeight, muted: v.muted, loop: v.loop, controls: v.controls, src: v.getAttribute('src') || '' } : null`;
 
   // ---------------------------------------------------------- the board in a browser
@@ -138,11 +140,11 @@ try {
     const row = await until(() => p.evaluate((id) => { const r = document.querySelector(`#list .row[data-id="cp:${id}"]`); return r ? { text: r.innerText.replace(/\s+/g, ' '), group: r.closest('section') && r.closest('section').querySelector('.grp-h').innerText.replace(/\s+/g, ' ') } : null; }, ID), 15000);
     if (dark) check('board_card_in_no_project_has_a_row', !!row && /Video test/.test(row.text) && /Needs you/.test(row.group || ''), JSON.stringify(row));
     if (row) await p.click(`#list .row[data-id="cp:${ID}"]`);
-    const tiles = await until(() => p.evaluate(([f, vw]) => { const t = [...document.querySelectorAll('.pk-tile')]; if (t.length !== 4) return null; const v = [0, 1, 3].map((k) => eval(f)(t[k].querySelector('video'))); const im = t[2].querySelector('img'); return v.every((x) => x && x.rs >= 2) && v[0].w === vw && im && im.complete && im.naturalWidth === 1280 ? { v, marks: t.map((x) => !!x.querySelector('.pk-play')) } : null; }, [VID, VW]), 30000);
+    const tiles = await until(() => p.evaluate(([f, vw]) => { const t = [...document.querySelectorAll('.pk-tile')]; if (t.length !== 4) return null; const v = [0, 1, 3].map((k) => eval(f)(t[k])); const im = t[2].querySelector('img'); return v.every((x) => x) && v[0].w === vw && im && im.complete && im.naturalWidth === 1280 ? { v, marks: t.map((x) => !!x.querySelector('.pk-play')) } : null; }, [FRAME, VW]), 30000);
     await sleep(300);
     await p.screenshot({ path: path.join(OUT, `board-card-${th}.png`) });
     if (!dark) { await ctx.close(); continue; }
-    check('board_card_first_frames', !!tiles && tiles.marks.join() === 'true,true,false,true' && tiles.v.every((x) => x.paused && x.t < 0.1) && tiles.v[2].w === VW2, JSON.stringify(tiles));
+    check('board_card_first_frames', !!tiles && tiles.marks.join() === 'true,true,false,true' && tiles.v.every((x) => x.frame) && tiles.v[1].w === VW && tiles.v[2].w === VW2, JSON.stringify(tiles));
     await p.click('.pk-tile[data-n="0"]');
     const v0 = await until(() => p.evaluate((f) => { const l = document.getElementById('gl-fs'); const v = eval(f)(document.getElementById('gl-vid')); return l && !l.hidden && v && v.t > 0.2 ? v : null; }, VID), 10000);
     await sleep(1200);
@@ -169,8 +171,8 @@ try {
     const d1 = await p.evaluate((f) => eval(f)(document.getElementById('gl-vid')), VID);
     check('board_second_video_plays_source_gone', !!d0 && d1.t > d0.t + 0.6 && !d1.paused && d1.w === VW2, `${JSON.stringify(d0)} then ${JSON.stringify(d1)}`);
     // The strip: each video's first frame.
-    const strip = await p.evaluate((f) => [...document.querySelectorAll('#gl-strip .gl-thumb')].map((b) => { const v = b.querySelector('video'); return v ? eval(f)(v) : b.querySelector('img') ? 'img' : null; }), VID);
-    check('board_strip_first_frames', strip.length === 4 && strip[0] && strip[0].rs >= 2 && strip[1] && strip[1].rs >= 2 && strip[2] === 'img' && strip[3] && strip[3].rs >= 2, JSON.stringify(strip));
+    const strip = await until(() => p.evaluate((f) => { const s = [...document.querySelectorAll('#gl-strip .gl-thumb')].map((b) => (b.querySelector('img[data-frame]') ? eval(f)(b) : b.querySelector('img') ? 'img' : null)); return s.length === 4 && s[0] && s[1] && s[3] ? s : null; }, FRAME), 10000);
+    check('board_strip_first_frames', !!strip && strip[0].w === VW && strip[1].w === VW && strip[2] === 'img' && strip[3].w === VW2, JSON.stringify(strip));
     await p.keyboard.press('Escape');
     check('board_answered_nothing', await stillOpen());
     await ctx.close();
@@ -203,7 +205,7 @@ try {
     await p.goto(`${hub.url}/`);
     const chip = await until(() => p.evaluate((id) => { const c = document.querySelector(`#pchips .pchip[data-id="cp:${id}"]`); return c ? c.innerText.replace(/\s+/g, ' ') : null; }, ID), 15000);
     if (chip) await p.tap(`#pchips .pchip[data-id="cp:${ID}"]`);
-    const shown = await until(() => p.evaluate(() => { const t = [...document.querySelectorAll('.pk-tile')]; return t.length === 4 && t.filter((x) => { const v = x.querySelector('video'); return v && v.readyState >= 2; }).length === 3 ? document.getElementById('d-ask-top').innerText.replace(/\n/g, ' / ') : null; }), 20000);
+    const shown = await until(() => p.evaluate((f) => { const t = [...document.querySelectorAll('.pk-tile')]; return t.length === 4 && t.filter((x) => eval(f)(x)).length === 4 ? document.getElementById('d-ask-top').innerText.replace(/\n/g, ' / ') : null; }, FRAME), 20000);
     check('board_phone_card_in_no_project_shows', !!chip && /Video test/.test(chip) && !!shown && shown.includes('Which take should I keep?'), `chip ${chip}; card ${shown}`);
     await p.screenshot({ path: path.join(OUT, 'board-phone-dark.png') });
     await ctx.close();
@@ -228,7 +230,7 @@ try {
     };
     const tap = async (x, y) => { await touch('touchStart', [[x, y]]); await touch('touchEnd', []); };
     await p.goto(PH);
-    const track = await until(() => p.evaluate(([f, vw]) => { const s = [...document.querySelectorAll('.ptrack .pimg')]; if (s.length !== 4) return null; const v = [0, 1, 3].map((k) => eval(f)(s[k].querySelector('video'))); return v.every((x) => x && x.rs >= 2) && v[0].w === vw ? { v, marks: s.map((x) => !!x.querySelector('.pk-play')), h: Math.round(document.querySelector('.ptrack').getBoundingClientRect().height), w: Math.round(document.querySelector('.ptrack').clientWidth) } : null; }, [VID, VW]), 30000);
+    const track = await until(() => p.evaluate(([f, vw]) => { const s = [...document.querySelectorAll('.ptrack .pimg')]; if (s.length !== 4) return null; const v = [0, 1, 3].map((k) => eval(f)(s[k])); return v.every((x) => x && x.frame) && v[0].w === vw ? { v, marks: s.map((x) => !!x.querySelector('.pk-play')), h: Math.round(document.querySelector('.ptrack').getBoundingClientRect().height), w: Math.round(document.querySelector('.ptrack').clientWidth) } : null; }, [FRAME, VW]), 30000);
     await sleep(400);
     await p.screenshot({ path: path.join(OUT, `phone-swipe-${th}.png`) });
     if (dark) check('phone_track_first_frames', !!track && track.marks.join() === 'true,true,false,true' && Math.abs(track.h - Math.round(track.w * VH / VW)) <= 1, JSON.stringify(track));

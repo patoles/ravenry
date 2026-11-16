@@ -92,6 +92,22 @@ extension SelfTestBoard {
         let b0 = pl.time
         settle(1.2)
         check("pv_page_video_plays", pk.viewing == 1 && pl.url == vurl(1) && !pl.isHidden && pl.time > b0 + 0.6, "viewing \(String(describing: pk.viewing)) url \(pl.url) time \(b0) to \(pl.time)")
+        // One plays at a time (the pickvideo round's fourth part): back and forth between A and B five times,
+        // the one left stopped (its player paused, its time still), the one come to playing on.
+        var switches: [String] = []
+        for r in 1...5 {
+            for (button, n) in [("previous", 0), ("next", 1)] {
+                let left = pl.player, leftT = pl.time
+                pk.buttons[button]?.performClick(nil)
+                _ = wait(10) { pk.viewing == n && pl.url == vurl(n) && pl.time > 0.05 }
+                let t0 = pl.time
+                settle(1.0)
+                let ok = pk.viewing == n && pl.url == vurl(n) && pl.playing && pl.time > t0 + 0.4 && left !== pl.player && (left?.rate ?? 0) == 0
+                    && abs((left?.currentTime().seconds ?? leftT) - leftT) < 0.3
+                switches.append("\(r)\(n == 0 ? "A" : "B") \(ok ? "ok" : "NO: rate left \(left?.rate ?? -1), time \(String(format: "%.2f", t0)) to \(String(format: "%.2f", pl.time))")")
+            }
+        }
+        check("pv_switch_one_plays_left_stops", switches.allSatisfy { $0.hasSuffix("ok") }, switches.joined(separator: ", "))
         // C, a picture: the zoom as before, the player gone.
         pk.buttons["next"]?.performClick(nil)
         check("pv_picture_in_zoom", pk.viewing == 2 && pl.isHidden && !pk.zoom.isHidden && pl.player == nil, "viewing \(String(describing: pk.viewing)) player \(pl.player == nil ? "gone" : "kept")")

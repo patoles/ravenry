@@ -161,7 +161,8 @@ async function openLooseVideoPick(c) {
   const scratch = path.join(DEMO, 'scratch');
   fs.mkdirSync(scratch, { recursive: true });
   const pane = execFileSync(BIN, ['new', '--cwd', scratch, '--name', c.name || 'Video test', '--', '/bin/sh', '-c', 'exec sleep 100000'], { env: demoEnv, encoding: 'utf8' }).trim().split(/\s+/)[0];
-  const vs = [['Take one', 'a.mp4'], ['Take two', 'b.html'], ['Still', 'c.png'], ['Take three', 'd.mp4']];
+  // test9f: two videos alone (the 30 s and 15 s cuts on the person's iPad, PICKVIDEO_CLIP and PICKVIDEO_CLIP2).
+  const vs = c.two ? [['30s', 'a.mp4'], ['15s', 'd.mp4']] : [['Take one', 'a.mp4'], ['Take two', 'b.html'], ['Still', 'c.png'], ['Take three', 'd.mp4']];
   const id = execFileSync(BIN, ['pick', c.title || 'Which take should I keep?', ...vs.flatMap(([l, f]) => ['--variant', `${l}=${path.join(dir, f)}`]), '--no-wait', '--timeout', '30m'], { env: { ...demoEnv, RAVENRY_PANE: pane }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   // The hub keeps the copies and names the pane; then the agent's files go (its copies are the only source).
   for (let i = 0; i < 100; i++) { const x = ((await mac('GET', '/api/checkpoints')).body.checkpoints || []).find((y) => y.id === id); if (x && x.paneName && x.pick_record && x.pick_record.variants.every((v) => v.kept) && x.variants[1].video) break; await sleep(300); }

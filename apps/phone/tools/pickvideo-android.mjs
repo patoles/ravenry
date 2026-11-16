@@ -201,8 +201,10 @@ try {
   if (home) await tapBoard(`#d-ask-top [data-act="cp-open"][data-cp="${ID}"]`);
   else await board(`location.href = '/phone/index.html#/cp/${ID}'`);
   // The track: each video's first frame.
-  const track = await until(() => board(`(() => { const s = [...document.querySelectorAll('.ptrack .pimg')]; if (s.length !== 3) return null; const v = s.slice(0, 2).map((x) => ${VID}(x.querySelector('video'))); return v.every((x) => x && x.rs >= 2 && x.w === ${VW}) ? v : null; })()`), 30000, 800);
-  check('android_track_first_frames', !!track, JSON.stringify(track || await board(`[...document.querySelectorAll('.ptrack video')].map((v) => ${VID}(v))`)));
+  // (pictures drawn once, with no player of their own: the pickvideo round's fourth part)
+  const FRAME = `((b) => { const i = b && b.querySelector('img'); return b && !b.querySelector('video') && i && i.complete && i.naturalWidth ? { w: i.naturalWidth, h: i.naturalHeight, blob: /^blob:/.test(i.getAttribute('src') || '') } : null; })`;
+  const track = await until(() => board(`(() => { const s = [...document.querySelectorAll('.ptrack .pimg')]; if (s.length !== 3) return null; const v = s.slice(0, 2).map((x) => ${FRAME}(x)); return v.every((x) => x && x.blob && x.w === ${VW}) ? v : null; })()`), 30000, 800);
+  check('android_track_first_frames', !!track, JSON.stringify(track || await board(`[...document.querySelectorAll('.ptrack .pimg')].map((x) => ${FRAME}(x))`)));
   await sleep(500);
   shot('android-swipe-dark.png');
   // A tap on A: the viewer, playing.
@@ -218,6 +220,22 @@ try {
   await sleep(1500);
   const b1 = await board(`${VID}(document.querySelector('.pzv-box video.pzv-vid'))`);
   check('android_page_video_plays', !!b0 && b1 && b1.t > b0.t + 0.8 && !b1.paused, `${JSON.stringify(b0)} then ${JSON.stringify(b1)}`);
+  // One plays at a time (the pickvideo round's fourth part): the strip to A and back to B five times; each time the
+  // one come to plays on, and the screen's one player is the only video element holding a video, so the one left
+  // stopped with it (the app's shell passes each part on as it comes, and drops it when the player closes it).
+  const one = `(() => { const all = [...document.querySelectorAll('video')]; const v = document.querySelector('.pzv-box video.pzv-vid'); return { n: all.length, holding: all.filter((x) => x.getAttribute('src') && x.networkState !== 0).length, playing: all.filter((x) => !x.paused).length, src: v && v.getAttribute('src'), t: v ? v.currentTime : -1, paused: v ? v.paused : null }; })()`;
+  const rounds = [];
+  for (let r = 1; r <= 5; r++) {
+    for (const [k, want] of [[1, /variants\/0$/], [2, /as=video$/]]) {
+      await tapBoard(`.pzv-th:nth-child(${k})`);
+      const s0 = await until(async () => { const x = await board(one); return x && want.test(x.src || '') && x.t > 0.1 && !x.paused ? x : null; }, 20000, 400);
+      await sleep(1200);
+      const s1 = await board(one);
+      const ok = !!s0 && s1 && s1.t > s0.t + 0.6 && s1.playing === 1 && s1.holding === 1;
+      rounds.push(`${r}${k === 1 ? 'A' : 'B'} ${ok ? 'ok' : `NO ${JSON.stringify(s0)} then ${JSON.stringify(s1)}`}`);
+    }
+  }
+  check('android_switch_one_plays_at_a_time', rounds.every((x) => x.endsWith('ok')), rounds.join(', '));
   // A seek: the scrub bar's job (the hub serves parts, the shell passes them on).
   await board(`(() => { const v = document.querySelector('.pzv-box video.pzv-vid'); v.currentTime = 4.5; return true; })()`);
   const sk = await until(() => board(`(() => { const v = ${VID}(document.querySelector('.pzv-box video.pzv-vid')); return v && v.t > 4.7 && v.t < 6 && !v.paused ? v : null; })()`), 8000, 300);

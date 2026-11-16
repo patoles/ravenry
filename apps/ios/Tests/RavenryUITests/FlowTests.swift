@@ -616,9 +616,13 @@ final class FlowTests: XCTestCase {
         _ = js("const vis = (x) => !!x && x.getClientRects().length > 0; const r = document.querySelector('#list .row[data-id=\"cp:\(id)\"]'), c = document.querySelector('#pchips .pchip[data-id=\"cp:\(id)\"]'); const e = vis(r) ? r : c; if (e) e.click(); return !!e;")
         let compare = until(15) { self.js("const b = document.querySelector('[data-act=\"cp-open\"][data-cp=\"\(id)\"]'); if (!b || !b.getClientRects().length) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true;") == "true" }
         XCTAssertTrue(compare, "its page shows the card, with Compare")
-        // The pick's screen: each video's first frame.
+        // The pick's screen: each video's first frame (a picture drawn once, no player of its own).
         var first: [[String: Any]] = []
-        let frames = until(40) { first = self.videos(".ptrack video"); return first.count == 3 && first.allSatisfy { ($0["rs"] as? Int ?? 0) >= 2 && ($0["w"] as? Int ?? 0) > 0 } }
+        let frames = until(40) {
+            let s = self.js("return [...document.querySelectorAll('.ptrack .pimg')].filter((x) => x.querySelector('.pk-play')).map((x) => { const i = x.querySelector('img'); return { video: !!x.querySelector('video'), w: i && i.complete ? i.naturalWidth : 0 }; });") ?? "[]"
+            first = (try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [[String: Any]]) ?? []
+            return first.count == 3 && first.allSatisfy { ($0["video"] as? Bool) == false && ($0["w"] as? Int ?? 0) > 0 }
+        }
         mark("first frames on the pick's screen: \(first)")
         XCTAssertTrue(frames, "each video's first frame on the pick's screen")
         Thread.sleep(forTimeInterval: 0.5)
@@ -649,6 +653,95 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(bs && (b1.first?["t"] as? Double ?? 0) > (b0.first?["t"] as? Double ?? 0) + 0.6, "B, the page's video, plays")
         a.terminate()
         if pad { rotate(.portrait) }
+    }
+
+    /// A pick of two videos (test9f, as on the person's iPad on 2026-11-16: the 30 s and 15 s cuts): one plays at a
+    /// time. In the pick's full screen, each change (the strip to the other one, the close, the open again) leaves the
+    /// one left paused, its time still, and the one come to playing (its time moves on), five times back and forth.
+    func test9f_APicksVideosPlayOneAtATime() throws {
+        if shotsOnly { return }
+        continueAfterFailure = true
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board")
+        guard let id = newCard(["kind": "pickvideo", "two": true, "name": "Video test"]) else { XCTFail("no card"); return }
+        _ = looseCardShown(id, "two videos")
+        _ = js("const vis = (x) => !!x && x.getClientRects().length > 0; const r = document.querySelector('#list .row[data-id=\"cp:\(id)\"]'), c = document.querySelector('#pchips .pchip[data-id=\"cp:\(id)\"]'); const e = vis(r) ? r : c; if (e) e.click(); return !!e;")
+        let compare = until(15) { self.js("const b = document.querySelector('[data-act=\"cp-open\"][data-cp=\"\(id)\"]'); if (!b || !b.getClientRects().length) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true;") == "true" }
+        XCTAssertTrue(compare, "its page shows the card, with Compare")
+        XCTAssertTrue(until(20) { self.js("return document.querySelectorAll('.ptrack .pimg').length === 2;") == "true" }, "the pick's screen, its two videos")
+        // Their first frames, pictures with no player of their own.
+        var track = ""
+        let frames = until(30) { track = self.js("return [...document.querySelectorAll('.ptrack .pimg')].map((s) => { const i = s.querySelector('img'), v = s.querySelector('video'); return v ? 'video' : i && i.complete && i.naturalWidth > 0 ? 'picture ' + i.naturalWidth : 'none'; }).join(', ');") ?? ""; return track.components(separatedBy: "picture ").count == 3 }
+        mark("the track's first frames: \(track)")
+        XCTAssertTrue(frames, "the track shows each video's first frame as a picture, no player")
+        shot("pick-switch-track")
+        // Every video element the page makes or plays, kept here to be read (one left behind still playing shows).
+        _ = js("""
+        if (!window.__pv) {
+          window.__pv = new Set();
+          const p = HTMLMediaElement.prototype.play;
+          HTMLMediaElement.prototype.play = function () { window.__pv.add(this); return p.apply(this, arguments); };
+          const scan = () => { for (const v of document.querySelectorAll('video')) window.__pv.add(v); };
+          new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+          scan();
+        }
+        return true;
+        """)
+        let read = "const cur = document.querySelector('.pzv-box video.pzv-vid'); return [...window.__pv].map((v) => ({ n: ((v.currentSrc || v.getAttribute('src') || '').match(/variants\\/(\\d)/) || [])[1] || '-', t: Math.round(v.currentTime * 100) / 100, paused: v.paused, rs: v.readyState, live: v.isConnected, cur: v === cur, holds: !!v.getAttribute('src') && v.networkState !== 0, err: v.error ? v.error.code : 0 }));"
+        func all() -> [[String: Any]] {
+            guard let s = js(read), let o = try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [[String: Any]] else { return [] }
+            return o
+        }
+        let playing = { (l: [[String: Any]]) in l.filter { ($0["paused"] as? Bool) == false && ($0["n"] as? String) != "-" } }
+        /// After a change to variant n: the viewer's video is n and plays on (its time moves on), every other is paused and still.
+        func came(_ n: Int, _ label: String) -> Bool {
+            let t0 = Date()
+            var s0: [[String: Any]] = []
+            let started = until(25) { s0 = all(); return s0.contains { ($0["cur"] as? Bool) == true && ($0["n"] as? String) == "\(n)" && ($0["paused"] as? Bool) == false && ($0["t"] as? Double ?? 0) > 0.05 } }
+            let wait = Date().timeIntervalSince(t0)
+            Thread.sleep(forTimeInterval: 1.5)
+            let s1 = all()
+            let curT = { (l: [[String: Any]]) in l.first { ($0["cur"] as? Bool) == true }?["t"] as? Double ?? -1 }
+            let moved = started && curT(s1) > curT(s0) + 0.7
+            // Every other element: paused, its time where it was.
+            var still = true
+            for (k, e) in s1.enumerated() where (e["cur"] as? Bool) != true {
+                if (e["paused"] as? Bool) == false { still = false }
+                if k < s0.count, let a0 = s0[k]["t"] as? Double, let a1 = e["t"] as? Double, abs(a1 - a0) > 0.05 { still = false }
+            }
+            let one = playing(s1).count == 1
+            // No other element holds a video (a player left behind loads on, and takes a decoder on a device).
+            let holding = s1.filter { ($0["holds"] as? Bool) == true && ($0["n"] as? String) != "-" }.count
+            mark("\(label): \(started ? "played after \(String(format: "%.1f", wait)) s" : "NOT playing after \(String(format: "%.1f", wait)) s"), moved \(moved), the others still \(still), playing \(playing(s1).count), holding a video \(holding); \(s1)")
+            XCTAssertTrue(started && moved, "\(label): it plays (its time moves on)")
+            XCTAssertTrue(still && one, "\(label): the one left is paused, only one plays")
+            XCTAssertEqual(holding, 1, "\(label): only the one up close holds a video")
+            return started && moved && still && one && holding == 1
+        }
+        // The full screen on the first, then the strip to the other and back, five times.
+        _ = js("const s = document.querySelector('.ptrack .pimg[data-n=\"0\"]'); if (s) s.click(); return !!s;")
+        var ok = came(0, "open on the 30 s")
+        shot("pick-switch-first")
+        for r in 1...5 {
+            _ = js("const t = document.querySelectorAll('.pzv-th')[1]; if (t) t.click(); return !!t;")
+            ok = came(1, "round \(r): to the 15 s") && ok
+            _ = js("const t = document.querySelectorAll('.pzv-th')[0]; if (t) t.click(); return !!t;")
+            ok = came(0, "round \(r): back to the 30 s") && ok
+        }
+        shot("pick-switch-after-five")
+        // The full screen closed: nothing plays. Opened again on the other: it plays, alone.
+        _ = js("const b = document.querySelector('.pzv-bar .icon-btn'); if (b) b.click(); return !!b;")
+        var cl: [[String: Any]] = []
+        let quiet = until(5) { cl = all(); return playing(cl).isEmpty && !cl.contains { ($0["holds"] as? Bool) == true && ($0["n"] as? String) != "-" } }
+        mark("the full screen closed: playing \(playing(cl).count); \(cl)")
+        XCTAssertTrue(quiet, "the full screen closed: no video plays on or is held")
+        _ = js("const s = document.querySelector('.ptrack .pimg[data-n=\"1\"]'); if (s) s.click(); return !!s;")
+        ok = came(1, "open again on the 15 s") && ok
+        _ = js("const b = document.querySelector('.pzv-bar .icon-btn'); if (b) b.click(); return !!b;")
+        let quiet2 = until(5) { playing(all()).isEmpty }
+        XCTAssertTrue(quiet2, "closed again: no video plays on")
+        mark("test9f: \(ok && quiet && quiet2 ? "every change played the one come to and paused the one left" : "FAILED")")
+        a.terminate()
     }
 
     /// A board opened before the Mac's hub updated (test9e): the board files of an older Mac, then a newer
