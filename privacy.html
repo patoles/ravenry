@@ -36,7 +36,7 @@
   <ul>
     <li>Ravenry reads your Claude Code and Codex sessions (their transcripts and what their terminals show) to put them on the board. It reads them on your Mac and copies them nowhere.</li>
     <li>It keeps your projects, briefs, decisions, ideas, pages, plans, settings, the phones you paired and its logs in <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code>. Bot tokens, webhooks and alert topics are in a file only your user can read.</li>
-    <li>Photos and voice notes you send from your phone land in that project's folder on your Mac, in <code>.inbox</code>, which git ignores. The phone deletes its copy once it is sent.</li>
+    <li>Photos and voice notes you send from your phone land in that project's folder on your Mac, in <code>.inbox</code>, which git ignores. The phone deletes its copy once it is sent. Files you attach from your phone go there too, and nowhere else. Your phone's own file picker hands Ravenry only the files you pick, so attaching needs no permission.</li>
     <li>A secret you type goes straight to the command that asked for it. It is never written down: not to a file, a log or an alert.</li>
     <li>If you turn on rule suggestions, Ravenry keeps the messages you typed in your sessions in <code>~/.ravenry/repeats</code>, since Claude Code deletes its own transcripts after 30 days.</li>
     <li>When you add another machine over ssh, the board reaches it over your own ssh connection.</li>
@@ -74,7 +74,7 @@
 <section aria-labelledby="perms">
   <h2 id="perms">Permissions, and why</h2>
   <dl class="who">
-    <div><dt>Camera</dt><dd>To scan the pairing code your Mac shows. On Android, also to take a photo for an agent, which goes to your Mac and nowhere else.</dd></div>
+    <div><dt>Camera</dt><dd>To scan the pairing code your Mac shows. On Android, also to take a photo for an agent, and on iPhone when you pick Take Photo under Attach. The photo goes to your Mac and nowhere else.</dd></div>
     <div><dt>Microphone</dt><dd>On Android, to record a voice note for an agent, which goes to your Mac and nowhere else. Voice typing in an answer uses your phone's own voice typing, under its own terms.</dd></div>
     <div><dt>Face ID or fingerprint</dt><dd>To check it's you before a command runs, or before an agent types into another tab, from your phone. Your phone does the check; Ravenry only learns yes or no.</dd></div>
     <div><dt>Notifications</dt><dd>To show you alerts.</dd></div>
@@ -87,7 +87,7 @@
   <h2 id="delete">Keeping it, and deleting it</h2>
   <ul>
     <li>We hold nothing about you, so there is nothing for us to delete.</li>
-    <li>On your Mac, choose Uninstall Ravenry… in the Ravenry menu and tick "Also delete Ravenry's own data". Or delete <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code> yourself. Photos and voice notes stay in each project's <code>.inbox</code> folder until you delete them.</li>
+    <li>On your Mac, choose Uninstall Ravenry… in the Ravenry menu and tick "Also delete Ravenry's own data". Or delete <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code> yourself. Photos, voice notes and files you sent stay in each project's <code>.inbox</code> folder until you delete them.</li>
     <li>On your phone, Sign out in the app's settings, or uninstall the app: what it kept goes with it.</li>
     <li>ntfy, Telegram, Discord and Slack keep the alerts they carried by their own rules.</li>
   </ul>
