@@ -422,13 +422,17 @@ func TestEventsFeed(t *testing.T) {
 	}
 
 	// ---- daemons that go, and one that comes back
-	// The older one ends with its last pane.
-	// It may stop before it answers the close, or before it says
-	// pane.closed (it drains: its last pane ends it); daemon.down it says.
-	e.run("0.1.0", "close", "--socket", sock1, keep)
-	_, down := f.find("daemon.down (0.1.0)", func(ev map[string]any) bool { return is("daemon.down", "")(ev) && ev["daemon"] == "0.1.0" })
+	// The older one ends with its last pane (it drains), but only once it
+	// answered the close and said pane.exited and pane.closed.
+	e.ok("0.1.0", "close", "--socket", sock1, keep)
+	iKeepExited, _ := f.find("pane.exited (0.1.0)", is("pane.exited", keep))
+	iKeepClosed, _ := f.find("pane.closed (0.1.0)", is("pane.closed", keep))
+	iDown, down := f.find("daemon.down (0.1.0)", func(ev map[string]any) bool { return is("daemon.down", "")(ev) && ev["daemon"] == "0.1.0" })
 	if down["machine"] != "local" || down["socket"] != sock1 {
 		t.Errorf("daemon.down %v", down)
+	}
+	if !(iKeepExited < iKeepClosed && iKeepClosed < iDown) {
+		t.Errorf("the drained daemon: pane.exited %d, pane.closed %d, daemon.down %d\n%s", iKeepExited, iKeepClosed, iDown, f.rawOut())
 	}
 	newer.Process.Signal(syscall.SIGTERM)
 	newer.Wait()

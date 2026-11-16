@@ -1763,7 +1763,12 @@ Over SSH:
 3. Clients send new panes to the newer daemon. The old daemon keeps its
    panes and still serves them fully.
 4. Once none of its panes is running, the old daemon closes what is left
-   (exited panes), removes its socket and exits.
+   (exited panes), removes its socket and exits. Before it goes, every
+   client still gets what concerns those last panes: the result of a
+   `pane.close` under way, and `pane.exited` then `pane.closed` for each
+   pane to its event subscribers. Other requests under way are cancelled.
+   A daemon stopped by a signal does the same. It waits at most two
+   seconds for its clients; one that does not read by then is cut off.
 
 ## 10. How the protocol changes
 

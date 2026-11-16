@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -109,7 +110,15 @@ func (s *Server) Serve(ln net.Listener) error {
 	return err
 }
 
-// Close stops accepting connections and closes the open ones.
+// CloseWait bounds how long a stopping daemon waits for its clients, all
+// connections at once: for the requests under way to answer, the events
+// queued for each to be written, and the close handshake. A client that
+// never reads is cut off when it has passed.
+const CloseWait = 2 * time.Second
+
+// Close stops accepting connections and ends the open ones: the requests
+// under way are cancelled (so they answer), the events queued are
+// written, then each connection is closed, all within CloseWait.
 func (s *Server) Close() {
 	s.stopOnce.Do(func() { close(s.stop) })
 	s.srv.Close()
@@ -119,9 +128,26 @@ func (s *Server) Close() {
 		conns = append(conns, c)
 	}
 	s.mu.Unlock()
+	deadline := time.Now().Add(CloseWait)
+	var wg sync.WaitGroup
 	for _, c := range conns {
-		c.ws.Close(websocket.StatusGoingAway, "the daemon is stopping")
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.finish(deadline)
+		}()
 	}
+	wg.Wait()
+}
+
+// Shutdown stops the daemon: no new connections, every pane closed while
+// the clients still hear it (pane.exited, pane.closed), then Close. grace
+// is how long the panes' processes get after SIGHUP.
+func (s *Server) Shutdown(grace time.Duration) {
+	s.stopOnce.Do(func() { close(s.stop) })
+	s.srv.Close()
+	s.o.Manager.Shutdown(grace)
+	s.Close()
 }
 
 // WatchForNewer looks for a newer daemon version beside this one every
@@ -155,7 +181,10 @@ func (s *Server) WatchForNewer(interval time.Duration) {
 				draining = v
 			}
 		}
-		if draining != "" && s.o.Manager.Running() == 0 {
+		// Live, not Running: a pane being closed, or whose program just
+		// exited, is not running any more but its pane.closed or
+		// pane.exited is not told yet.
+		if draining != "" && s.o.Manager.Live() == 0 {
 			s.o.Log.Printf("no running panes left: exiting for %s", draining)
 			if s.o.OnDrained != nil {
 				s.o.OnDrained()
@@ -263,7 +292,12 @@ type conn struct {
 	activity bool
 
 	events chan proto.Event
-	input  chan func()
+	// flush asks the event loop to write the events queued, and to close
+	// the channel it sends once they are (finish).
+	flush chan chan struct{}
+	// inflight counts the requests being handled, until each has answered.
+	inflight atomic.Int32
+	input    chan func()
 	// decMu orders this connection's agent.decisions result before the
 	// first agent.decision sent to it (agent.go).
 	decMu sync.Mutex
@@ -303,7 +337,7 @@ func newConn(s *Server, ws *websocket.Conn) *conn {
 	return &conn{
 		s: s, ws: ws, ctx: ctx, cancel: cancel,
 		streams: map[uint32]*stream{}, reqs: map[uint64]context.CancelFunc{},
-		events: make(chan proto.Event, 1024), input: make(chan func(), 256),
+		events: make(chan proto.Event, 1024), flush: make(chan chan struct{}), input: make(chan func(), 256),
 	}
 }
 
@@ -352,7 +386,73 @@ func (c *conn) eventLoop() {
 			if c.writeJSON(ev) != nil {
 				return
 			}
+		case done := <-c.flush:
+			for queued := true; queued; {
+				select {
+				case ev := <-c.events:
+					if c.writeJSON(ev) != nil {
+						return
+					}
+				default:
+					queued = false
+				}
+			}
+			close(done)
 		}
+	}
+}
+
+// finish ends a connection as the daemon stops, by the deadline: its
+// requests under way are cancelled and answer, the events queued for it
+// are written, then it is closed with a handshake. Past the deadline it is
+// cut off, so a client that never reads cannot hold the daemon.
+func (c *conn) finish(deadline time.Time) {
+	late := time.NewTimer(time.Until(deadline))
+	defer late.Stop()
+	c.mu.Lock()
+	for _, cancel := range c.reqs {
+		cancel()
+	}
+	c.mu.Unlock()
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for c.inflight.Load() > 0 {
+		select {
+		case <-tick.C:
+		case <-c.ctx.Done():
+			return
+		case <-late.C:
+			c.cancel()
+			return
+		}
+	}
+	done := make(chan struct{})
+	select {
+	case c.flush <- done:
+		select {
+		case <-done:
+		case <-c.ctx.Done():
+			return
+		case <-late.C:
+			c.cancel()
+			return
+		}
+	case <-c.ctx.Done():
+		return
+	case <-late.C:
+		c.cancel()
+		return
+	}
+	closed := make(chan struct{})
+	go func() {
+		c.ws.Close(websocket.StatusGoingAway, "the daemon is stopping")
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-late.C:
+		// Cancelling the connection's read closes it under the handshake.
+		c.cancel()
 	}
 }
 
@@ -489,6 +589,8 @@ func (c *conn) message(data []byte) {
 		c.fail(&id, proto.CodeUnknownMethod, fmt.Sprintf("no method %q", env.Type))
 		return
 	}
+	c.inflight.Add(1)
+	defer c.inflight.Add(-1)
 	if personOnly[env.Type] && !c.asPerson(id, env.Type) {
 		return
 	}
@@ -602,12 +704,14 @@ func (c *conn) track(id uint64, f func(ctx context.Context)) {
 	c.mu.Lock()
 	c.reqs[id] = cancel
 	c.mu.Unlock()
+	c.inflight.Add(1)
 	go func() {
 		defer func() {
 			c.mu.Lock()
 			delete(c.reqs, id)
 			c.mu.Unlock()
 			cancel()
+			c.inflight.Add(-1)
 		}()
 		f(ctx)
 	}()
@@ -893,9 +997,16 @@ func (c *conn) paneClose(id uint64, data []byte) {
 			c.failErr(id, err)
 			return
 		}
+		if beforeCloseReply != nil {
+			beforeCloseReply()
+		}
 		c.reply(id, "pane.close", proto.CloseResult{Pane: c.s.paneInfo(info), Signalled: n})
 	})
 }
+
+// beforeCloseReply, set by a test, runs between a pane's close and the
+// reply that says it closed.
+var beforeCloseReply func()
 
 func (c *conn) paneResize(id uint64, data []byte) {
 	var r proto.ResizeRequest

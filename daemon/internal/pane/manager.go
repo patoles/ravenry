@@ -57,6 +57,11 @@ type Manager struct {
 	watchers map[int]func(Event)
 	nextW    int
 	closing  bool
+	// settling counts the panes on their way out whose events are not all
+	// told yet: one being closed (gone from panes, pane.closed not yet
+	// emitted), one whose program exited (no longer running, pane.exited
+	// not yet emitted), one being restarted.
+	settling int
 	// activityOn says whether anyone follows pane activity.
 	activityOn func() bool
 	// track follows the panes' processes while they live (track.go).
@@ -181,8 +186,10 @@ func (m *Manager) New(cfg Config) (*Pane, error) {
 			m.emit("bell", p.Info())
 		}
 	}
+	p.onExiting = func(*Pane) { m.settle(1) }
 	p.onExit = func(p *Pane) {
 		m.emit("exited", p.Info())
+		m.settle(-1)
 		time.AfterFunc(m.o.KeepExited, func() { m.Close(p.id, time.Second) })
 	}
 	m.mu.Lock()
@@ -287,6 +294,22 @@ func (m *Manager) Running() int {
 	return n
 }
 
+// Live counts the panes still running, and those on their way out whose
+// pane.exited or pane.closed has not been told yet. A drained daemon goes
+// only once it is zero, so its watchers hear the end of its last pane.
+func (m *Manager) Live() int {
+	m.mu.Lock()
+	n := m.settling
+	m.mu.Unlock()
+	return m.Running() + n
+}
+
+func (m *Manager) settle(d int) {
+	m.mu.Lock()
+	m.settling += d
+	m.mu.Unlock()
+}
+
 // Roots maps the first process of every running pane to its pane id.
 func (m *Manager) Roots() map[int]string {
 	out := map[int]string{}
@@ -313,11 +336,13 @@ func (m *Manager) Close(id string, grace time.Duration) (Info, int, error) {
 	p, ok := m.panes[id]
 	if ok {
 		delete(m.panes, id)
+		m.settling++
 	}
 	m.mu.Unlock()
 	if !ok {
 		return Info{}, 0, ErrNotFound
 	}
+	defer m.settle(-1)
 	info := p.Info()
 	others := map[int]bool{}
 	for _, o := range m.open() {
@@ -326,8 +351,10 @@ func (m *Manager) Close(id string, grace time.Duration) (Info, int, error) {
 		}
 	}
 	n := p.close(grace, others)
+	// pane.exited first: wait until it is told, not only until the
+	// process ended.
 	select {
-	case <-p.exited:
+	case <-p.told:
 	case <-time.After(time.Second):
 	}
 	info = withExit(info, p)
@@ -354,10 +381,16 @@ func withExit(i Info, p *Pane) Info {
 func (m *Manager) Restart(id string, grace time.Duration) (*Pane, Info, error) {
 	m.mu.Lock()
 	p, ok := m.panes[id]
+	if ok {
+		// Between the old pane's close and the new one's start this
+		// pane is still live: a drained daemon waits for the new one.
+		m.settling++
+	}
 	m.mu.Unlock()
 	if !ok {
 		return nil, Info{}, ErrNotFound
 	}
+	defer m.settle(-1)
 	// Under the pane's lock: pane.override writes TERM into p.orig.Env.
 	p.mu.Lock()
 	cfg := p.orig

@@ -103,8 +103,9 @@ func cmdServe(in []string) error {
 	}()
 	logger.Printf("version %s, protocol %d, pid %d, socket %s", version, proto.Version, os.Getpid(), sock)
 	<-done
-	srv.Close()
-	mgr.Shutdown(time.Second)
+	// The panes close while the clients still hear it; then the clients
+	// get what is queued for them, within server.CloseWait.
+	srv.Shutdown(time.Second)
 	// Remove the socket only if it is still ours.
 	if fi, err := os.Lstat(sock); err == nil && fi.Mode()&os.ModeSocket != 0 {
 		if c, err := net.DialTimeout("unix", sock, 200*time.Millisecond); err != nil {

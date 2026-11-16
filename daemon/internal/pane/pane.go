@@ -220,7 +220,11 @@ type Pane struct {
 
 	done   chan struct{} // closed when the output loop has ended
 	exited chan struct{} // closed when the first process has exited
+	told   chan struct{} // closed once its exit has been told (onExit)
 
+	// onExiting runs before the exit is recorded, onExit after: between
+	// the two the pane is neither running nor told to have exited.
+	onExiting  func(*Pane)
 	onExit     func(*Pane)
 	onTitle    func(*Pane)
 	onPrompt   func(*Pane, Shell)
@@ -303,6 +307,7 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 		changed: make(chan struct{}),
 		done:    make(chan struct{}),
 		exited:  make(chan struct{}),
+		told:    make(chan struct{}),
 		seen:    newSeen(),
 	}
 	var cmd *exec.Cmd
@@ -802,6 +807,9 @@ func (p *Pane) waitLoop() {
 			ex = &Exit{Code: -1}
 		}
 	}
+	if p.onExiting != nil {
+		p.onExiting(p)
+	}
 	p.mu.Lock()
 	p.exit = ex
 	p.exitedAt = time.Now()
@@ -811,6 +819,7 @@ func (p *Pane) waitLoop() {
 	if p.onExit != nil {
 		p.onExit(p)
 	}
+	close(p.told)
 }
 
 func signalName(s syscall.Signal) string {
