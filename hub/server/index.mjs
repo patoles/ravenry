@@ -11,6 +11,7 @@ import * as startlog from './startlog.mjs';
 import * as slice from './slice.mjs';
 import http from 'node:http';
 import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -89,6 +90,24 @@ import * as sessionenv from './sessionenv.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
+
+// The board's own code as it is on disk now (hub/public: each file's name,
+// size and time), in every state: an open board that loaded another (the
+// Mac updated its hub while a phone, an iPad or a browser kept the page
+// open) loads again, so it never runs the older board's code against the
+// newer hub (the pickvideo round, 2026-11-16: an iPad opened before 0.1.59
+// never showed a card in no project). Read again at most every 3 s.
+let boardBuildAt = 0, boardBuildNow = null;
+function boardBuild() {
+  if (boardBuildNow && Date.now() - boardBuildAt < 3000) return boardBuildNow;
+  try {
+    const h = crypto.createHash('sha256');
+    for (const f of fs.readdirSync(PUBLIC).sort()) { const st = fs.statSync(path.join(PUBLIC, f)); if (st.isFile()) h.update(`${f}\0${st.size}\0${st.mtimeMs}\n`); }
+    boardBuildNow = h.digest('base64url').slice(0, 16);
+  } catch { /* none: no reload */ }
+  boardBuildAt = Date.now();
+  return boardBuildNow;
+}
 const PORT = Number(process.env.PORT || 4600);
 // Run by the Mac app's executable as Node (the service), the hub gets the
 // relay's RAVENRY_RELAY (NodeRunner.swift); none of what it starts (a
@@ -1388,7 +1407,7 @@ async function tick() {
     try { pages.refresh(); pageRows = pages.navRows(); } catch (e) { console.error('pages:', e.message); }
     tp.mark('snapshot');
     if (!snapshot.generatedAt) console.log(`start: first state built, ${Date.now() - startlog.T0} ms after start`);
-    snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects), access: access.view(homes.sayLocal) };
+    snapshot = { generatedAt: new Date(now).toISOString(), boardBuild: boardBuild(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects), access: access.view(homes.sayLocal) };
     // The sidebar, ready to draw (server/sidebar.mjs): its sections, rows and order.
     sidebar.withGroups(projects);
     // Session names (server/sessionnames.mjs): the Mac app reads the table

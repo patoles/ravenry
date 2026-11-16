@@ -94,6 +94,30 @@ const store = {
   set(k, v) { try { localStorage.setItem('mc.' + k, JSON.stringify(v)); } catch { /* private window */ } },
 };
 
+// The Mac's hub has another board now (an update, the state's boardBuild
+// moved on from the one this page loaded with): the page loads the new
+// one, so it never runs the older board's code against the newer hub (an
+// iPad opened before 0.1.59 never showed a card in no project). Not while
+// a field has the keyboard; what was typed in the message boxes is kept
+// for the page that comes back (this tab's session storage, read once).
+let boardReload = null;
+function newBoard() {
+  if (boardReload) return;
+  const go = () => {
+    const a = document.activeElement;
+    if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT' || a.isContentEditable)) return false;
+    try { sessionStorage.setItem('mc.reloadKeep', JSON.stringify({ drafts: ui.drafts, at: Date.now() })); } catch { /* none kept */ }
+    location.reload();
+    return true;
+  };
+  if (!go()) boardReload = setInterval(() => { if (go()) clearInterval(boardReload); }, 2000);
+}
+try {
+  const k = JSON.parse(sessionStorage.getItem('mc.reloadKeep') || 'null');
+  sessionStorage.removeItem('mc.reloadKeep');
+  if (k && Date.now() - k.at < 60000 && k.drafts && typeof k.drafts === 'object') Object.assign(ui.drafts, k.drafts);
+} catch { /* none */ }
+
 // Where the board opens (server/openon.mjs, docs/FEATURES.md NAV-009): the
 // hub's openOn, the project of the session the person used last on any
 // device (typed to, answered a card of, opened), when nothing more specific
@@ -5687,6 +5711,9 @@ function connect() {
   ui.es = es;
   es.addEventListener('state', (ev) => {
     const snap = JSON.parse(ev.data);
+    if (snap.boardBuild) {
+      if (!ui.boardBuild) { ui.boardBuild = snap.boardBuild; window.__rvBoardBuild = snap.boardBuild; } else if (snap.boardBuild !== ui.boardBuild) newBoard();
+    }
     withCheckpoints(snap);
     const prev = ui.lastStates;
     ui.snap = snap;
