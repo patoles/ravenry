@@ -838,12 +838,13 @@ Five kinds (`drive` and `pick` added after the first draft, section 10):
   person's pick. Each is a `label`, optionally a `description` (the
   agent's words on it, at most 200 bytes, shown under its picture), and a
   file on the daemon's machine
-  (`path`, `type` `image` or `html`, `size`), or a shot of a pane taken
+  (`path`, `type` `image`, `html` or `video`, `size`), or a shot of a pane taken
   when the checkpoint opens (`pane` set; the daemon writes the PNG into
   its state folder, `picks/`, and removes it once the checkpoint leaves
   the last 64 closed ones). A person answers with `pick`: the `label`,
   optionally a `region` of it (`x`, `y`, `w`, `h`, fractions of its width
-  and height) and a `note` ("this, but..."), or declines. A client reads
+  and height; on a video also `t`, the second of the frame it was drawn
+  on) and a `note` ("this, but..."), or declines. A client reads
   the files with `file.read`; one that serves an HTML variant to a
   browser serves it sandboxed (no scripts on its own origin).
 
@@ -898,7 +899,7 @@ below). An agent opens, lists, waits on and cancels them.
 | `warning` | string, optional | approve: what the agent warns the person about (what cannot be undone), at most 1000 bytes. |
 | `env` | object, optional | approve: variables the command runs with, at most 16: names of letters, digits and `_` (not `RAVENRY_*`), values of one line, at most 1000 bytes. The person sees them beside the command. A page's run button passes an item's values this way, so they never go inside the command line. |
 | `secret` | object, optional | secret: `to` (`input`, `run` or `env`), `pane` (input), `env` (env: a variable name, not `RAVENRY_*`), `enter` (input and run: end with Enter, default true). |
-| `variants` | array, optional | pick: 2 to 4 of `label` (1 to 64 bytes, unique), optionally `description` (at most 200 bytes on one line) and `path` (an absolute path: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.html` or `.htm`, at most 32 MiB) or `pane` (a shot of it now). |
+| `variants` | array, optional | pick: 2 to 4 of `label` (1 to 64 bytes, unique), optionally `description` (at most 200 bytes on one line) and `path` (an absolute path: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.html`, `.htm`, or a video: `.mp4`, `.m4v`, `.mov` or `.webm`; at most 100 MiB) or `pane` (a shot of it now). |
 | `drive` | object, optional | drive: `pane`, the pane the agent asks to act on, `action` (`input`, the default, `close`, `restart` or `override`) and optionally `reason` (the agent's words on why, at most 1000 bytes). The request takes no other field, not even `timeout_ms`: the daemon writes the title, and the checkpoint lasts one hour. From a person's connection it is refused (a person drives every pane). |
 | `timeout_ms` | integer, optional | How long a person has, 1 to 24 hours. Default one hour. |
 
@@ -933,7 +934,7 @@ A person's answer: exactly one of
 | `text` | string | ask with `free_text`: at most 4 KiB. |
 | `approve` | `true` | approve: run it. |
 | `secret` | string | secret: 4 to 4096 bytes on one line. Given, it is delivered (and for `run` and `env`, the command runs). |
-| `pick` | object | pick: `label` (one of the variants'), and optionally `region` (`x`, `y`, `w`, `h`, each 0 to 1, inside the variant) and `note` (at most 4000 bytes). |
+| `pick` | object | pick: `label` (one of the variants'), and optionally `region` (`x`, `y`, `w`, `h`, each 0 to 1, inside the variant; on a video `t`, the frame's second, 0 to 86400) and `note` (at most 4000 bytes). |
 | `decline` | `true` | Any kind: the person says no. |
 
 plus `checkpoint` (id), `by` (optional, at most 64 bytes: where they

@@ -183,6 +183,10 @@ person never needs to come back to your chat.
   ` + "`region x y w h`" + ` (the part they circled, fractions of the picture) and
   ` + "`note ...`" + ` ("this, but..."). Exit codes as ` + "`ask`" + `. Say what each
   one is with ` + "`--describe A=\"The hull stays flat\"`" + `: the label stays its name.
+  A variant can be a video (` + "`--variant A=clip.mp4`" + `: .mp4, .mov, .m4v or .webm,
+  up to 100 MiB), or a page that holds one: the person plays it, and a
+  region they circle on a paused frame comes as ` + "`region x y w h at T`" + `, T the
+  second of that frame.
 
 ## Panes you did not start
 

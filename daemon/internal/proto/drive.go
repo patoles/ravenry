@@ -336,7 +336,7 @@ type Variant struct {
 	// Description: the agent's words on this variant, at most 200 bytes.
 	Description string `json:"description,omitempty"`
 	Path        string `json:"path"`
-	Type        string `json:"type"` // "image" or "html"
+	Type        string `json:"type"` // "image", "html" or "video"
 	Size        int64  `json:"size"`
 	Pane        string `json:"pane,omitempty"`
 }
@@ -351,7 +351,8 @@ type VariantRequest struct {
 }
 
 // Pick is a person's pick: the variant's label, optionally a region of it
-// (fractions of its width and height) and a note ("this, but...").
+// (fractions of its width and height; on a video, of the frame shown at T
+// seconds) and a note ("this, but...").
 type Pick struct {
 	Label  string  `json:"label"`
 	Region *Region `json:"region,omitempty"`
@@ -363,4 +364,6 @@ type Region struct {
 	Y float64 `json:"y"`
 	W float64 `json:"w"`
 	H float64 `json:"h"`
+	// T: on a video, the time of the frame the region was drawn on, in seconds.
+	T *float64 `json:"t,omitempty"`
 }

@@ -174,6 +174,37 @@ func TestDriveAndPickFromTheCommandLine(t *testing.T) {
 	if out, code := done(); code != 0 || !strings.HasSuffix(out, "B\nregion 0.1000 0.2000 0.5000 0.2500\nnote this, but bigger\n") {
 		t.Fatalf("pick: %d %q", code, out)
 	}
+	// A video: its type, and the region circled on its paused frame comes
+	// with the frame's second; a time out of range is refused.
+	clip := filepath.Join(e.dir, "clip.mp4")
+	os.WriteFile(clip, []byte("\x00\x00\x00\x18ftypmp42"), 0o600)
+	done = startCmd(t, e.ravenry("0.2.0", "pick", "Which take?", "--variant", "A="+clip, "--variant", "B="+pic))
+	var vk proto.Checkpoint
+	for vk.ID == "" {
+		var l proto.CheckpointListResult
+		c.Call(ctx, "checkpoint.list", map[string]any{}, &l)
+		for _, x := range l.Checkpoints {
+			if x.Kind == "pick" && x.State == "open" {
+				vk = x
+			}
+		}
+		if ctx.Err() != nil {
+			t.Fatal("no video pick checkpoint")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(vk.Variants) != 2 || vk.Variants[0].Type != "video" || vk.Variants[1].Type != "image" {
+		t.Fatalf("video variants: %+v", vk.Variants)
+	}
+	if err := c.Call(ctx, "checkpoint.answer", map[string]any{"checkpoint": vk.ID, "pick": map[string]any{"label": "A", "region": map[string]any{"x": 0.1, "y": 0.2, "w": 0.5, "h": 0.25, "t": -1}}}, &r); err == nil || !strings.Contains(err.Error(), "pick.region.t") {
+		t.Fatalf("a negative time: %v", err)
+	}
+	if err := c.Call(ctx, "checkpoint.answer", map[string]any{"checkpoint": vk.ID, "pick": map[string]any{"label": "A", "region": map[string]any{"x": 0.1, "y": 0.2, "w": 0.5, "h": 0.25, "t": 3.204}, "note": "this frame"}}, &r); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := done(); code != 0 || !strings.HasSuffix(out, "A\nregion 0.1000 0.2000 0.5000 0.2500 at 3.20\nnote this frame\n") {
+		t.Fatalf("video pick: %d %q", code, out)
+	}
 }
 
 func TestDecisionsFromTheCommandLine(t *testing.T) {

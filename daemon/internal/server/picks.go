@@ -14,16 +14,20 @@ import (
 )
 
 // Picks (checkpoints.go): an agent shows 2 to 4 variants (pictures,
-// pages, or a shot of a pane taken now) and the person picks one, perhaps
-// with a region of it and a note ("this, but..."). The hub keeps the
-// variants with the project in Ravenry's data.
+// pages, videos, or a shot of a pane taken now) and the person picks one,
+// perhaps with a region of it (on a video: of the frame they paused on, at
+// its time t) and a note ("this, but..."). The hub keeps the variants with
+// the project in Ravenry's data.
 
 const (
-	minVariants    = 2
-	maxVariants    = 4
-	maxLabel       = 64
-	maxVariantSize = 32 << 20
-	maxNote        = 4000
+	minVariants = 2
+	maxVariants = 4
+	maxLabel    = 64
+	// A variant's file, a video's too: the hub keeps a copy of each.
+	maxVariantSize = 100 << 20
+	// A region's time on a video, in seconds: a day at most.
+	maxRegionTime = 86400
+	maxNote       = 4000
 )
 
 // variantType is a file's type by its extension.
@@ -33,6 +37,8 @@ func variantType(path string) string {
 		return "image"
 	case ".html", ".htm":
 		return "html"
+	case ".mp4", ".m4v", ".mov", ".webm":
+		return "video"
 	}
 	return ""
 }
@@ -91,7 +97,7 @@ func (s *Server) checkVariants(in []proto.VariantRequest) ([]proto.Variant, erro
 		t := variantType(v.Path)
 		if t == "" {
 			removeShots(out)
-			return nil, bad("variant %d: a picture (.png, .jpg, .gif, .webp, .svg) or a page (.html)", i)
+			return nil, bad("variant %d: a picture (.png, .jpg, .gif, .webp, .svg), a page (.html) or a video (.mp4, .mov, .m4v, .webm)", i)
 		}
 		fi, err := os.Stat(v.Path)
 		if err != nil || !fi.Mode().IsRegular() {
@@ -161,7 +167,14 @@ func checkPick(p proto.Pick, vs []proto.Variant) (proto.Pick, error) {
 		if !ok(r.X) || !ok(r.Y) || !ok(r.W) || !ok(r.H) || r.W <= 0 || r.H <= 0 || r.X+r.W > 1.000001 || r.Y+r.H > 1.000001 {
 			return proto.Pick{}, bad("pick.region is x, y, w and h, fractions of the variant from 0 to 1, inside it")
 		}
+		if t := r.T; t != nil && (math.IsNaN(*t) || *t < 0 || *t > maxRegionTime) {
+			return proto.Pick{}, bad("pick.region.t is the time of the video's frame, in seconds from 0 to %d", maxRegionTime)
+		}
 		rr := *r
+		if r.T != nil {
+			t := *r.T
+			rr.T = &t
+		}
 		p.Region = &rr
 	}
 	return p, nil

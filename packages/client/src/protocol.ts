@@ -275,7 +275,7 @@ export interface Variant {
   /** The agent's words on this variant, shown under its picture. */
   description?: string;
   path: string;
-  type: 'image' | 'html';
+  type: 'image' | 'html' | 'video';
   size: number;
   pane?: PaneId;
 }
@@ -286,6 +286,8 @@ export interface Region {
   y: number;
   w: number;
   h: number;
+  /** On a video, the time of the frame the region was drawn on, in seconds. */
+  t?: number;
 }
 
 /** A person's pick: a variant, perhaps a region of it and a note ("this, but..."). */

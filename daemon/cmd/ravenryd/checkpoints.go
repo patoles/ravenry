@@ -182,7 +182,11 @@ func waitCheckpoint(ctx context.Context, c *client.Client, a *args, id string, t
 		case ans.Pick != nil:
 			fmt.Println(ans.Pick.Label)
 			if r := ans.Pick.Region; r != nil {
-				fmt.Printf("region %.4f %.4f %.4f %.4f\n", r.X, r.Y, r.W, r.H)
+				if r.T != nil {
+					fmt.Printf("region %.4f %.4f %.4f %.4f at %.2f\n", r.X, r.Y, r.W, r.H, *r.T)
+				} else {
+					fmt.Printf("region %.4f %.4f %.4f %.4f\n", r.X, r.Y, r.W, r.H)
+				}
 			}
 			if ans.Pick.Note != "" {
 				fmt.Println("note " + ans.Pick.Note)

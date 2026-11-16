@@ -226,8 +226,8 @@ func init() {
 			{"cwd", valueFlag, "DIR", "with a command: where it runs (default: this pane's folder)"},
 			{"no-enter", boolFlag, "", "do not press Enter after typing it"},
 		}, wait...), run: cmdSecret},
-		{name: "pick", group: "Checkpoints", args: "TITLE", summary: "show the person 2 to 4 variants (pictures, HTML pages, or a shot of a pane) and wait for their pick; prints its label, then the region they circled (x y w h, fractions) and their note (\"this, but...\")", flags: append([]flagDoc{
-			{"variant", listFlag, "LABEL=FILE", "a variant: an image or an .html file, or LABEL=pane:PANE for a shot of that pane now (repeat 2 to 4 times)"},
+		{name: "pick", group: "Checkpoints", args: "TITLE", summary: "show the person 2 to 4 variants (pictures, HTML pages, videos, or a shot of a pane) and wait for their pick; prints its label, then the region they circled (x y w h, fractions; on a video \"at T\", the second of the frame) and their note (\"this, but...\")", flags: append([]flagDoc{
+			{"variant", listFlag, "LABEL=FILE", "a variant: an image, an .html file or a video (.mp4, .mov, .m4v, .webm; up to 100 MiB), or LABEL=pane:PANE for a shot of that pane now (repeat 2 to 4 times)"},
 			{"describe", listFlag, "LABEL=TEXT", "what a variant is, in your words, under its picture (at most 200 bytes; repeatable)"},
 		}, wait...), run: cmdPick},
 		{name: "checkpoints", group: "Checkpoints", summary: "list open checkpoints", flags: []flagDoc{

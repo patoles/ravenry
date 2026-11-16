@@ -5224,7 +5224,8 @@
         "type": {
           "enum": [
             "image",
-            "html"
+            "html",
+            "video"
           ]
         },
         "size": {
@@ -5266,6 +5267,12 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "t": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400,
+          "description": "On a video, the time of the frame the region was drawn on, in seconds."
         }
       },
       "required": [
