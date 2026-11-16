@@ -1,7 +1,7 @@
 // The app's settings, behind the gear (the approved mock, frame b): the
 // computer this phone is paired with and whether it answers, alerts by push
 // (UnifiedPush) on or off, the held connection on or off, that Run always
-// asks for a fingerprint (said, not a switch), and Sign out.
+// asks for a fingerprint (said, not a switch), the privacy page, and Sign out.
 //
 // Wired to the hub (GET /api/phone/me) and to the shell (push.status,
 // push.set, connection.get, connection.set, pair.reset).
@@ -78,6 +78,8 @@ export function settingsScreen(): Screen {
             h('div.setr', h('div.tx', h('div', 'Stay connected'), h('div.s', 'Shows alerts at once without push; a silent notification says so')), toggle(!!st.conn, st.conn !== null, () => void setConn(!st.conn), 'Stay connected'))])),
         h('div.setg',
           h('div.setr', h('div.tx', h('div', t('phone.runAsks', { bio: bioWord(sh.hello.platform) })), h('div.s', 'Always, from the alert and in the app')), h('span.r', 'Always'))),
+        // The privacy page, in the browser (the shells send a link that leaves the app there).
+        h('div.setg', h('a.setr.link', { href: t('privacy.url'), target: '_blank', rel: 'noopener', 'data-k': 'privacy' }, h('div.tx', h('div', t('privacy.title')), h('div.s', t('privacy.sub'))), h('span.r', '\u2197'))),
         h('div.setg', h('button.setr.red', { on: { click: () => void signOut(name) } }, `Sign out of ${name}`)),
         h('p.setn', `${name} can sign this ${me} out too, from its phone button.`))));
   }

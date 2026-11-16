@@ -63,6 +63,13 @@ extension SelfTestBoard {
         check("learn_from_help_menu", board.front == .page("side.learn", t("learn.title")))
         pg.buttons["close"]?.performClick(nil)
         check("learn_close_goes_back", board.front != .page("side.learn", t("learn.title")) && board.root.middle !== pg, "\(board.front)")
+        // Help, Privacy: the privacy page, in the browser (recorded off every screen), as a click on the menu does.
+        let o = Outside.record?.count ?? 0
+        let help = NSApp.helpMenu
+        let at = help?.items.firstIndex { $0.title == t("privacy.title") }
+        if let help, let at { help.performActionForItem(at: at) }
+        let opened = Array((Outside.record ?? []).dropFirst(o))
+        check("help_privacy_opens_page", at != nil && opened == ["open \(t("privacy.url"))"] && t("privacy.url").hasPrefix("https://") && t("privacy.url").hasSuffix("/privacy.html"), "\(help?.items.map(\.title) ?? []) \(opened)")
     }
 
     // MARK: Machines (MACH-001 to MACH-004)

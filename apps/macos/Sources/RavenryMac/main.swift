@@ -551,6 +551,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let help = menu("Help")
         NSApp.helpMenu = help
         add(help, t("learn.title"), #selector(menuLearn(_:)), "", target: self)
+        // The privacy page, in the browser.
+        add(help, t("privacy.title"), #selector(menuPrivacy(_:)), "", target: self)
         NSApp.mainMenu = main
     }
 }

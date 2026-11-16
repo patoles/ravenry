@@ -595,6 +595,32 @@ final class FlowTests: XCTestCase {
     /// A card asked from a pane in no project reaches every layout (the iPad's wide board and its column, an
     /// iPhone), its page opens the pick's screen, and its videos show their first frames and play there, through
     /// the app's shell (a player's parts, 206): A plays inline, a seek plays on, B (a page's video) plays.
+    /// Settings' Privacy row hands the privacy page to Safari (Board.swift createWebViewWith: a link that opens a window leaves the app).
+    func test9g_PrivacyOpensInSafari() throws {
+        if shotsOnly { return }
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "paired, the board")
+        // Settings, as a person reaches it: the board's menu, then This phone (the phone board's #/settings).
+        XCTAssertTrue(until(10) { js("const b = document.querySelector('#pb-more'); if (!b) return false; b.click(); return true;") == "true" }, "the board's menu")
+        XCTAssertTrue(until(10) { js("const b = document.querySelector('#pmenu [data-act=pn-app]'); if (!b) return false; b.click(); return true;") == "true" }, "This phone, in the menu")
+        let want = env["RAVENRY_PRIVACY_URL"] ?? ""
+        XCTAssertTrue(want.hasPrefix("https://") && want.hasSuffix("/privacy.html"), "the privacy page's address: \(want)")
+        XCTAssertTrue(until(15) { js("const r = document.querySelector('a.setr[data-k=privacy]'); if (!r) return null; r.scrollIntoView({ block: 'center' }); return r.getAttribute('href');")?.replacingOccurrences(of: "\\/", with: "/") == "\"\(want)\"" }, "Settings has the Privacy row, a link to the privacy page")
+        Thread.sleep(forTimeInterval: 1.0)
+        shot("settings-privacy")
+        let row = a.webViews.links.matching(NSPredicate(format: "label BEGINSWITH 'Privacy'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the Privacy row, as a person sees it")
+        row.tap()
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 20), "Safari comes to the front")
+        let host = URL(string: want)?.host ?? "?"
+        let shown = safari.descendants(matching: .any).matching(NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@", host, host)).firstMatch
+        XCTAssertTrue(shown.waitForExistence(timeout: 20), "Safari shows the privacy page's address (\(host))")
+        mark("privacy: Safari in front on \(host)")
+        shot("privacy-safari")
+        safari.terminate()
+    }
+
     func test9d_ACardInNoProjectAndItsVideos() throws {
         if shotsOnly { return }
         continueAfterFailure = true

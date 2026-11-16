@@ -289,6 +289,8 @@ extension AppDelegate {
         guard let c = current ?? makeWindow(.restore) else { return }
         c.board.openLearn()
     }
+    /// Help, Privacy: the privacy page in the browser (recorded off every screen).
+    @objc func menuPrivacy(_ sender: Any?) { Outside.open(t("privacy.url")) }
     @objc func menuToggleSidebar(_ sender: Any?) { current?.board.toggleSidebar() }
     @objc func menuTogglePanel(_ sender: Any?) { current?.board.togglePanel() }
 

@@ -54,6 +54,11 @@
 // not after 5 s only; a cold start opens on the hub's openOn too.
 // --hub DIR: the board's hub folder (an older tree's, to see the checks fail there).
 //
+// --privacy-only: pair with the real link, then Settings' Privacy row only:
+// a tap hands the privacy page (shared/strings/en.json privacy.url) to the
+// phone's browser (an ACTION_VIEW of that address, the app no longer in
+// front).
+//
 // --launch-only: pair with the real link, then the launch's checks only (an
 // AVD of Android 12 or older for today's version, where the rest is not run).
 //
@@ -81,6 +86,7 @@ const SERIAL = `emulator-${PORT}`;
 const AVD = opt('--avd', 'ravenry-pixel');
 const LAUNCH_ONLY = args.includes('--launch-only');
 const OPENON_ONLY = args.includes('--openon-only');
+const PRIVACY_ONLY = args.includes('--privacy-only');
 const HUB_DIR = opt('--hub', null);
 // The host's GPU, headless all the same (no window): frame times mean something.
 const GPU = opt('--gpu', 'host');
@@ -175,7 +181,7 @@ try {
   const shot = (name) => { const f = path.join(OUT, name); fs.writeFileSync(f, adbBin('exec-out', 'screencap', '-p')); console.log('shot', f); return f; };
   // A fingerprint, enrolled as a person does in Settings after a PIN (as
   // tools/pick-shots.mjs does; the sensor is touched with `adb emu finger touch`).
-  if (!LAUNCH_ONLY && !OPENON_ONLY) {
+  if (!LAUNCH_ONLY && !OPENON_ONLY && !PRIVACY_ONLY) {
     const fp = () => screen();
     adb('shell', 'locksettings', 'set-pin', '1234');
     adb('shell', 'am', 'start', '-a', 'android.settings.FINGERPRINT_ENROLL');
@@ -392,6 +398,34 @@ try {
     check(paired === '/', 'the real link pairs, and the home is the board (the project chips)', String(paired));
     await sleep(1500);
     await openOnSection();
+    break sections;
+  }
+  if (PRIVACY_ONLY) {
+    adb('shell', `am start -a android.intent.action.VIEW -d '${info.phone.link}' ${APP}`);
+    await tapWhen('Pair', 30000);
+    const paired = await until(() => page('document.querySelector("#pchips .pchip") ? location.pathname : null'), 40000, 1000);
+    check(paired === '/', 'the real link pairs, and the home is the board (the project chips)', String(paired));
+    await sleep(1500);
+    await tapUntil('#pb-more', () => page('document.querySelector("#pmenu .pn-menu") ? 1 : null'));
+    await tapPage('#pmenu [data-act="pn-app"]');
+    const row = await until(() => page('location.hash === "#/settings" && document.querySelector(\'a.setr[data-k="privacy"]\') ? 1 : null'), 10000);
+    await sleep(1500);
+    await page('document.querySelector(\'a.setr[data-k="privacy"]\').scrollIntoView({ block: "center" })');
+    await sleep(600);
+    shot('settings-privacy-light.png');
+    const href = await page('document.querySelector(\'a.setr[data-k="privacy"]\').getAttribute("href")');
+    const URL_ = JSON.parse(fs.readFileSync(path.join(REPO, 'shared', 'strings', 'en.json'), 'utf8'))['privacy.url'];
+    check(!!row && href === URL_, 'Settings has the Privacy row, a link to the privacy page', String(href));
+    adb('logcat', '-c');
+    await tapPage('a.setr[data-k="privacy"]');
+    const host = new URL(URL_).host;
+    const started = await until(() => (adb('logcat', '-d', '-s', 'ActivityTaskManager').split('\n').find((l) => /START u0 \{act=android\.intent\.action\.VIEW/.test(l) && l.includes(host)) || null), 10000, 400);
+    const top = await until(() => { const m = /topResumedActivity[^\n]*? ([\w.]+)\/[\w.$]+/.exec(adb('shell', 'dumpsys', 'activity', 'activities')); return m && m[1] !== APP ? m[1] : null; }, 10000, 500);
+    check(!!started, 'a tap on Privacy hands the privacy page to the phone\'s browser (ACTION_VIEW of its address)', started ? started.replace(/^.*START/, 'START').slice(0, 220) : 'no VIEW intent for ' + host);
+    check(!!top, 'the browser comes to the front, not the app', String(top));
+    await sleep(2500);
+    shot('privacy-browser.png');
+    adb('shell', 'am', 'force-stop', top || 'com.android.chrome');
     break sections;
   }
   if (LAUNCH_ONLY) {

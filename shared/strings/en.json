@@ -1613,5 +1613,8 @@
   "report.need.other": "needs you",
   "report.since": " since {time}",
   "report.working": "{who} is working",
-  "report.idle": "{who} is done with its turn"
+  "report.idle": "{who} is done with its turn",
+  "privacy.title": "Privacy",
+  "privacy.sub": "What Ravenry keeps, and what leaves your devices. Opens in your browser.",
+  "privacy.url": "https://patoles.github.io/ravenry/privacy.html"
 }

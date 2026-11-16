@@ -66,6 +66,7 @@ const ALLOWED = [
   { file: 'docs/PUBLISHING.md', sha256: OWNER, why: 'the public repository and page the testers download from' },
   { file: 'site/index.html', sha256: OWNER, why: "the GitHub owner in the launch page's download and issue links" },
   { file: 'site/privacy.html', sha256: OWNER, why: "the GitHub owner in the privacy page's issue link (the launch page's reportUrl)" },
+  { file: 'shared/strings/en.json', sha256: OWNER, why: "the GitHub owner in the privacy page's address (privacy.url), which every app's Privacy link opens" },
   { file: 'hub/NOTICE', sha256: NAME, why: 'the copyright holder and trademark owner' },
   { file: 'hub/README.md', sha256: NAME, why: 'the author line and the trademark owner' },
   { file: 'hub/docs/PUBLISHING.md', sha256: NAME, why: 'the author, as decided for 0.1.0' },

@@ -270,6 +270,8 @@ const runEnv = {
   TEST_RUNNER_RAVENRY_TYPED: TYPED, TEST_RUNNER_RAVENRY_SHOTS_ONLY: SHOTS_ONLY ? '1' : '0',
   TEST_RUNNER_RAVENRY_TEST_HUB: `127.0.0.1:${info.phone.port}`, TEST_RUNNER_RAVENRY_TEST_PIN: PIN, TEST_RUNNER_RAVENRY_TEST_TOKEN: UNIT_TOKEN || '',
   TEST_RUNNER_RAVENRY_TEST_LINK: card.link,
+  // test9g: the address Settings' Privacy row opens (shared/strings/en.json privacy.url).
+  TEST_RUNNER_RAVENRY_PRIVACY_URL: JSON.parse(fs.readFileSync(path.join(REPO, 'shared', 'strings', 'en.json'), 'utf8'))['privacy.url'],
   // test9e: the board files of an older and a newer Mac (folders swapped over the test hub's, a --hub copy).
   TEST_RUNNER_RAVENRY_BOARD_OLD: SWAP.old || '', TEST_RUNNER_RAVENRY_BOARD_NEW: SWAP.new || '',
 };

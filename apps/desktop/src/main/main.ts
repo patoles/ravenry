@@ -55,6 +55,7 @@ import { postNotification } from './notify.ts';
 import type { NotifyRequest } from './notify.ts';
 import { helperArgs, MARKER, paneVars, readMarker, relaunchPlan } from './relaunch.ts';
 import { applyGate } from './gate.ts';
+import { t } from '../shared/strings.ts';
 
 // build.mjs defines it: false in a release build, so what it guards is not
 // in the app at all (gate.ts).
@@ -264,6 +265,9 @@ function menu(): void {
   // After the switch from the npm board, the way back (asked in the window first).
   const backItems: MenuItemConstructorOptions[] = npm.detect && npm.detect.record && npm.detect.record.state === 'switched'
     ? [{ label: 'Go Back to the npm Board…', click: () => { npm.confirmBack = true; pushNpm(); } }] : [];
+  // Help, Privacy: the privacy page in the browser (recorded off every screen, RAVENRY_OPEN_LOG).
+  const privacyUrl = t('privacy.url');
+  const privacyItem: MenuItemConstructorOptions = { label: t('privacy.title'), click: () => outside('url', privacyUrl, () => void shell.openExternal(privacyUrl)) };
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{
       label: app.name,
@@ -340,8 +344,8 @@ function menu(): void {
       ],
     },
     { role: 'windowMenu' },
-    // Learn Ravenry (renderer: learn.ts), the page the person opens when they want.
-    isMac ? { role: 'help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }] } : { label: 'Help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }, { type: 'separator' }, updateItem, ...backItems] },
+    // Learn Ravenry (renderer: learn.ts), the page the person opens when they want; Privacy, the privacy page in the browser.
+    isMac ? { role: 'help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }, privacyItem] } : { label: 'Help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }, privacyItem, { type: 'separator' }, updateItem, ...backItems] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
