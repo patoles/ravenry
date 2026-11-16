@@ -23,7 +23,11 @@
 //            looping, with its controls (play, pause, the scrub bar), at
 //            its fit (no zoom). Circle a part stops it on the frame shown:
 //            the ring is drawn on that frame, and the answer's region says
-//            its second (t).
+//            its second (t). One video plays at a time, in the one player
+//            the screen has (the fourth part, 2026-11-16): a change to
+//            another, the close, the screen going let the one left go
+//            (paused, its source dropped); the thumbnails are pictures of
+//            the first frames (frames.ts), with no player of their own.
 //
 // The pictures are the hub's copies in Ravenry's data (GET
 // /api/checkpoints/<id>/variants/<n>, through the shell with the device
@@ -38,6 +42,7 @@ import * as I from './icons.ts';
 import { current, hubUrl } from './shell.ts';
 import { regionOf } from './logic.ts';
 import { t as say } from './strings.ts';
+import { frameBroken, frameNow, frameOf } from './frames.ts';
 
 export interface PickUI {
   /** The picture on screen. */
@@ -73,25 +78,38 @@ export const videoOf = (cp: HubCheckpoint, n: number): string | null => {
   const u = ((cp.variants || [])[n] as { video?: unknown } | undefined)?.video;
   return typeof u === 'string' && u.startsWith('/api/') ? hubUrl(u) : null;
 };
-/** A video's first frame, small: a muted element that loads only what it needs to draw it. */
-const firstFrame = (url: string): HTMLVideoElement => {
-  const v = h('video', { src: `${url}#t=0.001`, preload: 'metadata', muted: true, playsinline: true, 'webkit-playsinline': true, tabindex: '-1', 'aria-hidden': 'true' }) as HTMLVideoElement;
-  v.muted = true;
-  return v;
+/** A video's first frame, as a picture drawn once (frames.ts): no player of its own. `missing`: the video cannot be read. */
+const firstFrame = (url: string, missing?: () => void): HTMLImageElement => {
+  const im = h('img', { alt: '', draggable: 'false', 'data-frame': url }) as HTMLImageElement;
+  const now = frameNow(url);
+  if (now) im.src = now;
+  else if (now === undefined) void frameOf(url).then((u) => { if (u) im.src = u; else if (frameBroken(url)) missing?.(); });
+  else if (frameBroken(url)) missing?.();
+  return im;
 };
 /** "0:03.2": a second of a video, as a person reads it. */
 export const clock = (t: number): string => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
-// The viewer's players, one per video, kept through redraws so a video plays on.
-const players = new Map<string, HTMLVideoElement>();
+// The screen's one player, kept through redraws so a video plays on. Another
+// video gets a player of its own, made then, and the one left lets its video
+// go (a player whose source was dropped and set again could load for ever on
+// an iPhone).
+let one: HTMLVideoElement | null = null;
 function player(url: string): HTMLVideoElement {
-  let v = players.get(url);
-  if (!v) {
-    v = h('video.pzv-vid', { src: url, preload: 'auto', muted: true, loop: true, playsinline: true, 'webkit-playsinline': true }) as HTMLVideoElement;
-    v.muted = true;
-    players.set(url, v);
-    if (players.size > 6) { const [k, old] = players.entries().next().value as [string, HTMLVideoElement]; old.pause(); players.delete(k); }
-  }
+  if (one && one.getAttribute('src') === url) return one;
+  letGo();
+  const v = h('video.pzv-vid', { src: url, preload: 'auto', muted: true, loop: true, playsinline: true, 'webkit-playsinline': true }) as HTMLVideoElement;
+  v.muted = true;
+  one = v;
   return v;
+}
+/** No video up close (another one, the viewer closed, a picture shown, the screen gone): the player stops and lets its video go. */
+export function letGo(): void {
+  const v = one;
+  one = null;
+  if (!v) return;
+  v.pause();
+  v.removeAttribute('src');
+  v.load();
 }
 
 /** The circle as drawn: the finger's path, closed smoothly, over the picture. */
@@ -108,7 +126,7 @@ function slide(cp: HubCheckpoint, w: CheckpointWords, n: number, total: number, 
   missing.hidden = true;
   const vid = videoOf(cp, n);
   let media: HTMLElement;
-  if (vid) { media = firstFrame(vid); media.addEventListener('error', () => { missing.hidden = false; }); }
+  if (vid) media = firstFrame(vid, () => { missing.hidden = false; });
   else media = v && v.type === 'html'
     ? h('iframe.phtml', { src: variantUrl(cp, n), sandbox: '', title: v.label, loading: 'lazy' })
     : h('img', { src: variantUrl(cp, n), alt: v ? v.label : '', draggable: 'false', on: { error: () => { missing.hidden = false; } } });
@@ -150,6 +168,7 @@ export function pickView(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: P
   };
 
   if (ui.mode === 'view') return viewer(cp, w, ui, x, { nameOf, pickNow, mic: sh.has('speech') ? () => sh.call<{ text: string }>('speech') : null });
+  letGo();
 
   // ------------------------------------------------ swipe
   const cap = h('p.pcap');
@@ -224,6 +243,7 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
   // ring's frame, its controls hidden so a finger draws on the frame.
   const vu = videoOf(cp, i);
   const vid = vu ? player(vu) : null;
+  if (!vid) letGo();
   const still = !!vid && (ui.circling || mine);
   if (vid) {
     vid.controls = !still;
@@ -426,7 +446,7 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
       : [h('button.btn', { disabled: ui.busy, on: { click: () => { ui.circling = true; ui.error = null; if (vid) { vid.pause(); ui.t = vid.currentTime; } x.repaint(); } } }, svg(I.CIRCLE), say('pick.circle')),
         h('button.btn.pri', { disabled: ui.busy, on: { click: c.pickNow } }, say('pick.pickLetter', { letter }))];
 
-  const close = () => { ui.mode = 'swipe'; ui.circling = false; ui.zoom = { s: 1, x: 0, y: 0 }; for (const p of players.values()) p.pause(); x.repaint(); };
+  const close = () => { ui.mode = 'swipe'; ui.circling = false; ui.zoom = { s: 1, x: 0, y: 0 }; letGo(); x.repaint(); };
   return h('div.pzv',
     h('div.pzv-bar',
       h('button.icon-btn.fg', { 'aria-label': say('phone.pick.closeViewer'), on: { click: close } }, svg(I.X18)),

@@ -29,7 +29,7 @@ import * as I from './icons.ts';
 import * as hub from './hub.ts';
 import { current } from './shell.ts';
 import { dropLine, mmss, waitOf } from './logic.ts';
-import { newPick, pickView } from './pick.ts';
+import { letGo, newPick, pickView } from './pick.ts';
 import type { PickUI } from './pick.ts';
 import { sayPathOn } from '../../../hub/public/homepath.mjs';
 import { keyParts } from '../../../hub/public/keys.mjs';
@@ -325,6 +325,8 @@ export function checkpointScreen(id: string): Screen {
     const key = cp ? `${cp.state}|${!!cp.words}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${cp.kind === 'pick' ? (cp.variants || []).map((v) => (v as { video?: string }).video || '').join() : Math.floor(Date.now() / 30000)}` : 'gone';
     if (!force && key === lastKey) return;
     lastKey = key;
+    // A pick no longer open (answered, withdrawn, gone): its video stops and lets go.
+    if (!cp || cp.state !== 'open') letGo();
     if (!cp) {
       replace(el, h('div.pcp', h('div.pcp-top', h('button.icon-btn.fg', { 'aria-label': 'Close', on: { click: back } }, svg(I.X18))),
         h('h2.sm', hub.live.state ? 'This checkpoint is no longer open.' : 'Reaching the computer...'),
@@ -358,7 +360,7 @@ export function checkpointScreen(id: string): Screen {
   return {
     el,
     update: () => paint(false),
-    dispose: () => { closeSecret(); window.removeEventListener('resize', onResize); for (const f of offs) f(); },
+    dispose: () => { closeSecret(); letGo(); window.removeEventListener('resize', onResize); for (const f of offs) f(); },
   };
 }
 
