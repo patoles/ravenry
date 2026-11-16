@@ -1972,7 +1972,10 @@ ${(cp.options || []).length ? `<div class="q-opts" style="display: flex; flex-wr
   const tiles = vs.length ? `<div class="pk-tiles" style="grid-template-columns: repeat(${Math.min(4, vs.length)}, minmax(0, 1fr))">${vs.map((v, k) => {
     const nm = (w.variants || [])[k] || {};
     const letter = nm.letter || String(k + 1);
-    return `<button class="pk-tile" data-pick-view="${escRaw(cp.id)}" data-n="${k}" aria-label="${esc(`${letter}. ${nm.name || v.label || ''}`)}">${v.type === 'html' ? '' : `<img src="/api/checkpoints/${escRaw(encodeURIComponent(cp.id))}/variants/${k}" alt="" loading="lazy">`}<span class="pk-lt">${esc(letter)}</span></button>`;
+    // A video (or a page that holds one) shows its first frame and plays in the viewer; a page, as the hub draws it.
+    const src = `/api/checkpoints/${escRaw(encodeURIComponent(cp.id))}/variants/${k}`;
+    const media = v.video ? `<video src="${escRaw(v.video)}#t=0.001" preload="metadata" muted playsinline tabindex="-1"></video><span class="pk-play" aria-hidden="true"></span>` : `<img src="${src}${v.type === 'html' ? '?as=png' : ''}" alt="" loading="lazy">`;
+    return `<button class="pk-tile" data-pick-view="${escRaw(cp.id)}" data-n="${k}" aria-label="${esc(`${letter}. ${nm.name || v.label || ''}`)}">${media}<span class="pk-lt">${esc(letter)}</span></button>`;
   }).join('')}</div>` : '';
   return `${head}
 <div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(w.head || cp.title || '')}</div>

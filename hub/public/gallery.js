@@ -10,7 +10,9 @@
 // Esc goes back, and each picture opens whole.
 //
 // A pick's pictures open in the same viewer (openPick, from the answer
-// card's tiles; the pickzoom round, 2026-11-15): the question in the bar,
+// card's tiles; the pickzoom round, 2026-11-15; a video, or a page that
+// holds one, plays there with its controls, muted and looping, the
+// pickvideo round, 2026-11-16; a page with none shows as the hub draws it): the question in the bar,
 // each variant's letter, name and the agent's words under the picture, the
 // variants in the strip by letter and name, and no Pick: a browser does not
 // answer a checkpoint (server/person.mjs), so the caption says where to.
@@ -93,7 +95,7 @@ export function createGallery(d) {
     layer.addEventListener('touchend', (e) => {
       const t = g.touch; g.touch = null;
       // A finger on a zoomed picture pans it; only a fit picture swipes.
-      if (!t || !e.changedTouches.length || z.s > 1) return;
+      if (!t || !e.changedTouches.length || z.s > 1 || (onVideo() && e.target.closest('video'))) return;
       const dx = e.changedTouches[0].clientX - t.x, dy = e.changedTouches[0].clientY - t.y;
       if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2) step(dx < 0 ? 1 : -1);
     });
@@ -104,18 +106,19 @@ export function createGallery(d) {
     // the fingers to this.
     // A pick's caption says the picture's size once it is in.
     layer.addEventListener('load', (e) => { if (g.pick && e.target && e.target.id === 'gl-im') draw(); }, true);
+    layer.addEventListener('loadedmetadata', (e) => { if (g.pick && e.target && e.target.id === 'gl-vid') draw(); }, true);
     layer.addEventListener('pointerdown', zoomDown);
     layer.addEventListener('pointermove', zoomMove);
     layer.addEventListener('pointerup', zoomUp);
     layer.addEventListener('pointercancel', zoomUp);
     layer.addEventListener('wheel', zoomWheel, { passive: false });
     layer.addEventListener('dblclick', (e) => {
-      if (!e.target.closest('#gl-view') || e.target.closest('[data-gl-fit]') || z.type === 'touch') return;
+      if (!e.target.closest('#gl-view') || e.target.closest('[data-gl-fit]') || z.type === 'touch' || onVideo()) return;
       e.preventDefault();
       zoomToggle(e.clientX, e.clientY);
     });
     layer.addEventListener('gesturestart', (e) => {
-      if (!e.target.closest || !e.target.closest('#gl-view')) return;
+      if (!e.target.closest || !e.target.closest('#gl-view') || onVideo()) return;
       e.preventDefault();
       z.gs = z.ptrs.size ? null : { s0: z.s }; // fingers on a touch screen pinch through the pointers instead
     });
@@ -194,8 +197,10 @@ export function createGallery(d) {
   }
   function panStart(p) { z.pan = { x0: p.x, y0: p.y, tx: z.x, ty: z.y }; }
 
+  // A video plays with its own controls: no zoom, no pan over it.
+  const onVideo = () => { const x = cur(); return !!(x && x.video); };
   function zoomDown(e) {
-    if (!e.target.closest('#gl-view') || e.target.closest('[data-gl-fit]')) return;
+    if (!e.target.closest('#gl-view') || e.target.closest('[data-gl-fit]') || onVideo()) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     z.type = e.pointerType;
     z.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -245,7 +250,7 @@ export function createGallery(d) {
     else z.tap = { x: e.clientX, y: e.clientY, t: e.timeStamp };
   }
   function zoomWheel(e) {
-    if (!e.target.closest('#gl-view')) return;
+    if (!e.target.closest('#gl-view') || onVideo()) return;
     e.preventDefault();
     const px = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
     const dy = Math.max(-300, Math.min(300, e.deltaY * px));
@@ -261,7 +266,7 @@ export function createGallery(d) {
     zoomClear();
     // The picture sits in a view that clips it, so a zoomed picture stays
     // inside the picture's own area (never over the arrows or the caption).
-    const VIEW = `<div class="gb-view" id="gl-view"><img class="gb-im" id="gl-im" alt="" draggable="false"><button class="btn sm gb-fit" data-gl-fit hidden aria-label="Back to the whole picture"><span class="num t2" id="gl-pct"></span>Fit</button></div>`;
+    const VIEW = `<div class="gb-view" id="gl-view"><img class="gb-im" id="gl-im" alt="" draggable="false"><video class="gb-im gb-vid" id="gl-vid" controls muted loop playsinline hidden></video><button class="btn sm gb-fit" data-gl-fit hidden aria-label="Back to the whole picture"><span class="num t2" id="gl-pct"></span>Fit</button></div>`;
     layer.classList.toggle('gl-p', phone);
     layer.innerHTML = phone
       ? `<div class="fs-bar" id="gl-bar"></div><div class="gb-stage">${VIEW}</div><div class="gb-cap" id="gl-cap"></div><div class="gb-strip" id="gl-strip"></div><div class="gb-ctl"><button class="btn gb-big" data-gl-step="-1">${ICON.left(18)}Previous</button><button class="btn gb-big" data-gl-step="1">Next${ICON.right(18)}</button></div>`
@@ -288,11 +293,20 @@ export function createGallery(d) {
       ? `<button class="x-btn" data-gl-close aria-label="Close the pictures">${ICON.x}</button><span class="fs-name">${esc(name)}</span><span class="t2" style="font-size: 13px">Pictures</span><span style="flex: 1"></span><span class="num t2" style="font-size: 13px">${i + 1} of ${n}</span>`
       : `<span class="fs-name">${esc(name)}</span><span class="t2" style="font-size: 13px">Pictures from this session</span><span style="flex: 1"></span><span class="t3" style="font-size: 12px">Left and right arrows to move, Esc to close</span><button class="btn sm" data-gl-close>Close</button>`);
     const im = layer.querySelector('#gl-im');
-    if (x && im.getAttribute('src') !== x.url) { zoomClear(); im.setAttribute('src', x.url); } // each picture opens whole
+    const vid = layer.querySelector('#gl-vid');
+    // A video plays in the picture's place, at once, muted and looping, with its controls.
+    if (x && x.video) {
+      im.hidden = true; vid.hidden = false;
+      if (vid.getAttribute('src') !== x.video) { zoomClear(); vid.muted = true; vid.setAttribute('src', x.video); vid.setAttribute('aria-label', x.name); const pl = vid.play(); if (pl && pl.catch) pl.catch(() => {}); }
+    } else {
+      im.hidden = false; vid.hidden = true;
+      if (vid.getAttribute('src')) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
+      if (x && im.getAttribute('src') !== x.url) { zoomClear(); im.setAttribute('src', x.url); } // each picture opens whole
+    }
     if (x) im.alt = x.name;
     for (const b of layer.querySelectorAll('[data-gl-step]')) b.disabled = Number(b.dataset.glStep) < 0 ? i <= 0 : i >= n - 1;
     if (x && pw) {
-      const size = im.naturalWidth && im.getAttribute('src') === x.url ? `${im.naturalWidth} x ${im.naturalHeight}` : '';
+      const size = x.video ? (vid.videoWidth ? `${vid.videoWidth} x ${vid.videoHeight}` : '') : im.naturalWidth && im.getAttribute('src') === x.url ? `${im.naturalWidth} x ${im.naturalHeight}` : '';
       setHtml(layer.querySelector('#gl-cap'), g.phone
         ? `<div><span class="ga-file">${esc(x.name)}</span></div>${x.says ? `<div class="t2" style="font-size: 12px">${esc(x.says)}</div>` : ''}<div class="t3" style="font-size: 12px">${esc(pb.elsewhere || '')}</div>`
         : `<span class="ga-file">${esc(x.name)}</span>${x.says ? `<span class="t2">${esc(x.says)}</span>` : ''}${size ? `<span class="t2 num">${size}</span>` : ''}<span style="flex: 1"></span><span class="t2">${esc(pb.elsewhere || '')}</span>`);
@@ -305,12 +319,12 @@ export function createGallery(d) {
     }
     // The strip: the thumbnails are made again only when the 6 change, so a
     // move does not load them again; a move only moves the ring.
-    const keys = g.list.map((y) => y.key + '|' + y.url).join(',') + (g.phone ? ':p' : ':d');
+    const keys = g.list.map((y) => y.key + '|' + y.url + '|' + (y.video || '')).join(',') + (g.phone ? ':p' : ':d');
     const strip = layer.querySelector('#gl-strip');
     if (g.strip !== keys) {
       g.strip = keys;
       strip.innerHTML = g.pick
-        ? g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb pk-th" data-gl-go="${k}" aria-label="${esc(y.name)}"><img src="${escRaw(y.url)}" alt=""><span class="pk-lt">${esc(y.letter)}</span></button>${g.phone ? '' : `<span class="gl-time pk-nm">${esc(y.label)}</span>`}</span>`).join('')
+        ? g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb pk-th" data-gl-go="${k}" aria-label="${esc(y.name)}">${y.video ? `<video src="${escRaw(y.video)}#t=0.001" preload="metadata" muted playsinline tabindex="-1"></video>` : `<img src="${escRaw(y.url)}" alt="">`}<span class="pk-lt">${esc(y.letter)}</span></button>${g.phone ? '' : `<span class="gl-time pk-nm">${esc(y.label)}</span>`}</span>`).join('')
         : g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb" data-gl-go="${k}" aria-label="${esc(`${y.name}${y.at ? ', ' + agoWords(y.at) : ''}`)}"><img src="${escRaw(y.url)}" alt=""></button>${g.phone ? '' : `<span class="gl-time num"></span>`}</span>`).join('');
     }
     strip.querySelectorAll('.gl-cell').forEach((c, k) => {
@@ -351,7 +365,7 @@ export function createGallery(d) {
     return (cp.variants || []).map((v, k) => {
       const nm = (w.variants || [])[k] || {};
       const letter = nm.letter || String(k + 1);
-      return { key: `v${k}`, letter, label: nm.name || v.label || '', name: `${letter}. ${nm.name || v.label || ''}`, says: nm.says || null, url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${k}` };
+      return { key: `v${k}`, letter, label: nm.name || v.label || '', name: `${letter}. ${nm.name || v.label || ''}`, says: nm.says || null, url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${k}${v.type === 'html' && !v.video ? '?as=png' : ''}`, video: v.video || null };
     });
   }
   // Opens a pick's picture n up close (a tile on its answer card).
