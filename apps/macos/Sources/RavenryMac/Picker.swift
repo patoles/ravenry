@@ -17,6 +17,12 @@
 // side by side. Circle a part works while zoomed: the ring is drawn on the
 // picture itself, so it is kept in fractions of the whole picture and
 // follows the zoom and the pan, its note pinned beside it.
+//
+// A video, or a page that holds one (the pickvideo round, 2026-11-16,
+// PickVideo.swift), shows its first frame with a play mark side by side and
+// in the strip, and plays up close at once, muted and looping, with its
+// controls. Circle a part stops it on the frame shown; the ring is dragged
+// on that frame and the answer's region says its second (`t`).
 
 import AppKit
 
@@ -29,6 +35,8 @@ final class PickImage: NSView {
     var region: NSRect? { didSet { needsDisplay = true } }
     var empty = ""
     var letter = ""
+    /// A video's first frame: the play mark over it (PickVideo.swift).
+    var playMark = false { didSet { needsDisplay = true } }
     var onRing: ((NSRect) -> Void)?
     var onClick: (() -> Void)?
     private var start: NSPoint?
@@ -71,6 +79,7 @@ final class PickImage: NSView {
                 Design.color("you").setStroke()
                 ring.stroke()
             }
+            if playMark, region == nil { drawPlayMark(in: pr, size: 44) }
             NSGraphicsContext.restoreGraphicsState()
             let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: picked ? 1.25 : 0.5, dy: picked ? 1.25 : 0.5), xRadius: 9, yRadius: 9)
             edge.lineWidth = picked ? 2.5 : 1
@@ -230,6 +239,10 @@ final class PickerView: Box, BackLinked {
     /// The viewer: the gallery's zoom, the ring over its picture, the "% Fit" chip, the strip.
     let zoom = ZoomView()
     let pickRing = PickRing()
+    /// A video up close, in the zoom's place.
+    let video = PickPlayer()
+    /// On a video: the second of the frame the ring is drawn on.
+    private(set) var regionT: Double?
     let chip = FitChip()
     private let viewer = Flipped()
     private var vhead: NSView?
@@ -249,7 +262,10 @@ final class PickerView: Box, BackLinked {
         addSubview(viewer)
         addSubview(foot)
         viewer.isHidden = true
-        for v in [zoom, vstrip, chip] as [NSView] { viewer.addSubview(v) }
+        for v in [zoom, video, vstrip, chip] as [NSView] { viewer.addSubview(v) }
+        video.isHidden = true
+        video.ring.onRing = { [weak self] r in if let self, let n = self.viewing { self.ringed(n, r) } }
+        video.onLayout = { [weak self] in self?.placeNote() }
         zoom.picture.addSubview(pickRing)
         pickRing.autoresizingMask = [.width, .height]
         pickRing.onRing = { [weak self] r in if let self, let n = self.viewing { self.ringed(n, r) } }
@@ -290,10 +306,21 @@ final class PickerView: Box, BackLinked {
         let cid = cp["id"] as? String
         let n = (cp["variants"] as? [Any] ?? []).count
         if cid != id {
-            id = cid; picked = nil; circling = false; region = nil; pin = ""; editingPin = false; busy = false; error = nil
+            id = cid; picked = nil; circling = false; region = nil; regionT = nil; pin = ""; editingPin = false; busy = false; error = nil
             extra.stringValue = ""; pictures = [:]; viewing = nil
-            // Read once (HubClient.picture): the card's pictures are drawn here at once.
+            video.stop()
+            let vs = cp["variants"] as? [[String: Any]] ?? []
+            // Read once (HubClient.picture): the card's pictures are drawn here at once. A video's: its first frame.
             for i in 0..<n {
+                if let vp = i < vs.count ? vs[i]["video"] as? String : nil {
+                    pictures[i] = PickVideos.shared.frame(hub, vp) { [weak self] img in
+                        guard let self, self.id == cid, let img else { return }
+                        self.pictures[i] = img
+                        if i < self.images.count { self.images[i].image = img }
+                        if i < self.thumbs.count { self.thumbs[i].image = img }
+                    }
+                    continue
+                }
                 pictures[i] = hub?.picture(pictureURL(cid ?? "", i)) { [weak self] img in
                     guard let self, self.id == cid, let img else { return }
                     self.pictures[i] = inPixels(img)
@@ -310,6 +337,16 @@ final class PickerView: Box, BackLinked {
     }
 
     private func pictureURL(_ cid: String, _ i: Int) -> String { "/api/checkpoints/\(cid)/variants/\(i)?as=png" }
+    /// The hub's URL of the video variant n plays (a video, a page that holds one), else nil.
+    func videoPath(_ n: Int) -> String? {
+        let vs = cp["variants"] as? [[String: Any]] ?? []
+        return n >= 0 && n < vs.count ? vs[n]["video"] as? String : nil
+    }
+    /// The video up close plays on while it is on screen only.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { video.pause() }
+    }
 
     /// Picture n up close in the picker's place (at its fit), or side by side again (nil).
     func view(_ n: Int?) {
@@ -355,7 +392,8 @@ final class PickerView: Box, BackLinked {
         images = []
         scroll.isHidden = viewing != nil
         viewer.isHidden = viewing == nil
-        pickRing.drawing = circling && viewing != nil
+        pickRing.drawing = circling && viewing != nil && videoPath(viewing ?? -1) == nil
+        if viewing == nil || videoPath(viewing ?? -1) == nil { video.stop(); video.isHidden = true }
         if let i = viewing {
             drawViewer(i)
             drawFoot()
@@ -392,13 +430,15 @@ final class PickerView: Box, BackLinked {
             img.picked = on
             img.drawing = circling
             img.image = pictures[n]
-            img.empty = (v["type"] as? String) == "html" ? t("pick.htmlPage") : pictures[n] == nil ? "" : ""
+            img.empty = (v["type"] as? String) == "html" && videoPath(n) == nil ? t("pick.htmlPage") : pictures[n] == nil ? "" : ""
+            img.playMark = videoPath(n) != nil
             if on { img.region = region }
             img.onRing = { [weak self] r in self?.ringed(n, r) }
             img.onClick = { [weak self] in self?.view(n) }
-            img.toolTip = t("pick.lookTip", ["name": v["label"] as? String ?? letter(n)])
+            let tip = t(videoPath(n) != nil ? "pick.playTip" : "pick.lookTip", ["name": v["label"] as? String ?? letter(n)])
+            img.toolTip = tip
             img.setAccessibilityRole(.button)
-            img.setAccessibilityLabel(t("pick.lookTip", ["name": v["label"] as? String ?? letter(n)]))
+            img.setAccessibilityLabel(tip)
             img.translatesAutoresizingMaskIntoConstraints = false
             img.heightAnchor.constraint(equalTo: img.widthAnchor, multiplier: 10.0 / 16).isActive = true
             images.append(img)
@@ -551,10 +591,30 @@ final class PickerView: Box, BackLinked {
         viewer.addSubview(head)
         vhead = head
         // The picture: at its fit when it is another one, as the person left it when the same.
-        zoom.show(pictureURL(cid, i), pictures[i])
-        zoom.picture.setAccessibilityLabel("\(letter(i)). \(name(i))")
-        pickRing.frame = zoom.picture.bounds
-        pickRing.region = picked == i ? region : nil
+        // A video plays in its place; circling, or circled on it, it stays on the ring's frame.
+        if let vp = videoPath(i) {
+            zoom.isHidden = true
+            video.isHidden = false
+            video.still = circling || (picked == i && region != nil)
+            let f = PickVideos.shared.file(hub, vp) { [weak self] url in
+                guard let self, self.viewing == i, self.videoPath(i) == vp else { return }
+                self.video.show(vp, file: url)
+                if self.video.still, let t = self.regionT, self.picked == i { self.video.seek(t) }
+                self.layoutViewer()
+            }
+            if video.url != vp { video.show(vp, file: f) }
+            if video.still, picked == i, let t = regionT, abs(video.time - t) > 0.01 { video.seek(t) }
+            video.ring.drawing = circling
+            video.ring.region = picked == i ? region : nil
+            video.playerView.setAccessibilityLabel("\(letter(i)). \(name(i))")
+            pickRing.region = nil
+        } else {
+            zoom.isHidden = false
+            zoom.show(pictureURL(cid, i), pictures[i])
+            zoom.picture.setAccessibilityLabel("\(letter(i)). \(name(i))")
+            pickRing.frame = zoom.picture.bounds
+            pickRing.region = picked == i ? region : nil
+        }
         // The bar.
         let sayLine = i < says.count ? says[i]["says"] as? String : nil
         // The letter and name and Your pick always show; the agent's words give way (cut at the end) in a narrow window.
@@ -582,6 +642,7 @@ final class PickerView: Box, BackLinked {
         for k in vs.indices {
             let c = FitImage()
             c.image = pictures[k]
+            c.playMark = videoPath(k) != nil
             c.dim = k == i ? 1 : 0.6
             c.onClick = { [weak self] in self?.view(k) }
             c.setAccessibilityLabel(t("pick.showOne", ["letter": letter(k), "name": name(k)]))
@@ -619,6 +680,7 @@ final class PickerView: Box, BackLinked {
         let bigH = max(120, viewer.bounds.height - hh - 6 - 14 - barH - 14 - stripH - 14)
         let zf = NSRect(x: pad, y: hh + 6, width: max(1, W - 2 * pad), height: bigH)
         if zoom.frame != zf { zoom.frame = zf }
+        if video.frame != zf { video.frame = zf; video.layoutSubtreeIfNeeded() }
         vbar?.frame = NSRect(x: pad, y: zf.maxY + 14, width: zf.width, height: barH)
         let sw = CGFloat(thumbs.count) * 92 - 8
         vstrip.frame = NSRect(x: max(pad, (W - sw) / 2), y: zf.maxY + 14 + barH + 14, width: sw, height: stripH)
@@ -635,7 +697,8 @@ final class PickerView: Box, BackLinked {
 
     /// The zoom moved (a pinch, a click, the keys, a pan, a resize): the chip says how big, the ring keeps its width, the note follows the ring.
     @objc func zoomMoved() {
-        guard viewing != nil else { chip.isHidden = true; return }
+        guard let v = viewing else { chip.isHidden = true; return }
+        if videoPath(v) != nil { chip.isHidden = true; placeNote(); return }
         pickRing.frame = zoom.picture.bounds
         pickRing.mag = zoom.magnification
         chip.isHidden = !zoom.zoomed
@@ -650,10 +713,12 @@ final class PickerView: Box, BackLinked {
     /// The note beside the ring as it shows now: on the right when there is room, else the left, inside the picture's area.
     private func placeNote() {
         guard let n = vnote, let g = region else { return }
-        let pb = zoom.picture.bounds
+        // On a video, the ring is over the video's own rect.
+        let host: NSView = viewing.flatMap(videoPath) != nil ? video.ring : zoom.picture
+        let pb = host.bounds
         let pr = NSRect(x: g.minX * pb.width, y: g.minY * pb.height, width: g.width * pb.width, height: g.height * pb.height)
-        let on = viewer.convert(pr, from: zoom.picture)
-        let vis = zoom.frame
+        let on = viewer.convert(pr, from: host)
+        let vis = viewing.flatMap(videoPath) != nil ? video.frame : zoom.frame
         n.frame = notePlace(n.fittingSize, beside: on, in: vis.insetBy(dx: 6, dy: 6))
         // While it is typed it stays; its words hide with the ring when the ring is out of sight.
         n.isHidden = !editingPin && !vis.intersects(on)
@@ -664,8 +729,8 @@ final class PickerView: Box, BackLinked {
 
     /// Escape: a zoomed picture fitted, else side by side again, else nil (the picker closes). False when there is nothing to do.
     @discardableResult func escape() -> Bool {
-        guard viewing != nil else { return false }
-        if zoom.zoomed { zoom.fitAgain(); zoomMoved(); return true }
+        guard let v = viewing else { return false }
+        if videoPath(v) == nil, zoom.zoomed { zoom.fitAgain(); zoomMoved(); return true }
         view(nil)
         return true
     }
@@ -724,27 +789,35 @@ final class PickerView: Box, BackLinked {
 
     func pickN(_ n: Int) {
         guard open else { return }
-        if picked != n { region = nil; pin = "" }
+        if picked != n { region = nil; regionT = nil; pin = "" }
         picked = n
         if viewing != nil { viewing = n }
         draw()
     }
 
-    func toggleCircle() { circling.toggle(); draw() }
+    func toggleCircle() {
+        circling.toggle()
+        // A video stops on the frame shown, to be circled there.
+        if circling, let v = viewing, videoPath(v) != nil { video.pause() }
+        draw()
+    }
 
     /// A ring dragged on picture n: it is picked, and its note is asked for.
     private func ringed(_ n: Int, _ r: NSRect) {
         if picked != n { pin = "" }
         picked = n
         region = round(r)
+        // On a video: the frame it was drawn on (up close, the one stopped on; side by side, its first).
+        regionT = videoPath(n) == nil ? nil : viewing == n ? (video.time * 1000).rounded() / 1000 : 0
         circling = false
         editingPin = true
         draw()
     }
 
     /// For the self-test and pictures: a ring and its note, as a drag would leave them.
-    func circle(_ n: Int, _ r: NSRect, note: String) {
+    func circle(_ n: Int, _ r: NSRect, note: String, t: Double? = nil) {
         picked = n; region = round(r); pin = note; editingPin = false; circling = false
+        regionT = videoPath(n) == nil ? nil : t ?? regionT ?? 0
         draw()
     }
 
@@ -766,7 +839,12 @@ final class PickerView: Box, BackLinked {
             var p: [String: Any] = ["label": vs[picked!]["label"] as? String ?? ""]
             // Four decimals, written as such (0.3, not 0.29999999999999999).
             let dec = { (x: CGFloat) in NSDecimalNumber(string: String(format: "%.4f", Double(x))) }
-            if let r = region { p["region"] = ["x": dec(r.minX), "y": dec(r.minY), "w": dec(r.width), "h": dec(r.height)] }
+            if let r = region {
+                var g: [String: Any] = ["x": dec(r.minX), "y": dec(r.minY), "w": dec(r.width), "h": dec(r.height)]
+                // On a video: the second of the frame the ring is on, to the millisecond.
+                if let tt = regionT, videoPath(picked!) != nil { g["t"] = NSDecimalNumber(string: String(format: "%.3f", tt)) }
+                p["region"] = g
+            }
             let note = [region != nil ? pin.trimmingCharacters(in: .whitespaces) : "", more].filter { !$0.isEmpty }.joined(separator: "\n\n")
             if !note.isEmpty { p["note"] = String(note.prefix(4000)) }
             reply = ["pick": p]
@@ -791,9 +869,14 @@ final class PickerView: Box, BackLinked {
             case 124: step(1); return
             default: break
             }
-            if ch == "+" || ch == "=" { zoom.zoomStep(1.5); zoomMoved(); return }
-            if ch == "-" { zoom.zoomStep(1 / 1.5); zoomMoved(); return }
-            if ch == "0" { zoom.fitAgain(); zoomMoved(); return }
+            if let v = viewing, videoPath(v) != nil {
+                // Space plays and pauses a video; it has no zoom.
+                if ch == " " { video.togglePlay(); return }
+            } else {
+                if ch == "+" || ch == "=" { zoom.zoomStep(1.5); zoomMoved(); return }
+                if ch == "-" { zoom.zoomStep(1 / 1.5); zoomMoved(); return }
+                if ch == "0" { zoom.fitAgain(); zoomMoved(); return }
+            }
         }
         if let n = Int(e.charactersIgnoringModifiers ?? ""), n >= 1, n <= (cp["variants"] as? [Any] ?? []).count { pickN(n - 1); return }
         super.keyDown(with: e)

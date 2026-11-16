@@ -755,6 +755,18 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         }.resume()
     }
 
+    /// A file of the hub with its type (a pick's video, PickVideo.swift), on the main thread; nil: the hub did not give it.
+    func file(_ path: String, _ done: @escaping (Data?, String?) -> Void) {
+        guard let b = base, let u = URL(string: b.absoluteString + path) else { done(nil, nil); return }
+        var r = URLRequest(url: u)
+        r.timeoutInterval = 300
+        session.dataTask(with: r) { d, resp, _ in
+            let h = resp as? HTTPURLResponse
+            let ok = h?.statusCode == 200
+            DispatchQueue.main.async { done(ok ? d : nil, h?.value(forHTTPHeaderField: "Content-Type")) }
+        }.resume()
+    }
+
     // MARK: pictures, read once (2026-11-12)
 
     /// A picture already read, by its URL: a view made again on a redraw (the

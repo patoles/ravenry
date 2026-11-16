@@ -118,12 +118,15 @@ final class CoverImage: NSView {
     var radius: CGFloat = 0
     var fillColor = NSColor.black
     var dim: CGFloat = 1 { didSet { needsDisplay = true } }
+    /// A video's first frame: the play mark over it (PickVideo.swift).
+    var playMark = false { didSet { needsDisplay = true } }
     var onClick: (() -> Void)?
     override var isFlipped: Bool { true }
     override func draw(_ r: NSRect) {
         NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).addClip()
         fillColor.setFill()
         bounds.fill()
+        defer { if playMark { drawPlayMark(in: bounds, size: min(34, bounds.height * 0.4)) } }
         guard let img = image, img.size.width > 0, img.size.height > 0 else { return }
         let k = fit ? min(bounds.width / img.size.width, bounds.height / img.size.height) : max(bounds.width / img.size.width, bounds.height / img.size.height)
         let w = img.size.width * k, h = img.size.height * k

@@ -826,8 +826,15 @@ final class CheckpointCard: Box {
             img.setAccessibilityLabel(name)
             img.translatesAutoresizingMaskIntoConstraints = false
             img.heightAnchor.constraint(equalTo: img.widthAnchor, multiplier: 10.0 / 16).isActive = true
-            // Read once (HubClient.picture): a card built again draws them at once.
-            img.image = ctx.hub.picture("/api/checkpoints/\(id)/variants/\(n)?as=png") { [weak img] i in img?.image = i }
+            // Read once (HubClient.picture): a card built again draws them at once. A video (or a page
+            // that holds one) shows its first frame with the play mark; a click plays it up close.
+            if let vp = v["video"] as? String {
+                img.playMark = true
+                img.image = PickVideos.shared.frame(ctx.hub, vp) { [weak img] i in img?.image = i }
+                img.toolTip = t("pick.playTip", ["name": name])
+            } else {
+                img.image = ctx.hub.picture("/api/checkpoints/\(id)/variants/\(n)?as=png") { [weak img] i in img?.image = i }
+            }
             tiles.append(img)
             let frame = Box(ring: "sep", radius: 6)
             frame.translatesAutoresizingMaskIntoConstraints = false

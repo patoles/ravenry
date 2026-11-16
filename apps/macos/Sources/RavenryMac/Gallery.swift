@@ -758,6 +758,8 @@ final class GalleryPage: InAppPage {
 final class FitImage: NSView {
     var image: NSImage? { didSet { needsDisplay = true } }
     var dim: CGFloat = 1 { didSet { needsDisplay = true } }
+    /// A video's first frame: the play mark over it (PickVideo.swift).
+    var playMark = false { didSet { needsDisplay = true } }
     var onClick: (() -> Void)?
     override var isFlipped: Bool { true }
     override func draw(_ r: NSRect) {
@@ -765,6 +767,7 @@ final class FitImage: NSView {
             NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).addClip()
             Design.color("term-bg").setFill()
             bounds.fill()
+            defer { if playMark { drawPlayMark(in: bounds, size: min(22, bounds.height * 0.42)) } }
             guard let img = image, img.size.width > 0, img.size.height > 0 else { return }
             let k = min(bounds.width / img.size.width, bounds.height / img.size.height)
             let w = img.size.width * k, h = img.size.height * k

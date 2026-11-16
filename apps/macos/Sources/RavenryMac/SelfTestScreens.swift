@@ -68,6 +68,7 @@ extension SelfTestBoard {
         case "openon2": screenOpenOn2()
         case "answers": screenAnswers()
         case "pickzoom": screenPickZoom()
+        case "pickvideo": screenPickVideo()
         default: check("screen_known", false, name)
         }
         finish()
