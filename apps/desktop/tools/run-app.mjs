@@ -46,6 +46,14 @@ export async function runApp(opts) {
     ...Object.fromEntries(['DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR'].filter((k) => process.env[k]).map((k) => [k, process.env[k]])),
     ...more,
   };
+  // The new-shell command's program must be there: without it the launch
+  // shell never starts, the window falls back to its Start screen, and a
+  // run only times out on its first step (ubuntu-26.04 has no zsh:
+  // desktop.yml installs it, as on a Mac, where the tools' shells are zsh).
+  const prog = String(env.RAVENRY_NEW_SHELL).trim().split(/\s+/)[0];
+  if (prog && !(prog.includes('/') ? [prog] : env.PATH.split(':').map((d) => path.join(d, prog))).some((f) => fs.existsSync(f))) {
+    throw new Error(`${name}: the new shell's program ${prog} is not on the app's PATH (${env.PATH}); install it, or pass a shell this machine has`);
+  }
   // The one-time hints (F) are for a person's first times: a run that is
   // not about them starts with them all dismissed, so none covers what it
   // clicks (opts.hints: true keeps them).
