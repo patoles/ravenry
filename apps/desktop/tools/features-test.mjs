@@ -208,7 +208,10 @@ try {
   check('G Cmd+N: a new window, with a shell of its own', w?.count === 2 && !!w.other?.pane, w && { count: w.count, other: w.other });
   check('G the first window\'s tabs as they were', JSON.stringify(read('tabs-before')) === JSON.stringify(read('tabs-after')), { before: read('tabs-before'), after: read('tabs-after') });
   const sl = (w?.shell || []);
-  check('G the Shell menu: New Window on Cmd+N, New Session on Cmd+Shift+N, Close Window', sl.find((x) => x.label === 'New Window')?.acc?.endsWith('+N') && /Shift\+N$/.test(sl.find((x) => x.label === 'New Session…')?.acc || '') && sl.some((x) => x.label === 'Close Window'), sl);
+  // The Keys table (README): Cmd+N and Cmd+Shift+N on a Mac; elsewhere
+  // Ctrl+Shift+N (a terminal's new window) and Ctrl+Shift+Alt+N.
+  const [winAcc, sesAcc] = MAC ? ['Cmd+N', 'Cmd+Shift+N'] : ['Ctrl+Shift+N', 'Ctrl+Shift+Alt+N'];
+  check(`G the Shell menu: New Window on ${winAcc}, New Session on ${sesAcc}, Close Window`, sl.find((x) => x.label === 'New Window')?.acc === winAcc && sl.find((x) => x.label === 'New Session…')?.acc === sesAcc && sl.some((x) => x.label === 'Close Window'), sl);
   check('G Close Window closes that window, the first one stays', read('closed-window') === 1, read('closed-window'));
   console.log(`pictures: ${OUT}`);
 } catch (e) {
