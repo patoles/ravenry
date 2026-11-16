@@ -668,7 +668,7 @@ same everywhere:
 | `handback` | paper-boat needs you | Handed back |
 | `question` | paper-boat needs you | Asked you a question |
 | `permission` | paper-boat needs you | Waiting for permission |
-| `gate` | paper-boat: plan gate | the plan's short question (else "Plan gate") |
+| `gate` | paper-boat: plan gate | Plan gate (never the plan's question) |
 | `approve` | paper-boat wants to run a command | On MacBook Pro. Run or refuse on the board. |
 | `ask`, `pick`, `drive` | as Android | Answer on the board. |
 | `secret` | Claude needs a secret for paper-boat | Type it on the Mac. |

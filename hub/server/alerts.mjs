@@ -64,10 +64,17 @@ const PRIME_MS = num(env.MC_ALERT_PRIME_MS, 8000);
 // The fixed words (server/alertwords.mjs), as this module has always exported them.
 export { KINDS, CHECKPOINT_KINDS, DRIVE_ACTIONS };
 
-// The alert's second line. A plan gate says its own short question (the
-// plan wrote it, server/planfmt.mjs shortQuestion); every other kind is a
-// fixed phrase, never the session's text.
-export function kindText(kind, p) {
+// The alert's second line where it travels in clear (Telegram, a webhook,
+// ntfy): a fixed phrase for every kind, never the session's text or a plan
+// gate's question (tools/clear-alerts-test.mjs).
+export function kindText(kind) {
+  return KINDS[kind];
+}
+
+// The same line for the Mac's own notifications, which stay on this Mac: a
+// plan gate says its short question there (the plan wrote it,
+// server/planfmt.mjs shortQuestion).
+export function localKindText(kind, p) {
   if (kind === 'gate' && p && p.planGate && p.planGate.short) return `Plan gate: ${p.planGate.short}`;
   return KINDS[kind];
 }
@@ -517,7 +524,7 @@ function makeTrigger({ on, start }) {
         seen.set(key, moment);
         cooled.set(p.id, now);
       }
-      const alert = { test: false, kind, projectId: p.id, project: p.name, title: `${p.name} needs you`, body: kindText(kind, p), url: sessionUrl(boardUrl, p, (p.sessions || []).find((x) => x.surfaceId === p.primary)) };
+      const alert = { test: false, kind, projectId: p.id, project: p.name, title: `${p.name} needs you`, body: kindText(kind), url: sessionUrl(boardUrl, p, (p.sessions || []).find((x) => x.surfaceId === p.primary)) };
       out.push(alert);
       start(alert, p);
     }
@@ -539,7 +546,7 @@ const appTrigger = makeTrigger({
 
 const desktopTrigger = makeTrigger({
   on: () => load().desktop.enabled !== false,
-  start: (alert, p) => { deliverDesktop({ kind: alert.kind, projectId: alert.projectId, title: alert.title, body: alert.body, ...desktop.targetFor(p) }).catch((e) => console.error('desktop:', e.message)); },
+  start: (alert, p) => { deliverDesktop({ kind: alert.kind, projectId: alert.projectId, title: alert.title, body: localKindText(alert.kind, p), ...desktop.targetFor(p) }).catch((e) => console.error('desktop:', e.message)); },
 });
 
 async function deliverDesktop(alert) {

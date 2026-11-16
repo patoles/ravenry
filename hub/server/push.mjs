@@ -420,12 +420,14 @@ export function projectMessage(alert, p) {
   } else if (kind === 'gate') {
     msg.title = `${p.name}: plan gate`;
     msg.body = (p.planGate && (p.planGate.question || p.planGate.short)) || 'A plan waits at a gate';
-    // The plan's own short question (the channels say it too), else the kind.
-    msg.line = (p.planGate && p.planGate.short) || WORDS.gate;
+    // The line travels in clear (an iPhone through ntfy): the kind's fixed
+    // words, never the plan's question, short or long.
+    msg.line = WORDS.gate;
     msg.actions = [{ id: 'open', label: 'Open' }];
   } else {
     msg.body = alert.body || '';
-    msg.line = alert.body || null;
+    // Fixed words only where the message travels in clear.
+    msg.line = WORDS[kind] || null;
     msg.actions = [{ id: 'open', label: 'Open' }];
   }
   return capped(msg);

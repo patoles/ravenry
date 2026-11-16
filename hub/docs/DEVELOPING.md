@@ -361,8 +361,8 @@ turns blue once a test went through and then turns alerts on.
   a project in an `mc-test*` workspace. The alert is "<Project> needs you"
   plus "Asked you a question", "Handed back" or "Waiting for permission",
   never the session's text, and links to `http://<Wi-Fi address>:<port>/#<project id>`,
-  where the phone's sign-in cookie opens it. A plan gate ("Plan gate:
-  <short question>") always needs you, so the 10 minutes do not apply to
+  where the phone's sign-in cookie opens it. A plan gate ("Plan gate",
+  never its question) always needs you, so the 10 minutes do not apply to
   it: each distinct gate (its plan, step and question) alerts once, and a
   gate neither waits for the cooldown nor starts it. A gate already open at
   the first look, or seen while alerts are off, counts as seen.
@@ -382,6 +382,11 @@ turns blue once a test went through and then turns alerts on.
   phone's 403s. Env for tests: `MC_TELEGRAM_API`, `MC_ALERT_BOARD_URL`,
   `MC_ALERT_PRIME_MS`, `MC_ALERT_RETRY_MS`, `MC_ALERT_COOLDOWN_MS`,
   `MC_COPY_COMMAND`.
+- `node tools/clear-alerts-test.mjs` proves that no alert travelling in
+  clear (the iPhone through ntfy; Telegram, Discord, Slack and the ntfy
+  channel) carries agent words: every kind, with agent words in every
+  field, against a local stub. Only the project's name, the kind's fixed
+  words, a tab's name, the Mac's name and the board's link go out.
 
 ## Mac notifications (the bell)
 
@@ -397,8 +402,8 @@ plan gate"; off, the bell is drawn with a slash.
   distinct plan gate once and outside the cooldown, nothing for `mc-test*`),
   but as their own channel with their own trigger state: they need no phone
   setup, and turning either off leaves the other alone. Never the session's
-  text: "<Project> needs you" and the kind ("Plan gate: <short question>"
-  for a gate).
+  text: "<Project> needs you" and the kind; a gate says "Plan gate: <short
+  question>" here, since these stay on the Mac (`localKindText`).
 - **In iTerm2 mode** (below, "The board in iTerm2") it is always
   `osascript -e 'display notification ...'`; cmux is never asked.
 - **How**: `cmux notify --title "<Project> needs you" --body "<kind>"
@@ -504,8 +509,9 @@ Objectives).
 - **Gates**: a plan waiting at a `[?]` step, with its session not working,
   makes the project Needs you with "Plan gate: <short question>" as its line,
   the answer card becomes the gate card (the question, the proof tiles, the
-  plan's choices and the free answer box), and the phone alert goes out with
-  that line as its kind (`server/alerts.mjs`, kind `gate`). A `[?]` on a step
+  plan's choices and the free answer box), and the phone alert goes out
+  as kind `gate` (`server/alerts.mjs`): "Plan gate" where it travels in
+  clear, the gate's question only in the Android app's encrypted alert. A `[?]` on a step
   that is not a Gate is "Not in the plan, so I stopped to ask". Answering
   writes `Answer:` under the step (a gate is passed) and a Log line, then
   sends the session the answer with the rules.
@@ -1002,6 +1008,9 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
 - `node tools/alerts-test.mjs [--real-ntfy]`: phone alerts (above), with
   every channel pointed at a local stub; `--real-ntfy` adds one publish to a
   throwaway random ntfy.sh topic. Touches only `.tmp/`.
+- `node tools/clear-alerts-test.mjs`: no agent words in any alert that
+  travels in clear (above), in process against a local stub. Touches only
+  `.tmp/`.
 - `node tools/projects-root-test.mjs`: where new projects go and "Change for
   this one" (above), on test boards on :4668 to :4670. Touches only `.tmp/`.
 - `node tools/desktop-notify-test.mjs`: Mac notifications (above), with the

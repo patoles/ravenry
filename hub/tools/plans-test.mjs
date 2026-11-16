@@ -194,13 +194,13 @@ fs.writeFileSync(path.join(MC, 'alerts.json'), JSON.stringify({ enabled: true, c
 const proj = (state, planGate) => ({ id: 'boat', name: 'Paper Boat', state, primary: 'sf', planGate, workspaces: [], sessions: [{ surfaceId: 'sf', sessionId: 'sid', state: 'asked', since: '2026-11-03T17:06:00Z', words: {} }] });
 const gp = proj('you', { n: 5, question: 'Install it on the headset now?', short: 'install it on the headset now?' });
 check('alert kind: a plan at a gate is kind gate, before the session\'s own question', alerts.kindOf(gp) === 'gate');
-check('alert text: "Plan gate: <short question>"', alerts.kindText('gate', gp) === 'Plan gate: install it on the headset now?');
+check('alert text: "Plan gate" where it travels in clear, "Plan gate: <short question>" in the Mac\'s own notifications', alerts.kindText('gate') === 'Plan gate' && alerts.localKindText('gate', gp) === 'Plan gate: install it on the headset now?');
 check('alert kind: without a gate the session\'s kind as before', alerts.kindOf(proj('you', null)) === 'question');
 alerts.observe([proj('work', null)], { now: Date.now() });
 const sent = alerts.observe([gp], { now: Date.now() + 10, boardUrl: 'http://board/' });
-check('moving into Needs you at a gate starts one alert, kind gate', sent.length === 1 && sent[0].kind === 'gate' && sent[0].title === 'Paper Boat needs you' && sent[0].body === 'Plan gate: install it on the headset now?');
+check('moving into Needs you at a gate starts one alert, kind gate', sent.length === 1 && sent[0].kind === 'gate' && sent[0].title === 'Paper Boat needs you' && sent[0].body === 'Plan gate');
 for (let k = 0; k < 50 && !hits.length; k++) await new Promise((r) => setTimeout(r, 20));
-check('the alert reaches the stub channel with only the gate\'s question', hits.length === 1 && hits[0].content.includes('Paper Boat needs you') && hits[0].content.includes('Plan gate: install it on the headset now?'), JSON.stringify(hits[0] || {}).slice(0, 200));
+check('the alert reaches the stub channel saying "Plan gate", never the gate\'s question', hits.length === 1 && hits[0].content.includes('Paper Boat needs you') && hits[0].content.includes('Plan gate') && !/headset/i.test(hits[0].content), JSON.stringify(hits[0] || {}).slice(0, 200));
 stub.close();
 
 // ---------------------------------------------------------------- the Objectives row
