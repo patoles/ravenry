@@ -21,11 +21,17 @@ func TestRenderSyncResize(t *testing.T) {
 	d := startDaemon(t)
 	c := d.dial(client.Options{})
 	// Opens an update and never closes it; at each new size it draws
-	// itself in an update it closes, as Claude Code does.
-	p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c",
+	// itself in an update it closes, as Claude Code does. Made at the
+	// stream's size: a stream at another one resizes the pane as it opens,
+	// and the redraw for that erased "before" whenever the program had
+	// drawn it first (TestRenderSyncResize on GitHub's runner, 2026-11-16).
+	p := newPane(t, c, map[string]any{"cols": 100, "rows": 20, "command": []string{"/bin/sh", "-c",
 		`trap 'printf "\033[?2026h\033[2J\033[Hredraw %s\033[?2026l" "$(stty size | tr " " x)"' WINCH
 printf 'before\n\033[?2026hhalf'
 while :; do sleep 0.01; done`}})
+	// The program has drawn before the stream opens (a busy runner gets
+	// there first anyway).
+	waitFor(t, c, p.ID, `before`, 0)
 	st, err := c.Render(ctx(t), p.ID, client.RenderOptions{Cols: 100, Rows: 20, FPS: 120})
 	if err != nil {
 		t.Fatal(err)
