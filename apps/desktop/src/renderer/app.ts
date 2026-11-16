@@ -57,6 +57,7 @@ import { Picker } from './picker.ts';
 import { Files } from './files.ts';
 import { Review } from './review.ts';
 import { sayPathOn } from '../../../../hub/public/homepath.mjs';
+import { wordsOf as cpWordsOf } from '../../../../hub/server/cpwords.mjs';
 import { PhoneCard } from './phonecard.ts';
 import { InApp, IN_KINDS } from './inapp.ts';
 import type { InView } from './inapp.ts';
@@ -3372,7 +3373,10 @@ function shownCard(): Known | null {
 /**
  * Checkpoints whose words this window lacks (a daemon's copy, or one that
  * moved on since): the hub words them (POST /api/checkpoints/words), and
- * their cards are drawn when the words come.
+ * their cards are drawn when the words come. With no board to ask (not
+ * running, or one too old for the route), the window words them itself
+ * with the hub's own module, so a card is never an empty box nobody can
+ * answer (2026-11-16: an ask in a pane with the board down stayed blank).
  */
 function askWords(): void {
   const want = S.cps.wordsWanted();
@@ -3382,7 +3386,11 @@ function askWords(): void {
     const got = S.cps.setWords(words);
     S.cps.wordsFailed(want.filter((c) => !words[c.id]));
     if (got) render();
-  }, () => S.cps.wordsFailed(want));
+  }, () => {
+    const ctx = { platform: S.config?.platform || 'darwin', hubName: null, paneName: (p: string) => paneNameOf(p) };
+    const words = Object.fromEntries(wordsBody(want).checkpoints.map((cp) => [cp.id, cpWordsOf(cp, ctx) as unknown as NonNullable<HubCheckpoint['words']>]));
+    if (S.cps.setWords(words)) render();
+  });
 }
 
 function render(): void {
