@@ -127,6 +127,14 @@ const MAC_OPT_SEND: Record<string, string> = { ArrowLeft: '\x1bb', ArrowRight: '
 // both document; a shell takes it as Enter.
 const SHIFT_SEND: Record<string, string> = { Enter: '\n' };
 const MAC_CMD_ACT: Record<string, KeyAct> = { k: 'clear', c: 'copy', v: 'paste', a: 'select-all' };
+/**
+ * Ctrl+Shift+C, V and A off the Mac: what Cmd+C, V and A do on one, done
+ * here too. Left to the menu's copy, paste and select-all roles they acted
+ * on xterm.js's hidden text field: select all never selected the
+ * terminal's text, and a copy or paste went around the window's own
+ * clipboard path (2026-11-16, the keys test on Linux).
+ */
+const CTRL_SHIFT_ACT: Record<string, KeyAct> = { c: 'copy', v: 'paste', a: 'select-all' };
 
 /** Find's tints, for a dark terminal and a light one: every match, the current one amber, both on the scroll bar. */
 const FIND_DECOR = {
@@ -187,7 +195,7 @@ export class TerminalView {
   onEnter: (a: Attached) => void = () => {};
   /** Shortcuts the app handles; xterm.js lets them through. */
   isAppKey: (e: KeyboardEvent) => boolean = () => false;
-  /** What the window does with Cmd+K, C, V, A on a Mac (MAC_CMD_ACT). */
+  /** What the window does with Cmd+K, C, V, A on a Mac (MAC_CMD_ACT), Ctrl+Shift+C, V, A elsewhere (CTRL_SHIFT_ACT). */
   onKeyAct: (act: KeyAct) => void = () => {};
   mac = false;
   /**
@@ -290,7 +298,8 @@ export class TerminalView {
       const cmd = only && e.metaKey && !e.altKey;
       const shift = e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey;
       const send = cmd ? MAC_CMD_SEND[e.key] : only && e.altKey && !e.metaKey ? MAC_OPT_SEND[e.key] : shift ? SHIFT_SEND[e.key] : undefined;
-      const act = cmd ? MAC_CMD_ACT[e.key.toLowerCase()] : undefined;
+      const ctrlShift = !this.mac && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey;
+      const act = cmd ? MAC_CMD_ACT[e.key.toLowerCase()] : ctrlShift ? CTRL_SHIFT_ACT[e.key.toLowerCase()] : undefined;
       // Cmd+Home and Cmd+End: the top and the bottom of the scrollback.
       if (cmd && (e.key === 'Home' || e.key === 'End')) {
         if (e.type === 'keydown') { e.preventDefault(); if (e.key === 'Home') this.term.scrollToTop(); else this.term.scrollToBottom(); }
