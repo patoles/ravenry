@@ -1783,6 +1783,9 @@ function spareFor(slot: 0 | 1, pane: string): Pooled {
 function swapIn(slot: 0 | 1, e: Pooled): void {
   e.used = Date.now();
   const cur = slot ? termB : termA;
+  // Each terminal's keys are its own pane's again (showPane, handKeysTo).
+  cur?.handKeysTo(null);
+  e.view.handKeysTo(null);
   if (cur === e.view) return;
   const id = slot ? 'term2' : 'term';
   for (const p of pools[slot]) { p.el.classList.toggle('pooled', p !== e); if (p !== e && p.el.id === id) p.el.removeAttribute('id'); }
@@ -1927,7 +1930,7 @@ async function showPane(key: string, get: () => Promise<RavenryClient | null>, p
   const cur = slot ? termB! : termA;
   // Only when that very pane is on screen: an attempt that failed or hung
   // must not leave the pane before it there and make later clicks no-ops.
-  if (shownIn(slot) === key && cur.attached && cur.attached.pane === pane && cur.ready) { show('term'); focusPending(); return; }
+  if (shownIn(slot) === key && cur.attached && cur.attached.pane === pane && cur.ready) { cur.handKeysTo(null); show('term'); focusPending(); return; }
   setShownIn(slot, key);
   const e = spareFor(slot, pane);
   if (e.view.attached?.pane === pane && e.view.ready && e.view.isDrawn) {
@@ -1937,6 +1940,8 @@ async function showPane(key: string, get: () => Promise<RavenryClient | null>, p
     focusPending();
     return;
   }
+  // Until it shows, what is typed in the terminal in front is this pane's.
+  cur.handKeysTo(e.view, pane);
   let shown = false;
   // The keyboard goes to it once it shows (a hidden terminal cannot take it).
   const reveal = () => {

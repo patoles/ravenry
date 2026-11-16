@@ -316,6 +316,7 @@ export class TerminalView {
       e.preventDefault();
       e.stopImmediatePropagation();
       const text = e.clipboardData?.getData('text/plain') || '';
+      if (text && this.keysTo) { this.keysTo.view.take(this.keysTo.pane, { paste: text }); return; }
       const a = this.current;
       if (text && a) void a.client.paste(a.pane, text).catch(() => {});
     }, true);
@@ -488,8 +489,37 @@ export class TerminalView {
   private snapshotIn = false;
 
   private input(d: string | Uint8Array): void {
-    if (this.stream) this.stream.input(d);
+    if (this.keysTo) this.keysTo.view.take(this.keysTo.pane, { keys: d });
+    else if (this.stream) this.stream.input(d);
     else if (this.current) this.early.push(d);
+  }
+
+  /**
+   * While another terminal is attached to a pane hidden, to come in front
+   * of this one (a new tab, a switch: app.ts showPane), what is typed and
+   * pasted here is that pane's: the keyboard stays with this terminal
+   * until the other shows (a hidden one cannot take it), and its keys
+   * went to the pane before, the one leaving (2026-11-16: a command typed
+   * at once after a new shell ran in the previous tab's shell). null: this
+   * terminal's own pane again.
+   */
+  handKeysTo(view: TerminalView | null, pane = ''): void {
+    this.keysTo = view && view !== this ? { view, pane } : null;
+  }
+  private keysTo: { view: TerminalView; pane: string } | null = null;
+  /** Keys and pastes handed over for a pane this terminal is being attached to, sent once its stream is up. */
+  private handed: { pane: string; keys?: string | Uint8Array; paste?: string }[] = [];
+
+  /** Input handed over by the terminal in front (handKeysTo) for pane: sent now when this terminal streams it, else once it does. */
+  take(pane: string, x: { keys?: string | Uint8Array; paste?: string }): void {
+    const a = this.current;
+    if (a && a.pane === pane && this.stream && !this.stream.ended) this.send(a, x);
+    else this.handed.push({ pane, ...x });
+  }
+
+  private send(a: Attached, x: { keys?: string | Uint8Array; paste?: string }): void {
+    if (x.keys !== undefined) this.stream?.input(x.keys);
+    if (x.paste !== undefined) void a.client.paste(a.pane, x.paste).catch(() => {});
   }
 
   get renderer(): string { return this.webgl ? 'webgl' : 'dom'; }
@@ -571,6 +601,7 @@ export class TerminalView {
     if (gen !== this.gen) { void s.unsubscribe().catch(() => {}); return; }
     this.stream = s;
     for (const d of this.early.splice(0)) s.input(d);
+    for (const x of this.handed.splice(0)) if (x.pane === a.pane) this.send(a, x);
     this.queueResize();
     if (focus) this.focus();
   }
@@ -670,6 +701,8 @@ export class TerminalView {
     this.gen++;
     this.detachStream();
     this.early = [];
+    this.handed = [];
+    this.keysTo = null;
     this.current = null;
     this.snapshotIn = false;
     this.restoreTo = null;
