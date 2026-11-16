@@ -103,12 +103,24 @@ for (const [name, input] of [['garbage', 'not json {'], ['empty', ''], ['bad ses
 }
 check('bad input wrote no file', fs.readdirSync(DIR).length === before);
 
-// 3. Timing, board down (connection refused), 15 runs.
-const times = [];
-for (let i = 0; i < 15; i++) times.push((await run(base(SID, 'UserPromptSubmit'))).ms);
-times.sort((a, b) => a - b);
-const med = times[7];
-check('board down: median under 50 ms', med < 50, `median ${med.toFixed(0)} ms, max ${times[14].toFixed(0)} ms`);
+// 3. Timing, board down (connection refused), 15 runs. The hook runs at
+// every event of the session and the assistant waits for it, so its own
+// work has a budget: what it takes beyond a node that starts and does
+// nothing, measured the same way on the same machine. Node's start alone
+// is 28 ms on an M-series Mac and 30 to 60 ms on GitHub's runners (the
+// whole run went from 29 to 63 ms with no change to the hook, 2026-11-07
+// to 2026-11-16), so a budget on the total measured the machine.
+const median = async (f) => { const t = []; for (let i = 0; i < 15; i++) t.push(await f()); t.sort((a, b) => a - b); return { med: t[7], max: t[14] }; };
+const bare = await median(() => new Promise((resolve) => {
+  const t0 = process.hrtime.bigint();
+  const c = spawn(process.execPath, ['-e', ''], { env: { ...process.env, RAVENRY_HOME: MC } });
+  c.on('close', () => resolve(Number(process.hrtime.bigint() - t0) / 1e6));
+  c.stdin.end(JSON.stringify(base(SID, 'UserPromptSubmit')));
+}));
+const hook = await median(async () => (await run(base(SID, 'UserPromptSubmit'))).ms);
+const own = hook.med - bare.med;
+check('board down: the hook\'s own work, beyond node\'s start, under 25 ms (median)', own < 25, `${own.toFixed(0)} ms: the hook ${hook.med.toFixed(0)} ms (max ${hook.max.toFixed(0)}), node starting alone ${bare.med.toFixed(0)} ms`);
+console.log(`MEASURE events hook, board down: ${hook.med.toFixed(0)} ms a run (median of 15), of which node's start ${bare.med.toFixed(0)} ms and the hook's own ${own.toFixed(0)} ms`);
 
 // 4. Board up: the POST arrives with the line and the board's write header.
 const got = [];
