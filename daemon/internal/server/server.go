@@ -264,6 +264,9 @@ type conn struct {
 
 	events chan proto.Event
 	input  chan func()
+	// decMu orders this connection's agent.decisions result before the
+	// first agent.decision sent to it (agent.go).
+	decMu sync.Mutex
 
 	// peer is the process at the other end of the socket; person says
 	// whether it may act as the person, and notPerson why not (peer.go).

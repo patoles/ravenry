@@ -317,7 +317,11 @@ func (s *Server) decide(ctx context.Context, r agent.Report, timeout time.Durati
 	ms := timeout.Milliseconds()
 	ev := proto.Event{V: proto.Version, Type: "event", Event: "agent.decision", Request: &id, Report: reportInfo(r), TimeoutMs: &ms}
 	for _, c := range asked {
+		// After its agent.decisions result (agentDecisions holds decMu
+		// until that is written).
+		c.decMu.Lock()
 		c.event(ev)
+		c.decMu.Unlock()
 	}
 	t := time.NewTimer(timeout)
 	defer t.Stop()
@@ -382,12 +386,23 @@ func (c *conn) agentDecisions(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	// Reply first, so the result comes before any agent.decision.
-	c.reply(id, "agent.decisions", proto.Empty{})
+	// Counted before the result goes out, so a report sent once the
+	// client has it asks this connection; decMu, held until the result
+	// is written, keeps any agent.decision behind it (decide).
+	c.decMu.Lock()
+	defer c.decMu.Unlock()
 	c.s.mu.Lock()
 	c.s.deciders[c] = struct{}{}
 	c.s.mu.Unlock()
+	c.reply(id, "agent.decisions", proto.Empty{})
+	if afterDecisionsReply != nil {
+		afterDecisionsReply()
+	}
 }
+
+// afterDecisionsReply, set by a test, runs once agent.decisions has
+// answered: a pause there is a busy machine's scheduler.
+var afterDecisionsReply func()
 
 func (c *conn) agentDecide(id uint64, data []byte) {
 	var r proto.AgentDecideRequest
