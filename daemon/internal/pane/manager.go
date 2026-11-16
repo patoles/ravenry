@@ -193,6 +193,9 @@ func (m *Manager) New(cfg Config) (*Pane, error) {
 		time.AfterFunc(cfg.TTL, func() { m.Close(p.id, time.Second) })
 	}
 	m.emit("created", p.Info())
+	// Only now is its output read and its exit waited for: everything
+	// it says is told, after pane.created.
+	p.run()
 	return p, nil
 }
 

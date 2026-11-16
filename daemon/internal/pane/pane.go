@@ -263,8 +263,9 @@ func newID() string {
 	return "p" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:]))[:7]
 }
 
-// start starts a pane. env is the full base environment; shellDir holds
-// the shell integration files, or is empty.
+// start starts a pane's program; nothing reads its output or waits for it
+// until run. env is the full base environment; shellDir holds the shell
+// integration files, or is empty.
 func start(cfg Config, env []string, logDir string, logCap int64, socket, shellDir string) (*Pane, error) {
 	if cfg.Cols == 0 {
 		cfg.Cols = defaultCols
@@ -381,9 +382,25 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 		return nil, fmt.Errorf("start %q: %w", cfg.Command[0], err)
 	}
 	p.cmd, p.pty, p.pid = cmd, f, cmd.Process.Pid
+	if afterStart != nil {
+		afterStart()
+	}
+	return p, nil
+}
+
+// afterStart, set by a test, runs once the program has started: a pause
+// there is the scheduler of a busy machine, where the program prints and
+// exits before Manager.New goes on.
+var afterStart func()
+
+// run reads the program's output and waits for its exit. Manager.New
+// calls it once the pane's callbacks are set and pane.created is out, so
+// a title printed at once, or an exit, is never read with no callback to
+// tell it (on a busy two-core Linux machine the program got there first,
+// and pane.title or pane.exited never came).
+func (p *Pane) run() {
 	go p.readLoop()
 	go p.waitLoop()
-	return p, nil
 }
 
 // envValue returns a variable as the pane will see it.
