@@ -322,7 +322,7 @@ export function checkpointScreen(id: string): Screen {
     const cp = find(id);
     // A pick is drawn again only when its state changes: a minute passing
     // must not take the picture from under a finger or a note being typed.
-    const key = cp ? `${cp.state}|${!!cp.words}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${cp.kind === 'pick' ? '' : Math.floor(Date.now() / 30000)}` : 'gone';
+    const key = cp ? `${cp.state}|${!!cp.words}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${cp.kind === 'pick' ? (cp.variants || []).map((v) => (v as { video?: string }).video || '').join() : Math.floor(Date.now() / 30000)}` : 'gone';
     if (!force && key === lastKey) return;
     lastKey = key;
     if (!cp) {

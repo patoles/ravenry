@@ -204,7 +204,7 @@ class MainActivity : FragmentActivity() {
                     // Only the page itself: a frame of another origin (an MCP
                     // App's sandbox) never reads the hub through this door.
                     if (request.method != "GET" || !HubGate.allowed(request.requestHeaders)) return HubGate.refused()
-                    return hubResource(u)
+                    return hubResource(u, range = HubGate.range(request.requestHeaders))
                 }
                 if (path.startsWith("/phone/")) return loader.shouldInterceptRequest(u)
                 // The rest of the origin is the hub's own board, the app's
@@ -213,7 +213,7 @@ class MainActivity : FragmentActivity() {
                 if (request.method != "GET") return HubGate.refused()
                 if (request.isForMainFrame) return boardPage(u)
                 if (!HubGate.allowed(request.requestHeaders)) return HubGate.refused()
-                return hubResource(u, board = true)
+                return hubResource(u, board = true, range = HubGate.range(request.requestHeaders))
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -647,10 +647,11 @@ class MainActivity : FragmentActivity() {
     }
 
     /** A picture or file of the hub: `hub/<path>` relative to the page (or the board's own path), fetched with the pin and the token. */
-    private fun hubResource(u: Uri, board: Boolean = false): WebResourceResponse {
+    private fun hubResource(u: Uri, board: Boolean = false, range: String? = null): WebResourceResponse {
         val path = (if (board) (u.encodedPath ?: "/") else "/" + (u.encodedPath ?: "").removePrefix("/phone/hub/")) + (u.encodedQuery?.let { "?$it" } ?: "")
         return try {
-            val r = hub().execute("GET", path)
+            // A player's part of a video (a pick's, the pickvideo round): asked for and passed on as the hub answers it (206).
+            val r = hub().execute("GET", path, headers = if (range != null) mapOf("Range" to range) else emptyMap())
             val type = r.header("Content-Type")?.substringBefore(';')?.trim() ?: "application/octet-stream"
             val bytes = r.body?.bytes() ?: ByteArray(0)
             r.close()
@@ -659,6 +660,8 @@ class MainActivity : FragmentActivity() {
             // as the page, whatever frame shows it.
             val headers = mutableMapOf("Cache-Control" to "no-cache", "X-Content-Type-Options" to "nosniff")
             r.header("Content-Security-Policy")?.let { headers["Content-Security-Policy"] = it }
+            for (k in listOf("Content-Range", "Accept-Ranges")) r.header(k)?.let { headers[k] = it }
+            if (r.code == 206) headers["Content-Length"] = bytes.size.toString()
             WebResourceResponse(type, null, r.code, r.message.ifEmpty { "OK" }, headers, ByteArrayInputStream(bytes))
         } catch (e: Exception) {
             WebResourceResponse("text/plain", "utf-8", 502, "Bad Gateway", emptyMap(), ByteArrayInputStream(ByteArray(0)))
@@ -881,6 +884,10 @@ object HubGate {
     }
 
     fun refused() = WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+
+    /** The part of a file a player asks for ("bytes=0-"), passed to the hub as it is; null when none. */
+    fun range(headers: Map<String, String>?): String? =
+        headers?.entries?.firstOrNull { it.key.equals("Range", true) }?.value?.trim()?.takeIf { Regex("^bytes=\\d*-\\d*$").matches(it) }
 }
 
 private const val STATE_URL = "ravenry.page"

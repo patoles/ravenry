@@ -509,7 +509,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         if path.hasPrefix("/phone/hub/") {
             // Only the page itself: a frame of another origin never reads the hub through this door.
             guard req.httpMethod ?? "GET" == "GET", Self.allowed(req) else { return refuse(task, req) }
-            return hubResource(task, String(path.dropFirst("/phone/hub".count)) + query)
+            return hubResource(task, String(path.dropFirst("/phone/hub".count)) + query, range: Self.range(req))
         }
         if path.hasPrefix("/phone/") {
             var rel = String(path.dropFirst("/phone/".count))
@@ -522,7 +522,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         guard req.httpMethod ?? "GET" == "GET" else { return refuse(task, req) }
         if req.mainDocumentURL == url && (path == "/" || path == "/index.html") { return boardPage(task) }
         guard Self.allowed(req) else { return refuse(task, req) }
-        hubResource(task, path + query)
+        hubResource(task, path + query, range: Self.range(req))
     }
 
     func webView(_ w: WKWebView, stop task: WKURLSchemeTask) { live.remove(ObjectIdentifier(task)) }
@@ -589,14 +589,23 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         Data("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"><script src=\"/phone/board.js\"></script><style>body{margin:0;background:#161618;color:#A1A1A8}@media (prefers-color-scheme: light){body{background:#F1F0ED;color:#5F5F66}}</style></head><body data-unreached=\"\(reason)\"></body></html>".utf8)
     }
 
+    /// The part of a file a player asks for ("bytes=0-1"), passed to the hub as it is; nil when none.
+    static func range(_ r: URLRequest) -> String? {
+        guard let v = r.value(forHTTPHeaderField: "Range")?.trimmingCharacters(in: .whitespaces), v.range(of: #"^bytes=\d*-\d*$"#, options: .regularExpression) != nil else { return nil }
+        return v
+    }
+
     /// A picture or file of the hub, fetched with the pin and the token; the hub's own policy goes with it.
-    private func hubResource(_ task: WKURLSchemeTask, _ path: String) {
+    /// A player's part of a video (a pick's, the pickvideo round) is asked for and passed on as the hub answers it (206).
+    private func hubResource(_ task: WKURLSchemeTask, _ path: String, range: String? = nil) {
         Task {
             guard let c = Hub.client() else { return finish(task, 502, Data(), "text/plain") }
             do {
-                let r = try await c.execute("GET", path)
+                let r = try await c.execute("GET", path, headers: range.map { ["Range": $0] } ?? [:])
                 var extra: [String: String] = [:]
                 if let csp = r.header("Content-Security-Policy") { extra["Content-Security-Policy"] = csp }
+                for k in ["Content-Range", "Accept-Ranges"] { if let v = r.header(k) { extra[k] = v } }
+                if r.status == 206 || r.header("Accept-Ranges") != nil { extra["Content-Length"] = "\(r.data.count)" }
                 if let e = r.header("ETag") { extra["ETag"] = e }
                 let type = r.header("Content-Type") ?? "application/octet-stream"
                 finish(task, r.status, r.data, type, extra)

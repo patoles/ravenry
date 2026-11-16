@@ -17,12 +17,20 @@
 //            kept in fractions of the whole picture at any zoom. Then the
 //            note (typed or spoken) pinned beside it, Circle again, and
 //            Send B, with the note.
+//   video    a video, or a page that holds one (the pickvideo round,
+//            2026-11-16): its first frame in the track and the strip with
+//            a play mark; in the viewer it plays at once, muted and
+//            looping, with its controls (play, pause, the scrub bar), at
+//            its fit (no zoom). Circle a part stops it on the frame shown:
+//            the ring is drawn on that frame, and the answer's region says
+//            its second (t).
 //
 // The pictures are the hub's copies in Ravenry's data (GET
 // /api/checkpoints/<id>/variants/<n>, through the shell with the device
 // token), never the agent's own files. The answer is the person's:
 // POST /api/checkpoints/answer { id, pick: { label, region?, note? } }, or a
-// decline for None of these.
+// decline for None of these. A video plays from the URL the hub gives it
+// (variant.video: a video's own file, a page's video).
 
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
 import type { CheckpointWords, HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
@@ -43,11 +51,13 @@ export interface PickUI {
   note: string;
   /** The viewer's zoom: s times the fit, moved (x, y) from the middle, in screen points. */
   zoom: { s: number; x: number; y: number };
+  /** On a video: the second of the frame the ring is drawn on (null: none). */
+  t: number | null;
   busy: boolean;
   error: string | null;
 }
 
-export const newPick = (): PickUI => ({ i: 0, mode: 'swipe', circling: false, path: [], circledOn: null, note: '', zoom: { s: 1, x: 0, y: 0 }, busy: false, error: null });
+export const newPick = (): PickUI => ({ i: 0, mode: 'swipe', circling: false, path: [], circledOn: null, note: '', zoom: { s: 1, x: 0, y: 0 }, t: null, busy: false, error: null });
 
 export interface PickCtx {
   topBar(cp: HubCheckpoint, icon: string): HTMLElement;
@@ -58,6 +68,31 @@ export interface PickCtx {
 }
 
 const variantUrl = (cp: HubCheckpoint, n: number): string => hubUrl(`/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`);
+/** The video a variant plays (the hub's URL: a video's own, a page's video), else null. */
+export const videoOf = (cp: HubCheckpoint, n: number): string | null => {
+  const u = ((cp.variants || [])[n] as { video?: unknown } | undefined)?.video;
+  return typeof u === 'string' && u.startsWith('/api/') ? hubUrl(u) : null;
+};
+/** A video's first frame, small: a muted element that loads only what it needs to draw it. */
+const firstFrame = (url: string): HTMLVideoElement => {
+  const v = h('video', { src: `${url}#t=0.001`, preload: 'metadata', muted: true, playsinline: true, 'webkit-playsinline': true, tabindex: '-1', 'aria-hidden': 'true' }) as HTMLVideoElement;
+  v.muted = true;
+  return v;
+};
+/** "0:03.2": a second of a video, as a person reads it. */
+export const clock = (t: number): string => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+// The viewer's players, one per video, kept through redraws so a video plays on.
+const players = new Map<string, HTMLVideoElement>();
+function player(url: string): HTMLVideoElement {
+  let v = players.get(url);
+  if (!v) {
+    v = h('video.pzv-vid', { src: url, preload: 'auto', muted: true, loop: true, playsinline: true, 'webkit-playsinline': true }) as HTMLVideoElement;
+    v.muted = true;
+    players.set(url, v);
+    if (players.size > 6) { const [k, old] = players.entries().next().value as [string, HTMLVideoElement]; old.pause(); players.delete(k); }
+  }
+  return v;
+}
 
 /** The circle as drawn: the finger's path, closed smoothly, over the picture. */
 function circleSvg(path: [number, number][]): SVGElement {
@@ -65,16 +100,19 @@ function circleSvg(path: [number, number][]): SVGElement {
   return svg(`<svg class="ov" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">${path.length > 1 ? `<polyline points="${pts}" fill="none" stroke="#FF9F0A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : ''}</svg>`) as unknown as SVGElement;
 }
 
-/** One variant's picture in the swipe track, with its letter; an HTML variant runs sandboxed, with no scripts. */
+/** One variant's picture in the swipe track, with its letter; an HTML variant runs sandboxed, with no scripts; a video shows its first frame. */
 function slide(cp: HubCheckpoint, w: CheckpointWords, n: number, total: number, open: () => void): HTMLElement {
   const v = (cp.variants || [])[n];
   const letter = w.variants[n]?.letter || String(n + 1);
   const missing = h('div.pmiss', say('phone.pick.missing'));
   missing.hidden = true;
-  const media = v && v.type === 'html'
+  const vid = videoOf(cp, n);
+  let media: HTMLElement;
+  if (vid) { media = firstFrame(vid); media.addEventListener('error', () => { missing.hidden = false; }); }
+  else media = v && v.type === 'html'
     ? h('iframe.phtml', { src: variantUrl(cp, n), sandbox: '', title: v.label, loading: 'lazy' })
     : h('img', { src: variantUrl(cp, n), alt: v ? v.label : '', draggable: 'false', on: { error: () => { missing.hidden = false; } } });
-  return h('div.pimg', { 'data-n': String(n), on: { click: open } }, media, missing, h('span.lt', say('phone.pick.where', { letter, i: n + 1, n: total })));
+  return h('div.pimg', { 'data-n': String(n), on: { click: open } }, media, vid ? h('span.pk-play', { 'aria-hidden': 'true' }) : null, missing, h('span.lt', say('phone.pick.where', { letter, i: n + 1, n: total })));
 }
 
 export function pickView(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx): HTMLElement {
@@ -95,13 +133,21 @@ export function pickView(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: P
     const v = vs[ui.i];
     if (!v) return;
     const mine = ui.circledOn === ui.i;
-    const region = mine ? regionOf(ui.path) : null;
+    const r0 = mine ? regionOf(ui.path) : null;
+    // On a video, the ring is on the frame it stopped at: its second goes with it.
+    const region = r0 && videoOf(cp, ui.i) && ui.t != null ? { ...r0, t: Math.round(ui.t * 1000) / 1000 } : r0;
     const note = mine ? ui.note.trim().slice(0, 4000) : '';
     const { letter, name } = nameOf(ui.i);
     void send({ pick: { label: v.label, ...(region ? { region } : {}), ...(note ? { note } : {}) } },
       say(note ? 'phone.pick.sentNote' : region ? 'phone.pick.sentCircle' : 'phone.pick.sent', { letter, name }));
   };
-  const openViewer = (i: number, circling = false) => { ui.i = i; ui.mode = 'view'; ui.circling = circling; ui.zoom = { s: 1, x: 0, y: 0 }; ui.error = null; x.repaint(); };
+  const openViewer = (i: number, circling = false) => {
+    ui.i = i; ui.mode = 'view'; ui.circling = circling; ui.zoom = { s: 1, x: 0, y: 0 }; ui.error = null;
+    // Circle a part from the track: a video stops on its first frame.
+    const vu = videoOf(cp, i);
+    if (circling && vu) { ui.t = 0; const pl = player(vu); pl.pause(); pl.currentTime = 0; }
+    x.repaint();
+  };
 
   if (ui.mode === 'view') return viewer(cp, w, ui, x, { nameOf, pickNow, mic: sh.has('speech') ? () => sh.call<{ text: string }>('speech') : null });
 
@@ -124,13 +170,15 @@ export function pickView(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: P
     if (!tw) return;
     const hs = [...track.querySelectorAll('.pimg')].map((s) => {
       const im = s.querySelector('img') as HTMLImageElement | null;
-      return im && im.naturalWidth ? tw * im.naturalHeight / im.naturalWidth : tw * 10 / 16;
+      const vd = s.querySelector('video') as HTMLVideoElement | null;
+      return im && im.naturalWidth ? tw * im.naturalHeight / im.naturalWidth : vd && vd.videoWidth ? tw * vd.videoHeight / vd.videoWidth : tw * 10 / 16;
     }).map((v) => Math.min(v, Math.round(window.innerHeight * 0.58)));
     const f = track.scrollLeft / tw, a = Math.max(0, Math.floor(f)), b = Math.min(hs.length - 1, a + 1), k = f - a;
     const want = Math.round((hs[a] ?? hs[0] ?? 200) * (1 - k) + (hs[b] ?? hs[a] ?? 200) * k);
     if (track.style.height !== `${want}px`) track.style.height = `${want}px`;
   };
   for (const im of track.querySelectorAll('img')) im.addEventListener('load', fitHeight);
+  for (const vd of track.querySelectorAll('video')) vd.addEventListener('loadedmetadata', fitHeight);
   // The picture on screen follows the swipe; only its words change, so the
   // track keeps scrolling under the finger.
   track.addEventListener('scroll', () => {
@@ -171,10 +219,21 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
   const go = (k: number) => { if (k < 0 || k >= n || k === ui.i) return; ui.i = k; ui.zoom = { s: 1, x: 0, y: 0 }; x.repaint(); };
 
   // The picture in a box at its fit; the box is moved and scaled about the
-  // stage's middle, the ring inside it in its own fractions.
-  const img = v && v.type === 'html'
+  // stage's middle, the ring inside it in its own fractions. A video plays
+  // there with its controls; circling, or circled on it, it stays on the
+  // ring's frame, its controls hidden so a finger draws on the frame.
+  const vu = videoOf(cp, i);
+  const vid = vu ? player(vu) : null;
+  const still = !!vid && (ui.circling || mine);
+  if (vid) {
+    vid.controls = !still;
+    vid.setAttribute('aria-label', `${letter}. ${name}`);
+    if (still) { vid.pause(); if (ui.t != null && Math.abs(vid.currentTime - ui.t) > 0.01) vid.currentTime = ui.t; }
+    else { const pl = vid.play(); if (pl && pl.catch) pl.catch(() => {}); }
+  }
+  const img = vid || (v && v.type === 'html'
     ? h('iframe.phtml', { src: variantUrl(cp, i), sandbox: '', title: v.label })
-    : h('img', { src: variantUrl(cp, i), alt: v ? v.label : '', draggable: 'false' }) as HTMLImageElement;
+    : h('img', { src: variantUrl(cp, i), alt: v ? v.label : '', draggable: 'false' }) as HTMLImageElement);
   let ov = circleSvg(mine ? ui.path : []);
   const box = h('div.pzv-box', img, ov);
   const pct = h('span.num');
@@ -189,11 +248,12 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
   // The box's place at fit (the whole picture, in the middle), from the stage's size and the picture's.
   const fit = () => {
     const sw = stage.clientWidth, sh2 = stage.clientHeight;
-    const nw = (img as HTMLImageElement).naturalWidth || 16, nh = (img as HTMLImageElement).naturalHeight || 10;
+    const nw = (vid ? vid.videoWidth : (img as HTMLImageElement).naturalWidth) || 16, nh = (vid ? vid.videoHeight : (img as HTMLImageElement).naturalHeight) || 10;
     const k = Math.min(sw / nw, sh2 / nh) || 1;
     return { sw, sh: sh2, w: nw * k, h: nh * k, k };
   };
-  const zoomMax = (f = fit()) => Math.min(12, Math.max(5, 1 / (f.k * (window.devicePixelRatio || 1))));
+  // A video is seen at its fit (its controls would grow with it).
+  const zoomMax = (f = fit()) => (vid ? 1 : Math.min(12, Math.max(5, 1 / (f.k * (window.devicePixelRatio || 1)))));
   function apply(animate = false) {
     const f = fit();
     if (!f.sw) return;
@@ -261,6 +321,8 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
   };
   stage.addEventListener('pointerdown', (e) => {
     if ((e.target as Element).closest('.pzv-fit')) return;
+    // A playing video's own controls take the finger.
+    if (vid && !ui.circling) return;
     lastType = e.pointerType;
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try { stage.setPointerCapture(e.pointerId); } catch { /* gone */ }
@@ -305,7 +367,7 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
     const dn = down; down = null;
     // A ring drawn with one finger: closed into a loop, as a circle drawn with a finger reads.
     if (ui.circling && path.length && !multi) {
-      if (e.type !== 'pointercancel' && regionOf(path)) { ui.path = [...path, path[0]]; ui.circledOn = i; ui.circling = false; x.repaint(); }
+      if (e.type !== 'pointercancel' && regionOf(path)) { ui.path = [...path, path[0]]; ui.circledOn = i; ui.circling = false; if (vid) ui.t = vid.currentTime; x.repaint(); }
       else { path = []; drawPath(mine ? ui.path : []); }
       return;
     }
@@ -324,6 +386,7 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
   stage.addEventListener('dblclick', (e) => { if (ui.circling || lastType !== 'mouse') return; if (z.s > 1) setZoom(1, 0, 0, true); else zoomAt(2.5, e.clientX, e.clientY, true); });
   stage.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(z.s * Math.exp(-Math.max(-300, Math.min(300, e.deltaY)) * (e.ctrlKey ? 0.01 : 0.002)), e.clientX, e.clientY); }, { passive: false });
   if (img instanceof HTMLImageElement) img.addEventListener('load', () => apply());
+  if (vid) { if (vid.videoWidth) requestAnimationFrame(() => apply()); else vid.addEventListener('loadedmetadata', () => { apply(); if (still && ui.t != null) vid.currentTime = ui.t; }, { once: true }); }
   new ResizeObserver(() => apply()).observe(stage);
   requestAnimationFrame(() => apply());
 
@@ -332,7 +395,7 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
   const sendLabel = h('span');
   const paintSend = () => { sendLabel.textContent = say(ui.note.trim() ? 'phone.pick.sendNote' : 'phone.pick.sendCircle', { letter }); };
   let capEl: HTMLElement;
-  if (ui.circling) capEl = h('p.pzv-hint', say('phone.pick.drawHint'));
+  if (ui.circling) capEl = h('p.pzv-hint', say(vid ? 'phone.pick.drawHintVideo' : 'phone.pick.drawHint', { t: clock(ui.t ?? 0) }));
   else if (mine) {
     field = h('textarea.f.pnote', { rows: '1', placeholder: say('phone.pick.notePlaceholder'), 'aria-label': say('phone.pick.noteLabel'), enterkeyhint: 'send', autocomplete: 'off', spellcheck: 'true' }) as HTMLTextAreaElement;
     field.value = ui.note;
@@ -343,27 +406,27 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
     const mic = c.mic ? h('button.mic', { 'aria-label': 'Speak', on: { click: async () => {
       try { const r = await c.mic!(); if (r && r.text && field) { field.value = (field.value ? field.value.trimEnd() + ' ' : '') + r.text; field.dispatchEvent(new Event('input')); } } catch (e) { ui.error = (e as Error).message; x.repaint(); }
     } } }, svg(I.MIC)) : null;
-    capEl = h('div.pfield.pnf.pzv-nf', field, mic);
+    capEl = vid && ui.t != null ? h('div.pzv-nfv', h('p.pzv-fr.num', say('pick.frameAt', { t: clock(ui.t) })), h('div.pfield.pnf.pzv-nf', field, mic)) : h('div.pfield.pnf.pzv-nf', field, mic);
   } else capEl = h('p.pzv-cap', h('b', `${letter}. ${name}`), says ? h('span', says) : null);
 
   // The strip: each variant whole, its letter, the one shown ringed, the circled one ticked.
   const strip = h('div.pzv-strip', vs.map((vv, k) => {
     const nm = c.nameOf(k);
     return h(`button.pzv-th${k === i ? '.on' : ''}`, { 'aria-label': `${nm.letter}. ${nm.name}`, 'aria-current': k === i ? 'true' : null, on: { click: () => go(k) } },
-      vv.type === 'html' ? null : h('img', { src: variantUrl(cp, k), alt: '', draggable: 'false' }), h('span.pk-lt', ui.circledOn === k ? `${nm.letter} ✓` : nm.letter));
+      videoOf(cp, k) ? firstFrame(videoOf(cp, k)!) : vv.type === 'html' ? null : h('img', { src: variantUrl(cp, k), alt: '', draggable: 'false' }), h('span.pk-lt', ui.circledOn === k ? `${nm.letter} ✓` : nm.letter));
   }));
 
   paintSend();
   const ctl = ui.circling
-    ? [h('button.btn', { disabled: ui.busy, on: { click: () => { ui.circling = false; x.repaint(); } } }, say('phone.pick.cancel')),
+    ? [h('button.btn', { disabled: ui.busy, on: { click: () => { ui.circling = false; if (ui.circledOn !== i) ui.t = null; x.repaint(); } } }, say('phone.pick.cancel')),
       h('button.btn.pri', { disabled: true }, say('pick.pickLetter', { letter }))]
     : mine
-      ? [h('button.btn', { disabled: ui.busy, on: { click: () => { ui.circling = true; ui.path = []; ui.circledOn = null; ui.note = ''; x.repaint(); } } }, say('phone.pick.circleAgain')),
+      ? [h('button.btn', { disabled: ui.busy, on: { click: () => { ui.circling = true; ui.path = []; ui.circledOn = null; ui.note = ''; if (vid) ui.t = vid.currentTime; x.repaint(); } } }, say('phone.pick.circleAgain')),
         h('button.btn.pri.wide', { disabled: ui.busy, on: { click: c.pickNow } }, sendLabel)]
-      : [h('button.btn', { disabled: ui.busy, on: { click: () => { ui.circling = true; ui.error = null; x.repaint(); } } }, svg(I.CIRCLE), say('pick.circle')),
+      : [h('button.btn', { disabled: ui.busy, on: { click: () => { ui.circling = true; ui.error = null; if (vid) { vid.pause(); ui.t = vid.currentTime; } x.repaint(); } } }, svg(I.CIRCLE), say('pick.circle')),
         h('button.btn.pri', { disabled: ui.busy, on: { click: c.pickNow } }, say('pick.pickLetter', { letter }))];
 
-  const close = () => { ui.mode = 'swipe'; ui.circling = false; ui.zoom = { s: 1, x: 0, y: 0 }; x.repaint(); };
+  const close = () => { ui.mode = 'swipe'; ui.circling = false; ui.zoom = { s: 1, x: 0, y: 0 }; for (const p of players.values()) p.pause(); x.repaint(); };
   return h('div.pzv',
     h('div.pzv-bar',
       h('button.icon-btn.fg', { 'aria-label': say('phone.pick.closeViewer'), on: { click: close } }, svg(I.X18)),
