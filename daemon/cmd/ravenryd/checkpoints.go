@@ -95,7 +95,7 @@ func openCheckpoint(a *args, params map[string]any) error {
 	defer c.Close()
 	var r proto.CheckpointResult
 	if err := c.Call(cctx, "checkpoint.new", params, &r); err != nil {
-		return err
+		return olderDaemonVideo(err, params, c.Hello.Daemon.Version, version)
 	}
 	if a.bools["no-wait"] {
 		if a.g.json {
@@ -106,6 +106,29 @@ func openCheckpoint(a *args, params map[string]any) error {
 	}
 	fmt.Fprintf(os.Stderr, "waiting for a person to answer %s (in the Ravenry app or on the phone)...\n", r.Checkpoint.ID)
 	return waitCheckpoint(ctx, c, a, r.Checkpoint.ID, nil)
+}
+
+// olderDaemonVideo words a refusal of a pick's video by a ravenryd from
+// before videos (before 0.1.58; its refusal names pictures and pages only):
+// the session runs on an older Ravenry, and Move here in the app moves it
+// onto this one. Any other error is returned as it is.
+func olderDaemonVideo(err error, params map[string]any, daemon, mine string) error {
+	// Its refusal names pictures and pages only: it is a ravenryd from before videos.
+	if err == nil || params["kind"] != "pick" || !strings.Contains(err.Error(), "or a page (.html)") || strings.Contains(err.Error(), "video") {
+		return err
+	}
+	if daemon == "" {
+		daemon = "an older version"
+	}
+	vs, _ := params["variants"].([]map[string]any)
+	for _, v := range vs {
+		p, _ := v["path"].(string)
+		switch strings.ToLower(filepath.Ext(p)) {
+		case ".mp4", ".m4v", ".mov", ".webm":
+			return fmt.Errorf("this session runs on an older Ravenry (ravenryd %s), which cannot show a video (%s); in the Ravenry app, open this session and use Move here to move it onto ravenryd %s, then run ravenry pick again", daemon, filepath.Base(p), mine)
+		}
+	}
+	return err
 }
 
 // waitCheckpoint waits until it closes (or timeout passes) and exits as

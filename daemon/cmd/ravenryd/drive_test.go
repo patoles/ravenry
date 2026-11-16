@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image/gif"
 	"image/png"
 	"io"
@@ -243,5 +244,24 @@ func TestDecisionsFromTheCommandLine(t *testing.T) {
 	out, errs, code = runCmd(t, e.ravenry("0.2.0", "decisions", "--search", "menus"))
 	if code != 0 || !strings.Contains(out, "read 5 times today") || !strings.Contains(out, "  > Menus stay on the left.") {
 		t.Fatalf("decisions: %d %q %q", code, out, errs)
+	}
+}
+
+// A ravenryd from before videos refuses a video variant in words that name
+// pictures and pages only: the command says the session runs on an older
+// Ravenry and to use Move here; any other refusal is passed on as it is.
+func TestOlderDaemonVideoWords(t *testing.T) {
+	old := errors.New(`variant 0: a picture (.png, .jpg, .gif, .webp, .svg) or a page (.html) (bad_request)`)
+	pick := map[string]any{"kind": "pick", "variants": []map[string]any{{"label": "A", "path": "/x/take.mp4"}, {"label": "B", "path": "/x/b.png"}}}
+	got := olderDaemonVideo(old, pick, "0.1.57", "0.1.59")
+	if got == nil || !strings.Contains(got.Error(), "this session runs on an older Ravenry (ravenryd 0.1.57)") || !strings.Contains(got.Error(), "Move here") || !strings.Contains(got.Error(), "take.mp4") {
+		t.Fatalf("an older daemon's refusal: %v", got)
+	}
+	if got := olderDaemonVideo(old, map[string]any{"kind": "pick", "variants": []map[string]any{{"label": "A", "path": "/x/a.gif"}}}, "0.1.57", "0.1.59"); got != old {
+		t.Fatalf("no video: %v", got)
+	}
+	newer := errors.New(`variant 0: a picture (.png, .jpg, .gif, .webp, .svg), a page (.html) or a video (.mp4, .mov, .m4v, .webm) (bad_request)`)
+	if got := olderDaemonVideo(newer, pick, "0.1.59", "0.1.59"); got != newer {
+		t.Fatalf("a daemon that knows videos: %v", got)
 	}
 }
