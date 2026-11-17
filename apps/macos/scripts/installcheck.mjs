@@ -295,7 +295,9 @@ try {
     const h0 = runHook(a, electronHook(a), 'updhook0001');
     step('update: right after the swap, before the native app runs, the Electron app\'s hooks run on the native executable', h0.wrote && h0.status === 0, h0);
     const n = launchNative(a, 'update');
-    const r = await until(() => { const x = n.report(); return x && x.tabs.length === 3 && x.focused.draws > 0 && /in-pane-two/.test(x.focused.text) ? x : null; }, 30000);
+    // Every running shell of every daemon comes back as a tab (8b7c4a6): the
+    // saved three first, in their order, then the older daemon's shell.
+    const r = await until(() => { const x = n.report(); return x && x.tabs.length === 4 && x.focused.draws > 0 && /in-pane-two/.test(x.focused.text) ? x : null; }, 30000);
     // An Electron app of this version: the window opens on its daemon and
     // starts none. An older one (the person's last Electron release): the
     // packaged app starts this version's daemon beside it ("The daemon" in
@@ -303,7 +305,7 @@ try {
     const same = EBUILD.version === BUILD.version;
     step(same ? 'update: the window opens on the running daemon (no new one), its three shells as tabs in the saved order, the one in front drawn with what it showed'
       : `update: the window opens the older daemon's (${EBUILD.version}) three shells as tabs on it in the saved order, the one in front drawn with what it showed, on this version's daemon started beside it`,
-    !!r && r.daemon === BUILD.version && r.tabs.every((t) => t.daemon === EBUILD.version) && JSON.stringify(r.tabs.map((t) => t.host)) === JSON.stringify([panes[1], panes[2], panes[0]]) && r.front === panes[1], { report: r && { ...r, focused: { ...r.focused, text: r.focused.text.slice(0, 200) } }, panes });
+    !!r && r.daemon === BUILD.version && r.tabs.slice(0, 3).every((t) => t.daemon === EBUILD.version) && JSON.stringify(r.tabs.map((t) => t.host)) === JSON.stringify([panes[1], panes[2], panes[0], oldPane]) && r.tabs[3].daemon === '0.1.22' && r.front === panes[1], { report: r && { ...r, focused: { ...r.focused, text: r.focused.text.slice(0, 200) } }, panes, oldPane });
     const done = await until(async () => {
       const lis = listeners(a.port);
       const plist = read(path.join(a.home, 'Library', 'LaunchAgents', `${a.label}.plist`)) || '';
@@ -337,14 +339,14 @@ try {
     const split = { host: `s:${panes[1]}`, guest: `s:${panes[0]}`, side: 'right', size: 60, focus: 0, zoom: 0 };
     fs.writeFileSync(wf, JSON.stringify({ order: [`s:${panes[1]}`, `s:${panes[0]}`, `s:${panes[2]}`], splits: [split], active: `s:${panes[1]}`, pinned: [], electronOnly: 'kept' }, null, 2));
     const n2 = launchNative(a, 'update-split');
-    const r2 = await until(() => { const x = n2.report(); return x && x.tabs.length === 2 && x.tabs[0].guest ? x : null; }, 30000);
-    step('update: a split the Electron app saved opens as one tab of its two panes, beside the other tab', !!r2 && r2.tabs[0].host === panes[1] && r2.tabs[0].guest === panes[0] && r2.tabs[1].host === panes[2], { tabs: n2.report()?.tabs });
+    const r2 = await until(() => { const x = n2.report(); return x && x.tabs.length === 3 && x.tabs[0].guest ? x : null; }, 30000);
+    step('update: a split the Electron app saved opens as one tab of its two panes, beside the other tab (then the older daemon\'s shell)', !!r2 && r2.tabs[0].host === panes[1] && r2.tabs[0].guest === panes[0] && r2.tabs[1].host === panes[2] && r2.tabs[2].host === oldPane, { tabs: n2.report()?.tabs });
     n2.p.kill('SIGTERM');
     await until(() => n2.p.exitCode !== null, 10000);
     await sleep(500);
     const back = json(wf) || {};
     const sp = (back.splits || [])[0] || {};
-    step('update: quitting, the native app writes the split back as the Electron app reads it, and leaves the Electron app\'s own key', sp.host === split.host && sp.guest === split.guest && sp.side === 'right' && Math.round(sp.size) === 60 && back.electronOnly === 'kept' && (back.order || []).join(',') === [split.host, split.guest, `s:${panes[2]}`].join(','), { back });
+    step('update: quitting, the native app writes the split back as the Electron app reads it, and leaves the Electron app\'s own key', sp.host === split.host && sp.guest === split.guest && sp.side === 'right' && Math.round(sp.size) === 60 && back.electronOnly === 'kept' && (back.order || []).join(',') === [split.host, split.guest, `s:${panes[2]}`, `s:${oldPane}`].join(','), { back });
     retire(a);
   }
 
