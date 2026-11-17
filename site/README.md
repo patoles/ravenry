@@ -29,8 +29,9 @@ At the top of `index.html`, `window.RAVENRY_SITE`:
 - `reportUrl`: where "report a problem" goes (a new GitHub issue).
 - `firstLaunchNote`: `true` shows "The first time, macOS asks: open System
   Settings, Privacy & Security, and choose Open Anyway." under the Mac
-  download, for a build not signed with a Developer ID. On while the DMG is
-  not notarized.
+  download, for a build not signed with a Developer ID. Off since 0.1.65:
+  releases are signed with a Developer ID, notarized and stapled
+  (`docs/PUBLISHING.md`).
 
 ## Preview and check
 

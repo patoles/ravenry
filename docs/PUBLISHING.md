@@ -32,9 +32,9 @@ that is not newer than the release marked latest.
 ## The steps
 
 1. Bump the version (`apps/desktop/package.json` and the lockfile, as
-   "Make the app 0.1.47" did) and package:
-   `node apps/macos/scripts/package.mjs`. It writes the zip, the feed and the
-   dmg twice (`Ravenry-<version>-mac-arm64.dmg`, and `Ravenry-mac.dmg`, a
+   "Make the app 0.1.47" did) and package, signed and notarized (below):
+   `RAVENRY_SIGN_IDENTITY="Developer ID Application: <owner> (94C83QNSZ3)" RAVENRY_NOTARY_PROFILE=ravenry-notary node apps/macos/scripts/package.mjs`.
+   It writes the zip, the feed and the dmg twice (`Ravenry-<version>-mac-arm64.dmg`, and `Ravenry-mac.dmg`, a
    hard link to it) in `apps/macos/build/package`.
 2. The APK, with JDK 17: `cd apps/android && ./gradlew assembleRelease`. It
    is signed with the testers' key (below) and has the Mac app's version
@@ -68,12 +68,41 @@ stand-ins for `gh`, `git` and the network.
 
 ### The Mac app's signature
 
-On this Mac `package.mjs` signs with the Apple Development identity, not
-notarized. A tester's Mac then refuses to open the app until they allow it
-in System Settings, Privacy & Security, Open Anyway (the dry run warns). For
-a release that opens normally, package with `RAVENRY_SIGN_IDENTITY` (a
-Developer ID Application identity) and `RAVENRY_NOTARY_PROFILE`
-(`package.mjs`'s header).
+Since 0.1.65 every testers' release is signed with a Developer ID and
+notarized, so macOS opens it normally, with no Open Anyway step (the page's
+`firstLaunchNote` is off). Package with both variables set:
+
+- `RAVENRY_SIGN_IDENTITY="Developer ID Application: <owner> (94C83QNSZ3)"`:
+  the identity in the login keychain, its name as
+  `security find-identity -v -p codesigning` prints it (`<owner>` is the
+  account holder's name there). Every binary inside is signed with it,
+  with the hardened runtime and a secure timestamp, then the app.
+- `RAVENRY_NOTARY_PROFILE=ravenry-notary`: the `xcrun notarytool` keychain
+  profile (an App Store Connect API key) that sends the app, then the dmg,
+  to Apple and waits for the answer; both are then stapled
+  (`package.mjs`'s header). Notarizing takes a few minutes each.
+
+Check the result before publishing: `spctl -a -vvv -t exec` on the app says
+"accepted, source=Notarized Developer ID", and `xcrun stapler validate` on
+the app and the dmg works. The dry run of `tools/publish-testers.mjs` warns
+when the app is not signed with a Developer ID or the dmg is not stapled.
+
+Team 94C83QNSZ3 is also the team of the Apple Development identity that
+signed every tester build before 0.1.65. The updater (`Updater.swift`)
+asks a new bundle for `identifier "dev.ravenry.app" and anchor apple generic
+and certificate leaf[subject.OU] = "<its own team>"`: any certificate Apple
+issued, Apple Development or Developer ID, whose OU is the team. So the
+copies already installed update to a Developer ID build as to any other
+(checked 0.1.64 to 0.1.65).
+
+Without `RAVENRY_SIGN_IDENTITY`, `package.mjs` signs with this Mac's Apple
+Development identity, not notarized: for this Mac only, never a release (a
+tester's Mac refuses to open it until they choose Open Anyway).
+
+The Developer ID identity's .p12 and the notary API key are backed up by
+the owner, outside this Mac and outside the repository. Neither is ever
+exported, copied or committed from here; the keychain is only read, by
+`codesign` and `notarytool`.
 
 ## The testers' Android key
 

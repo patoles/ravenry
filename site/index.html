@@ -15,8 +15,9 @@ window.RAVENRY_SITE = {
   // "Report a problem".
   reportUrl: 'https://github.com/patoles/ravenry/issues/new',
   // A line under the Mac download for a build not signed with a Developer ID:
-  // "The first time, macOS asks: open System Settings, Privacy & Security, and choose Open Anyway." (on while the DMG is not notarized)
-  firstLaunchNote: true,
+  // "The first time, macOS asks: open System Settings, Privacy & Security, and choose Open Anyway." (off: since 0.1.65
+  // the app and the DMG are signed with a Developer ID, notarized and stapled, so macOS opens them normally)
+  firstLaunchNote: false,
 };
 // -----------------------------------------------------------------------------------------
 </script>
