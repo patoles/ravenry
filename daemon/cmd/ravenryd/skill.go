@@ -216,7 +216,12 @@ person never needs to come back to your chat.
   A variant can be a video (` + "`--variant A=clip.mp4`" + `: .mp4, .mov, .m4v or .webm,
   up to 100 MiB), or a page that holds one: the person plays it, and a
   region they circle on a paused frame comes as ` + "`region x y w h at T`" + `, T the
-  second of that frame.
+  second of that frame. H.264 (.mp4, .mov, .m4v) and VP8 .webm (Playwright's
+  recordings) play on every client. VP9 .webm plays on the Mac, the board
+  and Android, and on an iPhone or iPad only where it decodes VP9; AV1 and
+  HEVC play only on devices that decode them. ` + "`ravenry pick`" + ` says so when
+  it makes the card, and those clients show "This video can't play here":
+  for a video that must play everywhere, make it H.264 .mp4.
 
 ## Panes you did not start
 

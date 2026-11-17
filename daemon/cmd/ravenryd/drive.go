@@ -797,7 +797,8 @@ func cmdPick(in []string) error {
 		return errors.New("a pick shows 2 to 4 variants: --variant LABEL=FILE (an image or an .html page) or LABEL=pane:PANE")
 	}
 	p["variants"] = vs
-	return openCheckpoint(a, p)
+	// A video that will not play on every client: said once the card is made.
+	return openCheckpoint(a, p, pickVideoNotes(vs)...)
 }
 
 // ------------------------------------------------------------ decisions

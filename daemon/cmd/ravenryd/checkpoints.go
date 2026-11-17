@@ -83,7 +83,8 @@ func absDir(v string) string {
 
 // openCheckpoint opens it in the daemon of this pane (or the newest),
 // then waits for it unless --no-wait.
-func openCheckpoint(a *args, params map[string]any) error {
+// notes: lines for the agent, on stderr once the card is made.
+func openCheckpoint(a *args, params map[string]any, notes ...string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cctx, ccancel := callCtx(15 * time.Second)
@@ -96,6 +97,9 @@ func openCheckpoint(a *args, params map[string]any) error {
 	var r proto.CheckpointResult
 	if err := c.Call(cctx, "checkpoint.new", params, &r); err != nil {
 		return olderDaemonVideo(err, params, c.Hello.Daemon.Version, version)
+	}
+	for _, n := range notes {
+		fmt.Fprintln(os.Stderr, n)
 	}
 	if a.bools["no-wait"] {
 		if a.g.json {
