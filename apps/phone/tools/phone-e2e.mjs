@@ -59,12 +59,20 @@
 // phone's browser (an ACTION_VIEW of that address, the app no longer in
 // front).
 //
+// --dp N: the emulator's screen N dp wide for the run (360 for a narrow phone),
+// through its density; --apk FILE: another build (the release APK).
+//
 // --attach-only: pair with the real link, then the board's Attach only
 // (docs/FEATURES.md PHONE-038): a document and a photo picked together in
 // Android's own document picker (driven by touch, from its Downloads), then a
 // picker cancelled, then a photo from its Images, then a plan's box: each
 // file lands in the project's .inbox on the hub byte for byte (sha256), as
 // the Mac's Attach puts it, and shows as a chip; a cancel changes nothing.
+//
+// --gallery-only: pair with the real link, then a project's picture (a PNG
+// the session showed) opened from its card: the viewer shows it as a picture
+// (the <img> decoded and on top at the viewer's centre, no video player
+// drawn), as a tester's phone did not on 2026-11-17 (a dead video over it).
 //
 // --launch-only: pair with the real link, then the launch's checks only (an
 // AVD of Android 12 or older for today's version, where the rest is not run).
@@ -96,6 +104,7 @@ const LAUNCH_ONLY = args.includes('--launch-only');
 const OPENON_ONLY = args.includes('--openon-only');
 const PRIVACY_ONLY = args.includes('--privacy-only');
 const ATTACH_ONLY = args.includes('--attach-only');
+const GALLERY_ONLY = args.includes('--gallery-only');
 const HUB_DIR = opt('--hub', null);
 // The host's GPU, headless all the same (no window): frame times mean something.
 const GPU = opt('--gpu', 'host');
@@ -161,6 +170,8 @@ try {
   adb('shell', 'settings', 'put', 'global', 'sysui_demo_allowed', '1');
   const demoBar = (cmd, extra = []) => adb('shell', 'am', 'broadcast', '-a', 'com.android.systemui.demo', '-e', 'command', cmd, ...extra);
   demoBar('enter'); demoBar('clock', ['-e', 'hhmm', '1755']); demoBar('notifications', ['-e', 'visible', 'false']); demoBar('battery', ['-e', 'level', '80', '-e', 'plugged', 'false']); demoBar('network', ['-e', 'wifi', 'show', '-e', 'level', '4']);
+  // --dp N: the screen N dp wide (a narrow phone is 360), by the display's density.
+  if (opt('--dp', null)) { const px = Number((/(\d+)x\d+/.exec(adb('shell', 'wm', 'size')) || [])[1]); if (px) adb('shell', 'wm', 'density', String(Math.round((px * 160) / Number(opt('--dp', 412))))); }
   const size = adb('shell', 'wm', 'size').trim();
   const dens = adb('shell', 'wm', 'density').trim();
   console.log(`${SERIAL}: API ${API}, ${size}, ${dens}`);
@@ -190,7 +201,7 @@ try {
   const shot = (name) => { const f = path.join(OUT, name); fs.writeFileSync(f, adbBin('exec-out', 'screencap', '-p')); console.log('shot', f); return f; };
   // A fingerprint, enrolled as a person does in Settings after a PIN (as
   // tools/pick-shots.mjs does; the sensor is touched with `adb emu finger touch`).
-  if (!LAUNCH_ONLY && !OPENON_ONLY && !PRIVACY_ONLY && !ATTACH_ONLY) {
+  if (!LAUNCH_ONLY && !OPENON_ONLY && !PRIVACY_ONLY && !ATTACH_ONLY && !GALLERY_ONLY) {
     const fp = () => screen();
     adb('shell', 'locksettings', 'set-pin', '1234');
     adb('shell', 'am', 'start', '-a', 'android.settings.FINGERPRINT_ENROLL');
@@ -588,6 +599,28 @@ try {
     await sleep(2500);
     shot('privacy-browser.png');
     adb('shell', 'am', 'force-stop', top || 'com.android.chrome');
+    break sections;
+  }
+  if (GALLERY_ONLY) {
+    adb('shell', `am start -a android.intent.action.VIEW -d '${info.phone.link}' ${APP}`);
+    await tapWhen('Pair', 30000);
+    const paired = await until(() => page('document.querySelector("#pchips .pchip") ? location.pathname : null'), 40000, 1000);
+    check(paired === '/', 'the real link pairs, and the home is the board (the project chips)', String(paired));
+    await sleep(1500);
+    const withPic = await until(async () => ((await (await fetch(`${HUB}/api/state`)).json()).projects || []).find((p) => p.brief && (p.brief.pictures || []).some((x) => x.auto)), 30000, 1000);
+    if (!withPic) throw new Error('no project on the demo board has a session picture');
+    await tapUntil(`#pchips .pchip[data-id="${withPic.id}"]`, () => page('document.querySelector(".picard img") && document.querySelector(".picard img").naturalWidth > 0 ? 1 : null'));
+    await tapUntil('.picard', () => page('(() => { const l = document.querySelector("#gl-fs"); return l && !l.hidden ? 1 : null; })()'));
+    const seen = await until(() => page(`(() => {
+      const v = document.querySelector('#gl-view'), i = document.querySelector('#gl-im'), vid = document.querySelector('#gl-vid');
+      if (!v || !i || !i.complete || !i.naturalWidth) return null;
+      const r = v.getBoundingClientRect(), top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return JSON.stringify({ src: i.getAttribute('src'), natural: i.naturalWidth + 'x' + i.naturalHeight, top: top ? (top.id || top.tagName) : null, player: getComputedStyle(vid).display });
+    })()`), 15000, 500);
+    const sn = seen ? JSON.parse(seen) : null;
+    check(sn && sn.top === 'gl-im' && sn.player === 'none' && /^\/api\/pic\//.test(sn.src), `${withPic.name}'s PNG opens in the viewer as a picture: decoded, on top, no video player drawn`, JSON.stringify(sn));
+    await sleep(600);
+    shot('gallery-png-dark.png');
     break sections;
   }
   if (ATTACH_ONLY) {

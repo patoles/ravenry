@@ -592,6 +592,27 @@ final class FlowTests: XCTestCase {
         a.terminate()
     }
 
+    /// A project's picture (a PNG the session showed) opened from its card shows as a picture in the gallery's viewer:
+    /// the <img> decoded and on top at the viewer's centre, no video player drawn (on 2026-11-17 an Android phone showed
+    /// a dead video over it: the hub's board drew the hidden player, its display rule undoing `hidden`).
+    func test9j_AGalleryPictureOpensAsAPicture() throws {
+        if shotsOnly { return }
+        continueAfterFailure = true
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board")
+        let opened = until(20) { self.js("const c = document.querySelector('#pchips .pchip[data-id=\"garden-planner\"]'); if (c && c.getAttribute('aria-current') !== 'true') c.click(); const p = document.querySelector('.picard'); const i = p && p.querySelector('img'); if (!p || !i || !i.naturalWidth) return false; p.scrollIntoView({ block: 'center' }); p.click(); const l = document.querySelector('#gl-fs'); return !!l && !l.hidden;") == "true" }
+        XCTAssertTrue(opened, "garden-planner's picture card opens the gallery")
+        var seen = ""
+        let picture = until(15) {
+            seen = self.js("const v = document.querySelector('#gl-view'), i = document.querySelector('#gl-im'), vid = document.querySelector('#gl-vid'); if (!v || !i || !i.complete || !i.naturalWidth) return 'loading'; const r = v.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return 'top ' + (t ? (t.id || t.tagName) : 'none') + ', natural ' + i.naturalWidth + 'x' + i.naturalHeight + ', player ' + getComputedStyle(vid).display;") ?? ""
+            return seen.contains("top gl-im,") && seen.contains("player none")
+        }
+        mark("test9j viewer: \(seen)")
+        XCTAssertTrue(picture, "the PNG shows as a picture: decoded, on top, no video player drawn (\(seen))")
+        shot("gallery-png")
+        a.terminate()
+    }
+
     /// A card asked from a pane in no project reaches every layout (the iPad's wide board and its column, an
     /// iPhone), its page opens the pick's screen, and its videos show their first frames and play there, through
     /// the app's shell (a player's parts, 206): A plays inline, a seek plays on, B (a page's video) plays.
