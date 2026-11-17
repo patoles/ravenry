@@ -1,33 +1,47 @@
-> **Draft: to be reviewed before the first outside contribution.**
+# Ravenry Contributor Licence Agreement
 
-# Ravenry Individual Contributor Licence Agreement
+Version 1.0. Based on the Apache Software Foundation's Individual and
+Corporate Contributor License Agreements, with an added right to relicense.
 
-Version 0.1 (draft). Modelled on the Apache Software Foundation's Individual
-Contributor License Agreement, with an added right to relicense.
-
-Thank you for your interest in Ravenry (the "Project"). This agreement makes
-clear the rights you grant in your Contributions. It protects you as a
-contributor and it protects the Project and its users. It does not change
+Thank you for your interest in Ravenry (the "Project"). This agreement
+makes clear the rights you grant in your Contributions. It protects you as
+a contributor and it protects the Project and its users. It does not change
 your right to use your own Contributions for any other purpose.
 
-You accept this agreement by commenting on your pull request with the
-sentence the CLA assistant asks for. Your GitHub account name, the date and
-the pull request are then recorded in this repository.
+## How to sign
+
+- **For yourself.** Comment on your first pull request with the sentence
+  the CLA assistant asks for:
+  `I have read the CLA Document and I hereby sign the CLA`.
+  Your GitHub account name, the date and the pull request are then
+  recorded in this repository. You sign once; it covers your later
+  Contributions too.
+- **For a company or other entity.** A person authorised to sign for the
+  entity comments the same sentence from their own GitHub account, and in a
+  second comment on the same pull request gives the entity's full legal
+  name, says that they are authorised to sign for it, and names the GitHub
+  accounts that contribute for it. The Project Owner may ask for this in
+  writing before merging. Each of those accounts then signs as well.
 
 ## 1. Definitions
 
-- **"You"** (or **"Your"**) means the person who owns the copyright in a
-  Contribution, or is authorised by its owner, and who enters into this
-  agreement with the Project Owner.
+- **"You"** (or **"Your"**) means the copyright owner, or a legal entity
+  authorised by the copyright owner, that enters into this agreement with
+  the Project Owner. For a legal entity, "You" includes the entity and
+  every other entity that controls it, is controlled by it, or is under
+  common control with it. "Control" means direct or indirect ownership of
+  more than fifty percent of the voting securities of an entity, or the
+  power to direct its management, by contract or otherwise.
 - **"Project Owner"** means Simon Patole, the copyright holder of the
   Project, and any person or entity to whom he assigns the Project.
 - **"Contribution"** means any original work of authorship, including any
-  changes or additions to an existing work, that You intentionally submit to
-  the Project Owner for inclusion in the Project. "Submit" means any form of
-  electronic, verbal or written communication sent to the Project Owner or
-  its representatives, including pull requests, issues, comments and
-  patches on the Project's repositories, but excluding communication that
-  You mark in writing as "Not a Contribution".
+  changes or additions to an existing work, that You intentionally submit
+  to the Project Owner for inclusion in the Project. "Submit" means any
+  form of electronic, verbal or written communication sent to the Project
+  Owner or its representatives, including pull requests, issues, comments
+  and patches on the Project's repositories, but excluding communication
+  that You mark in writing as "Not a Contribution". For a legal entity,
+  Contributions include those its employees and contractors submit for it.
 
 ## 2. Grant of copyright licence
 
@@ -40,14 +54,14 @@ derivative works.
 
 ## 3. Right to relicense
 
-The licence in section 2 includes the right of the Project Owner to license
-Your Contributions, and works that include them, under any terms, including
-the licences the Project uses today (the GNU General Public License version
-3 and the Apache License 2.0), later versions or other open source licences,
-and proprietary or commercial licences. The Project Owner agrees that each
-Contribution included in a public release of the Project will also be made
-available under the open source licence that applies to the folder it is
-in at the time of that release.
+The licence in section 2 includes the right of the Project Owner to
+license Your Contributions, and works that include them, under any terms,
+including the licences the Project uses today (the GNU General Public
+License version 3 and the Apache License 2.0), later versions of them,
+other open source licences, and proprietary or commercial licences. The
+Project Owner agrees that each Contribution included in a public release
+of the Project will also be made available under the open source licence
+that applies to the folder it is in at the time of that release.
 
 ## 4. Grant of patent licence
 
@@ -69,30 +83,34 @@ is filed.
 ## 5. What You keep
 
 You keep the copyright in Your Contributions. Apart from the licences
-granted in this agreement, You reserve all right, title and interest in and
-to them, and You may use them in any way You like.
+granted in this agreement, You reserve all right, title and interest in
+and to them, and You may use them in any way You like.
 
 ## 6. Your representations
 
 - You are legally entitled to grant the licences above.
-- If Your employer has rights to intellectual property that You create,
-  including Your Contributions, You have received permission to make
-  Contributions on behalf of that employer, or Your employer has waived
-  those rights for Your Contributions to the Project.
+- If You are an individual and Your employer has rights to intellectual
+  property that You create, including Your Contributions, You have
+  received permission to make Contributions on behalf of that employer,
+  Your employer has waived those rights for Your Contributions to the
+  Project, or Your employer has signed this agreement as an entity.
+- If You are a legal entity, each of Your employees and contractors who
+  submits Contributions for You is authorised to do so, and You will tell
+  the Project Owner when one of them stops being authorised.
 - Each of Your Contributions is Your original creation (section 7 covers
-  work that is not). Your Contribution submissions include complete details
-  of any third-party licence or other restriction (including related
-  patents and trademarks) that You are personally aware of and which are
-  associated with any part of Your Contributions.
+  work that is not). Your Contribution submissions include complete
+  details of any third-party licence or other restriction (including
+  related patents and trademarks) that You are personally aware of and
+  which are associated with any part of Your Contributions.
 
 ## 7. Work that is not Your own
 
 If You wish to submit work that is not Your original creation, You may
-submit it separately from any Contribution, identifying the complete details
-of its source and of any licence or other restriction (including related
-patents, trademarks and licence agreements) of which You are personally
-aware, and marking the work as "Submitted on behalf of a third party:
-[named here]".
+submit it separately from any Contribution, identifying the complete
+details of its source and of any licence or other restriction (including
+related patents, trademarks and licence agreements) of which You are
+personally aware, and marking the work as "Submitted on behalf of a third
+party: [named here]".
 
 ## 8. No warranty, no obligation
 
@@ -100,8 +118,8 @@ You are not expected to provide support for Your Contributions, except to
 the extent You wish to. Unless required by applicable law or agreed to in
 writing, You provide Your Contributions on an "AS IS" basis, without
 warranties or conditions of any kind, either express or implied, including
-any warranties or conditions of title, non-infringement, merchantability or
-fitness for a particular purpose. The Project Owner is not obliged to
+any warranties or conditions of title, non-infringement, merchantability
+or fitness for a particular purpose. The Project Owner is not obliged to
 include any Contribution in the Project.
 
 ## 9. Keeping this agreement up to date
@@ -113,4 +131,9 @@ inaccurate in any respect.
 ## 10. Trademarks
 
 This agreement grants no rights to the name "Ravenry" or its logo
-(TRADEMARK.md), and none to any of Your trademarks.
+([TRADEMARK.md](TRADEMARK.md)), and none to any of Your trademarks.
+
+## 11. Later versions
+
+A later version of this agreement applies only to Contributions submitted
+after You sign that version.

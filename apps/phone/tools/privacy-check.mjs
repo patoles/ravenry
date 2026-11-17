@@ -10,7 +10,9 @@
 // opens a new window (the Android and iPhone shells hand such a link to the
 // phone's browser: MainActivity onCreateWindow, Board.swift
 // createWebViewWith); a tap asks for exactly that address; the address is
-// the site's privacy page.
+// the site's privacy page. Under it, Open source licences opens the app's
+// own screen with THIRD_PARTY_NOTICES.txt (licences.txt in the build), and
+// Back goes to Settings.
 //
 //   node tools/privacy-check.mjs [OUT]     (after node build.mjs)
 import { guardSpawns } from '../../../tools/test-env.mjs';
@@ -90,6 +92,25 @@ try {
       const opened = await popup;
       await until(() => away.length > 0, 5000);
       check(`${tag}_tap_asks_for_the_page_only`, !!opened && away.length >= 1 && away.every((u) => u === URL_), JSON.stringify(away));
+      // Open source licences, the row under it: the app's own screen with
+      // THIRD_PARTY_NOTICES.txt (build.mjs copies it in as licences.txt);
+      // Back goes to Settings. Nothing leaves this machine.
+      const lp = await ctx.newPage();
+      await lp.goto(`${LOCAL}phone/#/settings`);
+      const lrow = lp.locator('button.setr[data-k="licences"]');
+      const lshown = await until(() => lrow.count().then((n) => n === 1), 20000);
+      const ltext = lshown ? (await lrow.innerText()).replace(/\s+/g, ' ').trim() : '';
+      check(`${tag}_licences_row`, !!lshown && ltext.startsWith(words['licences.phone']) && ltext.includes(words['licences.sub']), ltext);
+      if (lshown) {
+        const before = away.length;
+        await lrow.tap();
+        const shownText = await until(() => lp.locator('pre.lic').innerText().then((x) => (x.startsWith('Third-party notices for Ravenry') ? x : null)), 10000);
+        check(`${tag}_licences_screen_shows_the_file`, !!shownText && lp.url().endsWith('#/licences') && shownText.includes('libghostty-vt') && shownText.includes('Android app'), lp.url());
+        check(`${tag}_licences_stay_on_this_machine`, away.length === before, JSON.stringify(away.slice(before)));
+        await lp.screenshot({ path: path.join(OUT, `licences-${tag}.png`) });
+        await lp.locator('header button[aria-label="Back"]').tap();
+        check(`${tag}_licences_back_to_settings`, !!(await until(() => lp.url().endsWith('#/settings'), 5000)), lp.url());
+      }
       await ctx.close();
     }
   }

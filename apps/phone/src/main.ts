@@ -7,6 +7,7 @@
 //                      opened from its alert
 //   #/fb/<id>          a photo or a voice note for it (picture 6)
 //   #/settings         the app's settings, behind the board's gear
+//   #/licences         the open source licences, from Settings
 //
 // and anything else goes back to the board. The shell gives a tap on an
 // alert as `open`, Back as `back`.
@@ -18,6 +19,7 @@ import * as hub from './hub.ts';
 import { parentOf } from './logic.ts';
 import { checkpointScreen, feedbackScreen } from './checkpoint.ts';
 import { settingsScreen } from './settings.ts';
+import { licencesScreen } from './licences.ts';
 
 export interface Screen { el: HTMLElement; update(): void; dispose(): void }
 
@@ -55,9 +57,10 @@ function show(): void {
   if (screen) screen.dispose();
   const [, kind, ...rest] = route.split('/');
   const arg = decodeURIComponent(rest.join('/'));
-  if (kind !== 'cp' && kind !== 'fb' && kind !== 'settings') { toBoard(); return; }
+  if (kind !== 'cp' && kind !== 'fb' && kind !== 'settings' && kind !== 'licences') { toBoard(); return; }
   screen = kind === 'cp' ? checkpointScreen(arg)
     : kind === 'fb' ? feedbackScreen(arg)
+    : kind === 'licences' ? licencesScreen()
     : settingsScreen();
   replace(root, screen.el, toastEl);
   window.scrollTo(0, 0);

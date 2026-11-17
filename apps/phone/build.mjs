@@ -47,4 +47,7 @@ fs.writeFileSync(path.join(OUT, 'app.css'), css.code);
 const boardCss = await esbuild.transform(`${glyphs}\n${fs.readFileSync(path.join(ROOT, 'src', 'board.css'), 'utf8')}`, { loader: 'css', minify: true, target: TARGET, legalComments: 'none' });
 fs.writeFileSync(path.join(OUT, 'board.css'), boardCss.code);
 fs.copyFileSync(path.join(ROOT, 'src', 'index.html'), path.join(OUT, 'index.html'));
+// The projects the app is built with and their licences (Settings, Open
+// source licences: src/licences.ts reads it).
+fs.copyFileSync(path.join(ROOT, '..', '..', 'THIRD_PARTY_NOTICES.txt'), path.join(OUT, 'licences.txt'));
 console.log(`built ${path.relative(process.cwd(), OUT) || '.'}`);

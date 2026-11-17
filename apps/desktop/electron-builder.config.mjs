@@ -55,6 +55,11 @@ export default {
     { from: '.stage/hub', to: 'hub' },
     { from: '.stage/hub-modules', to: 'hub/node_modules' },
     { from: '.stage/build.json', to: 'build.json' },
+    // The projects the app is built with and their licences (Help, Open
+    // Source Licences), and the app's own.
+    { from: '../../THIRD_PARTY_NOTICES.txt', to: 'THIRD_PARTY_NOTICES.txt' },
+    { from: '../../LICENSE', to: 'LICENSE.txt' },
+    { from: '../../NOTICE', to: 'NOTICE.txt' },
   ],
   artifactName: 'Ravenry-${version}-${os}-${arch}.${ext}',
   // Electron's fuses, set in the executable itself. Off: NODE_OPTIONS (and

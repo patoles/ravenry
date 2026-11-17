@@ -1,5 +1,6 @@
 // Help, Privacy opens the privacy page (site/privacy.html, published at
-// shared/strings/en.json privacy.url) in the browser. The built app runs
+// shared/strings/en.json privacy.url) in the browser, and Help, Open Source
+// Licences a read-only copy of THIRD_PARTY_NOTICES.txt in the text editor. The built app runs
 // offscreen on a stub hub and a throwaway daemon; the menu item is clicked
 // as a click on it does, and what would have opened is read from the app's
 // record (RAVENRY_OPEN_LOG: offscreen, nothing opens).
@@ -52,6 +53,9 @@ const HELP = `const top = electron.Menu.getApplicationMenu().items.find((m) => m
   require('fs').writeFileSync(${JSON.stringify(menuOut)}, JSON.stringify(items));
   const it = top && top.submenu.items.find((i) => i.label === ${JSON.stringify(words['privacy.title'])});
   if (it) it.click();
+  await new Promise((r) => setTimeout(r, 400));
+  const lic = top && top.submenu.items.find((i) => i.label === ${JSON.stringify(words['licences.title'])});
+  if (lic) lic.click();
   await new Promise((r) => setTimeout(r, 400));`;
 try {
   await runApp({ name: 'privacy', work, rt, bin: EXE ? undefined : BIN, exe: EXE || undefined, home, hubUrl, env: { RAVENRY_SERVICE: 'off', RAVENRY_UPDATES: '0', RAVENRY_OPEN_LOG: openLog }, width: 1200, height: 800, steps: [
@@ -61,7 +65,13 @@ try {
   const items = JSON.parse(fs.readFileSync(menuOut, 'utf8'));
   check('Help has Privacy, after Learn Ravenry', Array.isArray(items) && items.indexOf(words['privacy.title']) === items.indexOf('Learn Ravenry') + 1, items);
   const o = opened();
-  check('Privacy opens the privacy page in the browser, and nothing else', o.length === 1 && o[0].kind === 'url' && o[0].what === words['privacy.url'] && /^https:\/\/.+\/privacy\.html$/.test(o[0].what), o);
+  check('Privacy opens the privacy page in the browser, and nothing else', o.length >= 1 && o[0].kind === 'url' && o[0].what === words['privacy.url'] && /^https:\/\/.+\/privacy\.html$/.test(o[0].what), o);
+  // Help, Open Source Licences, under Privacy: THIRD_PARTY_NOTICES.txt as a
+  // read-only copy in the temporary folder, opened in the text editor.
+  check('Help has Open Source Licences, after Privacy', Array.isArray(items) && items.indexOf(words['licences.title']) === items.indexOf(words['privacy.title']) + 1, items);
+  const f = o[1] && o[1].what;
+  const text = f && fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
+  check('Open Source Licences opens a read-only copy of THIRD_PARTY_NOTICES.txt, and nothing else', o.length === 2 && o[1].kind === 'file' && /Ravenry Open Source Licences\.txt$/.test(f) && text === fs.readFileSync(path.join(REPO, 'THIRD_PARTY_NOTICES.txt'), 'utf8') && (fs.statSync(f).mode & 0o222) === 0, o);
 } catch (e) {
   check('the app ran its steps', false, String(e.message || e).slice(0, 2000));
 } finally {

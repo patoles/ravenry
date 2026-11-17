@@ -131,6 +131,7 @@ class MainActivity : FragmentActivity() {
                 val type = when (clean.substringAfterLast('.').lowercase()) {
                     "html" -> "text/html"; "js", "mjs" -> "text/javascript"; "css" -> "text/css"; "svg" -> "image/svg+xml"
                     "png" -> "image/png"; "woff2" -> "font/woff2"; "json" -> "application/json"; "wasm" -> "application/wasm"
+                    "txt" -> "text/plain" // licences.txt, the open source licences (Settings)
                     else -> "application/octet-stream"
                 }
                 WebResourceResponse(type, if (type.startsWith("text/") || type.endsWith("json")) "utf-8" else null, assets.open("phone/$clean"))

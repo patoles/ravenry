@@ -14,6 +14,11 @@ licensed under either licence (TRADEMARK.md).
 Ravenry 0.4.x and earlier, as published, remain available under the Apache
 License, Version 2.0.
 
+What the built apps and ravenryd include from other projects, with each
+licence text in full, is listed in THIRD_PARTY_NOTICES.txt (written by
+tools/third-party-notices.mjs). The code kept in this repository from
+other projects is listed below.
+
 This product includes uqr 0.1.2 (https://github.com/unjs/uqr), vendored
 unchanged in hub/server/vendor/uqr.mjs, under the MIT License:
   Copyright (c) Project Nayuki
@@ -41,6 +46,15 @@ SIL Open Font License, Version 1.1 (daemon/internal/render/fonts/OFL.txt):
   Copyright 2022 The Noto Project Authors (https://github.com/notofonts)
   Copyright 2013 Google LLC (Noto Emoji)
 The fonts are embedded beside, not combined with, the GPL code.
+
+Parts of ravenryd's shell integration for zsh and bash
+(daemon/internal/pane/shell/zsh/.zshenv and
+daemon/internal/pane/shell/bash/ravenry.bash) are based on the shell
+integration of Ghostty (https://github.com/ghostty-org/ghostty), which is
+based on that of kitty (https://github.com/kovidgoyal/kitty, Copyright
+Kovid Goyal), both under the GNU General Public License, version 3 or any
+later version. Ravenry uses them under version 3 (LICENSE); each file says
+which parts.
 
 The desktop app's terminal themes (shared/themes/) include
 colour palettes from these projects, each under the MIT License:

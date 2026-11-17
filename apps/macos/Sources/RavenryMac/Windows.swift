@@ -291,6 +291,19 @@ extension AppDelegate {
     }
     /// Help, Privacy: the privacy page in the browser (recorded off every screen).
     @objc func menuPrivacy(_ sender: Any?) { Outside.open(t("privacy.url")) }
+    /// Help, Open Source Licences: THIRD_PARTY_NOTICES.txt from the app's
+    /// resources, copied read-only to the temporary folder (an edit never
+    /// reaches the signed app) and opened in the text editor (recorded off
+    /// every screen).
+    @objc func menuLicences(_ sender: Any?) {
+        guard let src = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "txt") else { NSSound.beep(); return }
+        let fm = FileManager.default
+        let dst = fm.temporaryDirectory.appendingPathComponent("Ravenry Open Source Licences.txt")
+        try? fm.removeItem(at: dst)
+        do { try fm.copyItem(at: src, to: dst) } catch { NSSound.beep(); return }
+        try? fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: dst.path)
+        Outside.openFile(dst.path)
+    }
     @objc func menuToggleSidebar(_ sender: Any?) { current?.board.toggleSidebar() }
     @objc func menuTogglePanel(_ sender: Any?) { current?.board.togglePanel() }
 
@@ -306,7 +319,7 @@ extension AppDelegate {
         case #selector(menuMoveTabToNewWindow(_:)): return (c?.ws.tabs.count ?? 0) > 1
         case #selector(menuOwnTab(_:)): return (c?.ws.active?.count ?? 0) > 1
         case #selector(menuMergeAllWindows(_:)): return windows.filter { !$0.closing }.count > 1
-        case #selector(menuNewWindow(_:)), #selector(menuSettings(_:)), #selector(menuLearn(_:)): return true
+        case #selector(menuNewWindow(_:)), #selector(menuSettings(_:)), #selector(menuLearn(_:)), #selector(menuLicences(_:)): return true
         case #selector(menuClose(_:)): return NSApp.keyWindow != nil || c != nil
         default: return c != nil
         }

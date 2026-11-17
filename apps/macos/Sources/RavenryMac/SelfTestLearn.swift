@@ -70,6 +70,14 @@ extension SelfTestBoard {
         if let help, let at { help.performActionForItem(at: at) }
         let opened = Array((Outside.record ?? []).dropFirst(o))
         check("help_privacy_opens_page", at != nil && opened == ["open \(t("privacy.url"))"] && t("privacy.url").hasPrefix("https://") && t("privacy.url").hasSuffix("/privacy.html"), "\(help?.items.map(\.title) ?? []) \(opened)")
+        // Help, Open Source Licences: the app's THIRD_PARTY_NOTICES.txt, a read-only copy opened in the text editor.
+        let o2 = Outside.record?.count ?? 0
+        let lat = help?.items.firstIndex { $0.title == t("licences.title") }
+        if let help, let lat { help.performActionForItem(at: lat) }
+        let opened2 = Array((Outside.record ?? []).dropFirst(o2))
+        let copy = opened2.first.map { String($0.dropFirst("open ".count)) } ?? ""
+        let text = (try? String(contentsOfFile: copy, encoding: .utf8)) ?? ""
+        check("help_licences_opens_file", lat != nil && opened2.count == 1 && copy.hasSuffix("/Ravenry Open Source Licences.txt") && text.hasPrefix("Third-party notices for Ravenry") && text.contains("libghostty-vt") && !FileManager.default.isWritableFile(atPath: copy), "\(opened2) \(text.prefix(40))")
     }
 
     // MARK: Machines (MACH-001 to MACH-004)

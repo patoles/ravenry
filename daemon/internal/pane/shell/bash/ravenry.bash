@@ -18,6 +18,16 @@
 #     the first prompt, after the user's files ran (RAVENRY_BASH_BOOT).
 #     A startup file that sets PROMPT_COMMAND outright, rather than adding
 #     to it, keeps the integration out.
+#
+# Parts of this file (leaving POSIX mode and running the user's startup
+# files as bash would have, under RAVENRY_BASH_INJECT) are based on the
+# bash integration of Ghostty (https://github.com/ghostty-org/ghostty,
+# src/shell-integration/bash/ghostty.bash), parts of which are based on
+# the bash integration of kitty (https://github.com/kovidgoyal/kitty,
+# Copyright Kovid Goyal). Both are distributed under the GNU General
+# Public License, version 3 or (at your option) any later version; this
+# file is distributed under version 3 (LICENSE at the root of this
+# repository).
 
 if [ -n "${RAVENRY_BASH_INJECT-}" ]; then
   builtin declare _ravenry_flags="$RAVENRY_BASH_INJECT"

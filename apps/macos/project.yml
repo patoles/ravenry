@@ -43,6 +43,14 @@ targets:
         buildPhase: resources
       - path: ../../hub/server/handoffline.mjs
         buildPhase: resources
+      # The projects the app is built with and their licences (Help, Open
+      # Source Licences: Windows.swift menuLicences), and the app's own.
+      - path: ../../THIRD_PARTY_NOTICES.txt
+        buildPhase: resources
+      - path: ../../LICENSE
+        buildPhase: resources
+      - path: ../../NOTICE
+        buildPhase: resources
     dependencies:
       - sdk: Metal.framework
       - sdk: QuartzCore.framework

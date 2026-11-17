@@ -553,6 +553,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add(help, t("learn.title"), #selector(menuLearn(_:)), "", target: self)
         // The privacy page, in the browser.
         add(help, t("privacy.title"), #selector(menuPrivacy(_:)), "", target: self)
+        // The projects the app is built with and their licences (THIRD_PARTY_NOTICES.txt).
+        add(help, t("licences.title"), #selector(menuLicences(_:)), "", target: self)
         NSApp.mainMenu = main
     }
 }

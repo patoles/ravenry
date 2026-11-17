@@ -559,6 +559,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         case "png": return "image/png"
         case "woff2": return "font/woff2"
         case "json": return "application/json"
+        case "txt": return "text/plain; charset=utf-8" // licences.txt, the open source licences (Settings)
         default: return "application/octet-stream"
         }
     }

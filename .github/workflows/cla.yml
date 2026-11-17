@@ -1,7 +1,14 @@
 # The contributor licence agreement check (CLA.md), with
-# contributor-assistant/github-action. No GitHub App: signatures are stored
-# in this repository, in signatures/cla.json on main, committed by the
-# action with the workflow's own token.
+# contributor-assistant/github-action. No GitHub App and no personal token:
+# signatures are stored in this repository, in signatures/cla.json on the
+# branch cla-signatures, committed by the action with the workflow's own
+# token. A branch of its own, so main can stay protected (pull requests
+# only) while the action still writes; the branch must exist before the
+# first pull request (make it once from main).
+#
+# pull_request_target runs this file as it is on main, with write access,
+# for pull requests from forks too: it never checks out or runs the pull
+# request's code, only comments on it and sets its status.
 name: cla
 
 on:
@@ -30,7 +37,7 @@ jobs:
         with:
           path-to-signatures: signatures/cla.json
           path-to-document: https://github.com/${{ github.repository }}/blob/main/CLA.md
-          branch: main
+          branch: cla-signatures
           allowlist: patoles,*[bot]
           signed-commit-message: "Record the CLA signature of $contributorName in pull request #$pullRequestNo"
           create-file-commit-message: "Create the CLA signature file"

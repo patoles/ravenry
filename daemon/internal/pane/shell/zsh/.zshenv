@@ -4,6 +4,15 @@
 # integration. zsh then reads the user's .zprofile, .zshrc and .zlogin
 # from their own ZDOTDIR (or HOME) as usual. The user's files are never
 # changed. Opt out with RAVENRY_SHELL_INTEGRATION=0.
+#
+# Parts of this file (giving ZDOTDIR back, and the try/always block that
+# runs the user's .zshenv first) are based on the zsh integration of
+# Ghostty (https://github.com/ghostty-org/ghostty,
+# src/shell-integration/zsh/.zshenv), which started as a copy of the zsh
+# integration of kitty (https://github.com/kovidgoyal/kitty, Copyright
+# Kovid Goyal). Both are distributed under the GNU General Public License,
+# version 3 or (at your option) any later version; this file is
+# distributed under version 3 (LICENSE at the root of this repository).
 
 if [[ -n "${RAVENRY_ZSH_ZDOTDIR+X}" ]]; then
   'builtin' 'export' ZDOTDIR="$RAVENRY_ZSH_ZDOTDIR"

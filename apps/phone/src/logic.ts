@@ -96,6 +96,7 @@ export function dropLine(o: { at: number; topic: string; answer: string | null; 
 export function parentOf(route: string): string | null {
   if (route === '' || route === '/') return null;
   if (route.startsWith('/fb/')) return `/cp/${route.slice(4)}`;
+  if (route === '/licences') return '/settings';
   return '/';
 }
 

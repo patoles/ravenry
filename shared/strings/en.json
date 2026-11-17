@@ -1622,5 +1622,9 @@
   "report.idle": "{who} is done with its turn",
   "privacy.title": "Privacy",
   "privacy.sub": "What Ravenry keeps, and what leaves your devices. Opens in your browser.",
-  "privacy.url": "https://patoles.github.io/ravenry/privacy.html"
+  "privacy.url": "https://patoles.github.io/ravenry/privacy.html",
+  "licences.title": "Open Source Licences",
+  "licences.phone": "Open source licences",
+  "licences.sub": "The projects Ravenry is built with, and their licences.",
+  "licences.missing": "The licences file is not in this build."
 }

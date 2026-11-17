@@ -44,5 +44,11 @@ Neither licence grants rights to the name "Ravenry" or its logo. See
 
 ## Third-party code
 
-Code from other projects keeps its own licence, named in [NOTICE](NOTICE)
-and at the top of the file it is in.
+Code from other projects keeps its own licence. What this repository keeps
+from other projects is named in [NOTICE](NOTICE) and at the top of the file
+it is in. What the built apps and ravenryd include (Go modules, npm
+packages, libghostty-vt and what it is built from, Node.js, Electron, the
+Android libraries, fonts), with each licence text, is in
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt), which each app carries:
+the Mac app and the Linux desktop app under Help, Open Source Licences, the
+Android app under Settings, Open source licences.

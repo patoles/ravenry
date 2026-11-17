@@ -286,6 +286,10 @@ function menu(): void {
   // Help, Privacy: the privacy page in the browser (recorded off every screen, RAVENRY_OPEN_LOG).
   const privacyUrl = t('privacy.url');
   const privacyItem: MenuItemConstructorOptions = { label: t('privacy.title'), click: () => outside('url', privacyUrl, () => void shell.openExternal(privacyUrl)) };
+  // Help, Open Source Licences: THIRD_PARTY_NOTICES.txt from the app's
+  // resources (the repository's in development), copied read-only to the
+  // temporary folder and opened in the text editor (recorded off every screen).
+  const licencesItem: MenuItemConstructorOptions = { label: t('licences.title'), click: () => openLicences() };
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{
       label: app.name,
@@ -363,7 +367,7 @@ function menu(): void {
     },
     { role: 'windowMenu' },
     // Learn Ravenry (renderer: learn.ts), the page the person opens when they want; Privacy, the privacy page in the browser.
-    isMac ? { role: 'help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }, privacyItem] } : { label: 'Help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }, privacyItem, { type: 'separator' }, updateItem, ...backItems] },
+    isMac ? { role: 'help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }, privacyItem, licencesItem] } : { label: 'Help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }, privacyItem, licencesItem, { type: 'separator' }, updateItem, ...backItems] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -568,6 +572,20 @@ const isDir = (p: string) => { try { return fs.statSync(p).isDirectory(); } catc
 // What leaves the window for the person's own apps (a browser, an editor,
 // the clipboard). Offscreen (tests, screenshots) nothing does: it is
 // written to RAVENRY_OPEN_LOG instead, so no window opens on the screen.
+function openLicences(): void {
+  const src = app.isPackaged ? path.join(process.resourcesPath, 'THIRD_PARTY_NOTICES.txt') : path.resolve(app.getAppPath(), '..', '..', 'THIRD_PARTY_NOTICES.txt');
+  const dst = path.join(os.tmpdir(), 'Ravenry Open Source Licences.txt');
+  try {
+    fs.rmSync(dst, { force: true });
+    fs.copyFileSync(src, dst);
+    fs.chmodSync(dst, 0o444);
+  } catch {
+    void dialog.showMessageBox({ type: 'info', message: t('licences.missing') });
+    return;
+  }
+  outside('file', dst, () => void shell.openPath(dst));
+}
+
 function outside(kind: string, what: string, act: () => void): void {
   if (!OFFSCREEN) { act(); return; }
   const log = process.env.RAVENRY_OPEN_LOG;
