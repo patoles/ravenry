@@ -48,6 +48,7 @@ targets:
       - sdk: QuartzCore.framework
       - sdk: CoreText.framework
       - sdk: JavaScriptCore.framework
+      - sdk: WebKit.framework
     settings:
       base:
         PRODUCT_NAME: RavenryMac

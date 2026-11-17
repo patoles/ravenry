@@ -322,8 +322,9 @@ final class PickerView: Box, BackLinked {
                     pictures[i] = PickVideos.shared.frame(hub, vp) { [weak self] img in
                         guard let self, self.id == cid, let img else { return }
                         self.pictures[i] = img
-                        if i < self.images.count { self.images[i].image = img }
-                        if i < self.thumbs.count { self.thumbs[i].image = img }
+                        let mark = !PickVideos.shared.cant(vp)
+                        if i < self.images.count { self.images[i].image = img; self.images[i].playMark = mark }
+                        if i < self.thumbs.count { self.thumbs[i].image = img; self.thumbs[i].playMark = mark }
                     }
                     continue
                 }
@@ -434,7 +435,7 @@ final class PickerView: Box, BackLinked {
             img.drawing = circling
             img.image = pictures[n]
             img.empty = (v["type"] as? String) == "html" && videoPath(n) == nil ? t("pick.htmlPage") : pictures[n] == nil ? "" : ""
-            img.playMark = videoPath(n) != nil
+            img.playMark = videoPath(n).map { !PickVideos.shared.cant($0) } ?? false
             if on { img.region = region }
             img.onRing = { [weak self] r in self?.ringed(n, r) }
             img.onClick = { [weak self] in self?.view(n) }
@@ -645,7 +646,7 @@ final class PickerView: Box, BackLinked {
         for k in vs.indices {
             let c = FitImage()
             c.image = pictures[k]
-            c.playMark = videoPath(k) != nil
+            c.playMark = videoPath(k).map { !PickVideos.shared.cant($0) } ?? false
             c.dim = k == i ? 1 : 0.6
             c.onClick = { [weak self] in self?.view(k) }
             c.setAccessibilityLabel(t("pick.showOne", ["letter": letter(k), "name": name(k)]))

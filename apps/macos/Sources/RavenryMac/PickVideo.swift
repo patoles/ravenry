@@ -2,7 +2,16 @@
 // video, or a page that holds one, plays where its picture would show. The
 // hub names the video each plays (`variants[n].video`: a video's own file, a
 // page's video, server/picks.mjs); this app reads it once into a file of its
-// own and plays it with AVFoundation, never a web view.
+// own and plays it with AVFoundation.
+//
+// A video AVFoundation cannot open (the webm round, 2026-11-17: WebM VP8
+// and VP9, as Playwright's recordings and ffmpeg's and browsers' exports
+// are; VP9 in an MP4) plays in a web view that holds only its <video>, as
+// WebKit plays it, with the same behaviour: first frame, muted loop,
+// controls, pause, a ring on the paused frame with its second. A codec this
+// Mac cannot decode at all (AV1 on an M1 or M2: the hub's `videoType` that
+// WebKit says it cannot play, an error, or no frame in 8 s) shows a still
+// that says "This video can't play here", never a blank or a spinner.
 //
 //   - small (the panel's card, side by side, the viewer's strip): its first
 //     frame, with a play mark (`frame`);
@@ -16,6 +25,7 @@ import AppKit
 import AVFoundation
 import AVKit
 import CryptoKit
+import WebKit
 
 /// The hub's URL of the video variant n of a pick plays, else nil: the hub's
 /// `video` (a video's own file, a page's video), else, for a copy that has
@@ -25,8 +35,31 @@ import CryptoKit
 func pickVideoPath(_ cp: [String: Any], _ n: Int) -> String? {
     let vs = cp["variants"] as? [[String: Any]] ?? []
     guard n >= 0, n < vs.count, let id = cp["id"] as? String else { return nil }
-    if let v = vs[n]["video"] as? String, v.hasPrefix("/api/") { return v }
-    return vs[n]["type"] as? String == "video" ? "/api/checkpoints/\(id)/variants/\(n)" : nil
+    let path: String? = (vs[n]["video"] as? String).flatMap { $0.hasPrefix("/api/") ? $0 : nil }
+        ?? (vs[n]["type"] as? String == "video" ? "/api/checkpoints/\(id)/variants/\(n)" : nil)
+    // Its type (the hub's, from the video's headers): a codec WebKit says it cannot play shows the still at once.
+    if let path, let ty = vs[n]["videoType"] as? String { PickVideos.shared.types[path] = ty }
+    return path
+}
+
+/// The still a video that cannot play here shows in its frame's place: the words on the dark ground,
+/// big enough to read on a card's tile, at the video's shape when known.
+func cantPlayStill(_ size: CGSize = .zero) -> NSImage {
+    let h: CGFloat = 360
+    let w = size.width > 0 && size.height > 0 ? max(h * 0.75, min(h * 2.4, h * size.width / size.height)) : h * 1.6
+    return NSImage(size: NSSize(width: w, height: h), flipped: true) { r in
+        NSColor(srgbRed: 0x1C / 255, green: 0x1C / 255, blue: 0x1E / 255, alpha: 1).setFill()
+        r.fill()
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        para.lineBreakMode = .byWordWrapping
+        let a: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: h / 7.2, weight: .semibold), .foregroundColor: NSColor(white: 0.86, alpha: 1), .paragraphStyle: para]
+        let words = t("pick.cantPlay") as NSString
+        let box = NSRect(x: w * 0.1, y: 0, width: w * 0.8, height: h)
+        let need = words.boundingRect(with: box.size, options: [.usesLineFragmentOrigin], attributes: a)
+        words.draw(with: NSRect(x: box.minX, y: (h - need.height) / 2, width: box.width, height: need.height), options: [.usesLineFragmentOrigin], attributes: a)
+        return true
+    }
 }
 
 /// The round play mark in the middle of a video's first frame.
@@ -57,6 +90,24 @@ final class PickVideos {
     private var frameWaits: [String: [(NSImage?) -> Void]] = [:]
     /// Every video URL read from the hub, in order (the self-test counts them).
     private(set) var reads: [String] = []
+    /// How each video plays: AVFoundation when it opens it, else a web view.
+    enum Engine { case av, web }
+    private var engines: [String: Engine] = [:]
+    /// The hub's type of each video (`variants[n].videoType`), by its URL.
+    var types: [String: String] = [:]
+    /// The videos this Mac cannot decode at all: they show the still that says so.
+    private(set) var cantPlay: Set<String> = []
+    func cant(_ path: String) -> Bool { cantPlay.contains(path) }
+    func markCant(_ path: String) { cantPlay.insert(path) }
+    func engineNow(_ path: String) -> Engine? { engines[path] }
+    /// How the video at `path` (read into `file`) plays, worked out once: AVFoundation when it can play it.
+    func engine(_ path: String, _ file: URL, _ done: @escaping (Engine) -> Void) {
+        if let e = engines[path] { done(e); return }
+        Task {
+            let ok = (try? await AVURLAsset(url: file).load(.isPlayable)) ?? false
+            await MainActor.run { let e = self.engines[path] ?? (ok ? .av : .web); self.engines[path] = e; done(e) }
+        }
+    }
     private lazy var dir: URL = {
         let d = FileManager.default.temporaryDirectory.appendingPathComponent("ravenry-pick-videos", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
@@ -107,15 +158,23 @@ final class PickVideos {
             if let img { self.frames[path] = img }
             for w in self.frameWaits.removeValue(forKey: path) ?? [] { w(img) }
         }
+        let web = { (f: URL) in
+            WebFrames.shared.grab(f, type: self.types[path]) { img, size, cant in
+                if cant { self.cantPlay.insert(path); finish(cantPlayStill(size)) } else { finish(img) }
+            }
+        }
         let make = { (f: URL?) in
             guard let f else { finish(nil); return }
-            let g = AVAssetImageGenerator(asset: AVURLAsset(url: f))
-            g.appliesPreferredTrackTransform = true
-            g.requestedTimeToleranceBefore = .zero
-            g.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
-            g.generateCGImageAsynchronously(for: .zero) { cg, _, _ in
-                let img = cg.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
-                DispatchQueue.main.async { finish(img) }
+            self.engine(path, f) { e in
+                guard e == .av else { web(f); return }
+                let g = AVAssetImageGenerator(asset: AVURLAsset(url: f))
+                g.appliesPreferredTrackTransform = true
+                g.requestedTimeToleranceBefore = .zero
+                g.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
+                g.generateCGImageAsynchronously(for: .zero) { cg, _, _ in
+                    let img = cg.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+                    DispatchQueue.main.async { if let img { finish(img) } else { self.cantPlay.insert(path); finish(cantPlayStill()) } }
+                }
             }
         }
         if let f = file(hub, path, make) { make(f) }
@@ -123,18 +182,163 @@ final class PickVideos {
     }
 }
 
-/// A video up close: AVKit's player with its inline controls, the video at
-/// its fit, and the ring over the video's own rect (in fractions of its
-/// frame). `still`: stopped on a frame with no controls (circling, or a ring
-/// drawn on that frame).
+/// The page a web view plays a video in: its <video> only, filling the
+/// view at its fit, muted and looping, its controls; it tells the app its
+/// time, whether it plays and its size (`rv` messages), and says when this
+/// engine cannot play it (`cant`: the hub's type it cannot play, an error,
+/// or no frame in 8 s).
+private func playerPage(_ name: String, type: String?, frame: Bool, gen: Int) -> String {
+    let js = { (s: String?) -> String in
+        guard let s, let d = try? JSONSerialization.data(withJSONObject: [s]), let a = String(data: d, encoding: .utf8) else { return "null" }
+        return String(a.dropFirst().dropLast())
+    }
+    return """
+    <!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#0B0B0C;overflow:hidden}video{width:100%;height:100%;object-fit:contain;display:block}</style></head>
+    <body><video id="v" muted playsinline preload="auto" \(frame ? "" : "loop autoplay controls")></video><script>
+    const v = document.getElementById('v'), T = \(js(type)), FRAME = \(frame ? "true" : "false"), G = \(gen);
+    const say = (o) => window.webkit.messageHandlers.rv.postMessage({ ...o, g: G });
+    let over = false;
+    const cant = () => { if (over) return; over = true; v.removeAttribute('src'); v.load(); say({ k: 'cant', w: v.videoWidth, h: v.videoHeight }); };
+    const post = (k) => { if (!over) say({ k, t: v.currentTime, paused: v.paused, w: v.videoWidth, h: v.videoHeight, rs: v.readyState }); };
+    if (T && v.canPlayType(T) === '') cant();
+    else {
+      v.addEventListener('error', cant);
+      setTimeout(() => { if (v.readyState < 2) cant(); }, 8000);
+      if (FRAME) {
+        // The first frame, drawn once at the video's size.
+        v.addEventListener('loadeddata', () => { v.currentTime = 0.001; }, { once: true });
+        v.addEventListener('seeked', () => { if (over) return; over = true; const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0); say({ k: 'frame', png: c.toDataURL('image/png'), w: v.videoWidth, h: v.videoHeight }); }, { once: true });
+      } else {
+        for (const e of ['loadedmetadata', 'loadeddata', 'play', 'playing', 'pause', 'seeking', 'seeked', 'waiting', 'timeupdate']) v.addEventListener(e, () => post(e));
+        (function tick() { if (!v.paused) post('tick'); setTimeout(tick, 50); })();
+      }
+      v.src = \(js(name));
+    }
+    window.rv = { play() { v.play().catch(() => {}); post('play'); }, pause() { v.pause(); post('pause'); }, seek(t) { v.currentTime = t; }, controls(on) { v.controls = on; } };
+    </script></body></html>
+    """
+}
+
+/// Writes a video's page beside its file and loads it, the folder readable (its video only).
+private func loadPlayerPage(_ w: WKWebView, _ file: URL, type: String?, frame: Bool, gen: Int = 0) {
+    let page = file.deletingPathExtension().appendingPathExtension(frame ? "frame.html" : "html")
+    try? playerPage(file.lastPathComponent, type: type, frame: frame, gen: gen).write(to: page, atomically: true, encoding: .utf8)
+    w.loadFileURL(page, allowingReadAccessTo: file.deletingLastPathComponent())
+}
+
+private final class WeakHandler: NSObject, WKScriptMessageHandler {
+    weak var to: AnyObject?
+    let on: ([String: Any]) -> Void
+    init(_ on: @escaping ([String: Any]) -> Void) { self.on = on }
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) { if let b = m.body as? [String: Any] { on(b) } }
+}
+
+private func videoWebView(_ on: @escaping ([String: Any]) -> Void) -> WKWebView {
+    let cfg = WKWebViewConfiguration()
+    cfg.mediaTypesRequiringUserActionForPlayback = []
+    cfg.websiteDataStore = .nonPersistent()
+    cfg.userContentController.add(WeakHandler(on), name: "rv")
+    let w = WKWebView(frame: .zero, configuration: cfg)
+    w.setValue(false, forKey: "drawsBackground")
+    return w
+}
+
+/// The first frames of the videos AVFoundation cannot open, drawn one after
+/// another by a web view in a window off every screen (WebKit loads a
+/// video only in a view in a window).
+final class WebFrames {
+    static let shared = WebFrames()
+    private var queue: [(URL, String?, (NSImage?, CGSize, Bool) -> Void)] = []
+    private var busy = false
+    private var web: WKWebView?
+    private var host: NSWindow?
+    private var done: ((NSImage?, CGSize, Bool) -> Void)?
+    private var gen = 0
+
+    /// The first frame of the video in `file` (nil, its size and true: this Mac cannot play it), on the main thread.
+    func grab(_ file: URL, type: String?, _ out: @escaping (NSImage?, CGSize, Bool) -> Void) {
+        queue.append((file, type, out))
+        next()
+    }
+
+    private func next() {
+        guard !busy, !queue.isEmpty else { return }
+        busy = true
+        let (file, type, out) = queue.removeFirst()
+        if web == nil {
+            let w = videoWebView { [weak self] m in self?.got(m) }
+            w.frame = NSRect(x: 0, y: 0, width: 320, height: 200)
+            let win = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 320, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+            win.isReleasedWhenClosed = false
+            win.isExcludedFromWindowsMenu = true
+            win.ignoresMouseEvents = true
+            win.collectionBehavior = [.transient, .ignoresCycle, .stationary]
+            win.contentView = w
+            web = w
+            host = win
+        }
+        host?.orderFrontRegardless()
+        var settled = false
+        done = { [weak self] img, size, cant in
+            guard let self, !settled else { return }
+            settled = true
+            self.done = nil
+            self.gen += 1
+            out(img, size, cant)
+            self.web?.loadHTMLString("", baseURL: nil)
+            self.busy = false
+            if self.queue.isEmpty { self.host?.orderOut(nil) }
+            self.next()
+        }
+        // A page that never answers (no web content process): given up after 15 s as a video that cannot play here.
+        gen += 1
+        let mine = gen
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in if let self, self.gen == mine { self.done?(nil, .zero, true) } }
+        loadPlayerPage(web!, file, type: type, frame: true)
+    }
+
+    private func got(_ m: [String: Any]) {
+        let size = CGSize(width: (m["w"] as? NSNumber)?.doubleValue ?? 0, height: (m["h"] as? NSNumber)?.doubleValue ?? 0)
+        switch m["k"] as? String {
+        case "frame":
+            let img = (m["png"] as? String).flatMap { $0.split(separator: ",", maxSplits: 1).last }.flatMap { Data(base64Encoded: String($0)) }.flatMap { NSImage(data: $0) }
+            img?.size = size
+            done?(img, size, img == nil)
+        case "cant": done?(nil, size, true)
+        default: break
+        }
+    }
+}
+
+/// A video up close: AVKit's player with its inline controls (a video
+/// AVFoundation opens), else a web view that holds only its <video>; the
+/// video at its fit, and the ring over the video's own rect (in fractions of
+/// its frame). `still`: stopped on a frame with no controls (circling, or a
+/// ring drawn on that frame). A video this Mac cannot play shows the still
+/// that says so.
 final class PickPlayer: NSView {
     let playerView = AVPlayerView()
     let ring = PickRing()
     private(set) var player: AVPlayer?
+    /// The web view a video AVFoundation cannot open plays in (made when one first shows).
+    private(set) var web: WKWebView?
+    /// The still in a video's place when this Mac cannot play it: the words, at the viewer's size.
+    let cantView = NSView()
+    private let cantWords = NSTextField(wrappingLabelWithString: "")
+    /// How the video shown plays (nil: not known yet).
+    private(set) var engine: PickVideos.Engine?
     /// The hub's URL of the video shown.
     private(set) var url = ""
     /// The video's own size (its first track's, turned as it plays), once known.
     private(set) var natural: CGSize = .zero
+    /// Each video shown is a new one (the self-test checks the one left goes): its number, and the ones let go.
+    private(set) var shown = 0
+    private(set) var letGo: [Int] = []
+    /// What the web view's <video> said last: its time, whether it plays, when.
+    private var webT = 0.0, webPaused = true, webReady = false, webAt = Date()
+    private var pendingSeek: Double?
+    /// The <video> said it plays with frames to show (playing, or a tick with enough data): its time goes on between messages.
+    private var webLive = false
     private var looping: NSObjectProtocol?
     var onLayout: (() -> Void)?
     var still = false { didSet { if still != oldValue { apply() } } }
@@ -150,7 +354,15 @@ final class PickPlayer: NSView {
         playerView.showsFullScreenToggleButton = false
         playerView.showsSharingServiceButton = false
         playerView.videoGravity = .resizeAspect
+        cantView.wantsLayer = true
+        cantView.layer?.backgroundColor = NSColor(srgbRed: 0x1C / 255, green: 0x1C / 255, blue: 0x1E / 255, alpha: 1).cgColor
+        cantWords.font = NSFont.systemFont(ofSize: 17, weight: .semibold)
+        cantWords.textColor = NSColor(white: 0.86, alpha: 1)
+        cantWords.alignment = .center
+        cantView.addSubview(cantWords)
+        cantView.isHidden = true
         addSubview(playerView)
+        addSubview(cantView)
         addSubview(ring)
         setAccessibilityElement(false)
     }
@@ -158,11 +370,25 @@ final class PickPlayer: NSView {
 
     /// Shows the video at `path` from its file (nil: not read yet); the same one goes on as it is.
     func show(_ path: String, file: URL?) {
-        if path == url, player != nil { return }
+        if path == url, player != nil || web?.isHidden == false || !cantView.isHidden { return }
         stop()
         url = path
+        shown += 1
         natural = .zero
         guard let file else { needsLayout = true; return }
+        if PickVideos.shared.cant(path) { showCant(path); return }
+        if let e = PickVideos.shared.engineNow(path) { start(e, path, file); return }
+        let n = shown
+        PickVideos.shared.engine(path, file) { [weak self] e in
+            guard let self, self.shown == n, self.url == path else { return }
+            self.start(e, path, file)
+        }
+    }
+
+    private func start(_ e: PickVideos.Engine, _ path: String, _ file: URL) {
+        engine = e
+        if e == .web { showWeb(path, file); return }
+        playerView.isHidden = false
         let asset = AVURLAsset(url: file)
         let item = AVPlayerItem(asset: asset)
         let p = AVPlayer(playerItem: item)
@@ -175,10 +401,68 @@ final class PickPlayer: NSView {
         Task { [weak self] in
             guard let t = try? await asset.loadTracks(withMediaType: .video).first, let s = try? await t.load(.naturalSize), let tf = try? await t.load(.preferredTransform) else { return }
             let r = CGRect(origin: .zero, size: s).applying(tf)
-            await MainActor.run { guard let self, self.url == path else { return }; self.natural = CGSize(width: abs(r.width), height: abs(r.height)); self.needsLayout = true; self.layoutSubtreeIfNeeded(); self.onLayout?() }
+            await MainActor.run { guard let self, self.url == path else { return }; self.sized(CGSize(width: abs(r.width), height: abs(r.height))) }
         }
         apply()
         needsLayout = true
+    }
+
+    private func sized(_ s: CGSize) {
+        guard s.width > 0, s.height > 0, s != natural else { return }
+        natural = s
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        onLayout?()
+    }
+
+    private func showWeb(_ path: String, _ file: URL) {
+        playerView.isHidden = true
+        if web == nil {
+            let w = videoWebView { [weak self] m in self?.heard(m) }
+            addSubview(w, positioned: .below, relativeTo: cantView)
+            web = w
+        }
+        webT = 0; webPaused = still; webReady = false; webAt = Date(); pendingSeek = nil
+        web?.isHidden = false
+        loadPlayerPage(web!, file, type: PickVideos.shared.types[path], frame: false, gen: shown)
+        apply()
+        needsLayout = true
+    }
+
+    private func showCant(_ path: String) {
+        playerView.isHidden = true
+        web?.isHidden = true
+        cantWords.stringValue = t("pick.cantPlay")
+        cantView.setAccessibilityElement(true)
+        cantView.setAccessibilityLabel(cantWords.stringValue)
+        cantView.isHidden = false
+        needsLayout = true
+        onLayout?()
+    }
+
+    /// What the web view's <video> says.
+    private func heard(_ m: [String: Any]) {
+        // Only the page of the video shown now (one left may still say it stopped as it goes).
+        guard engine == .web, web?.isHidden == false, (m["g"] as? NSNumber)?.intValue == shown else { return }
+        let w = (m["w"] as? NSNumber)?.doubleValue ?? 0, h = (m["h"] as? NSNumber)?.doubleValue ?? 0
+        if m["k"] as? String == "cant" {
+            PickVideos.shared.markCant(url)
+            if w > 0, h > 0 { natural = CGSize(width: w, height: h) }
+            showCant(url)
+            return
+        }
+        if let t = (m["t"] as? NSNumber)?.doubleValue, t.isFinite { webT = max(0, t); webAt = Date() }
+        if let p = m["paused"] as? Bool { webPaused = p }
+        let k = m["k"] as? String ?? ""
+        let rs = (m["rs"] as? NSNumber)?.intValue ?? 0
+        webLive = !webPaused && (k == "playing" || ((k == "tick" || k == "timeupdate") && rs >= 3))
+        if let rs = (m["rs"] as? NSNumber)?.intValue, rs >= 2, !webReady {
+            // Its first frame: stopped on the ring's frame when it shows one, as the person left it.
+            webReady = true
+            if still { webPaused = true; web?.evaluateJavaScript("rv.controls(false); rv.pause()") } else { web?.evaluateJavaScript("rv.play()") }
+            if let t = pendingSeek { pendingSeek = nil; seek(t) }
+        }
+        if w > 0, h > 0 { sized(CGSize(width: w, height: h)) }
     }
 
     /// Stops and lets the video go (another variant, the viewer closed).
@@ -188,19 +472,55 @@ final class PickPlayer: NSView {
         looping = nil
         playerView.player = nil
         player = nil
+        if let w = web, !w.isHidden {
+            w.evaluateJavaScript("window.rv && rv.pause()")
+            w.loadHTMLString("", baseURL: nil)
+            w.isHidden = true
+        }
+        cantView.isHidden = true
+        if !url.isEmpty { letGo.append(shown) }
+        engine = nil
+        webPaused = true; webReady = false; webLive = false
         url = ""
     }
 
-    func pause() { player?.pause() }
+    func pause() {
+        player?.pause()
+        if engine == .web { webT = time; webPaused = true; webLive = false; web?.evaluateJavaScript("rv.pause()") }
+    }
     /// The second shown now.
-    var time: Double { let t = player?.currentTime().seconds ?? 0; return t.isFinite ? max(0, t) : 0 }
-    var playing: Bool { (player?.rate ?? 0) != 0 }
-    func seek(_ t: Double) { player?.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
-    func togglePlay() { guard let p = player, !still else { return }; if p.rate != 0 { p.pause() } else { p.play() } }
+    var time: Double {
+        // The web view's <video> says its time as it plays (every 0.05 s, less often in a window not seen) and when
+        // it stops; between, while it is known to play, its time goes on with the clock.
+        if engine == .web { return webLive && !webPaused ? webT + min(1.5, Date().timeIntervalSince(webAt)) : webT }
+        let t = player?.currentTime().seconds ?? 0
+        return t.isFinite ? max(0, t) : 0
+    }
+    var playing: Bool { engine == .web ? !webPaused : (player?.rate ?? 0) != 0 }
+    /// Ready to play (its first frame decoded), muted, its controls showing: as the person sees it.
+    var ready: Bool { engine == .web ? webReady : player?.currentItem?.status == .readyToPlay }
+    var muted: Bool { engine == .web ? true : player?.isMuted == true }
+    var controlsShown: Bool { engine == .web ? !still : playerView.controlsStyle == .inline }
+    /// The video shown cannot play on this Mac: the still says so.
+    var cantPlay: Bool { !cantView.isHidden }
+    func seek(_ t: Double) {
+        player?.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        if engine == .web { webT = t; webAt = Date(); webLive = false; if webReady { web?.evaluateJavaScript("rv.seek(\(t))") } else { pendingSeek = t } }
+    }
+    func togglePlay() {
+        guard !still else { return }
+        if let p = player { if p.rate != 0 { p.pause() } else { p.play() }; return }
+        guard engine == .web else { return }
+        if webPaused { webPaused = false; webAt = Date(); web?.evaluateJavaScript("rv.play()") } else { pause() }
+    }
 
     private func apply() {
         playerView.controlsStyle = still ? .none : .inline
         if still { player?.pause() } else { player?.play() }
+        if engine == .web {
+            if still { webT = time; webPaused = true; webLive = false }
+            web?.evaluateJavaScript("window.rv && (rv.controls(\(!still)), \(still ? "rv.pause()" : "rv.play()"))")
+        }
     }
 
     /// Where the video is drawn: the whole of it, as big as fits, in the middle.
@@ -214,6 +534,10 @@ final class PickPlayer: NSView {
     override func layout() {
         super.layout()
         playerView.frame = bounds
+        web?.frame = bounds
+        cantView.frame = videoRect
+        let ws = cantWords.sizeThatFits(NSSize(width: max(40, cantView.bounds.width - 40), height: .greatestFiniteMagnitude))
+        cantWords.frame = NSRect(x: (cantView.bounds.width - ws.width) / 2, y: (cantView.bounds.height - ws.height) / 2, width: ws.width, height: ws.height)
         ring.frame = videoRect
     }
 }

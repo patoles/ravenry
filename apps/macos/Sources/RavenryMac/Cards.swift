@@ -829,8 +829,9 @@ final class CheckpointCard: Box {
             // Read once (HubClient.picture): a card built again draws them at once. A video (or a page
             // that holds one) shows its first frame with the play mark; a click plays it up close.
             if let vp = pickVideoPath(cp, n) {
-                img.playMark = true
-                img.image = PickVideos.shared.frame(ctx.hub, vp) { [weak img] i in img?.image = i }
+                // One this Mac cannot play shows the still that says so, with no play mark.
+                img.playMark = !PickVideos.shared.cant(vp)
+                img.image = PickVideos.shared.frame(ctx.hub, vp) { [weak img] i in img?.image = i; img?.playMark = !PickVideos.shared.cant(vp) }
                 img.toolTip = t("pick.playTip", ["name": name])
             } else {
                 img.image = ctx.hub.picture("/api/checkpoints/\(id)/variants/\(n)?as=png") { [weak img] i in img?.image = i }

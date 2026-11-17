@@ -49,6 +49,9 @@ extension SelfTestBoard {
         let card = { self.board.panel.shownCard }
         let early = wait(20) { card()?.kind == "pick" && card()?.tiles.count == 4 && card()?.tiles[0].image != nil && card()?.tiles[3].image != nil }
         let et = card()?.tiles ?? []
+        // SIDETEST_PICK_CANT (sidetest.mjs): videos this Mac cannot decode (AV1 on an M1): each shows the still that says so.
+        let cantMode = (cp["_want"] as? [String: Any])?["cant"] as? Bool ?? false
+        if cantMode { screenPickVideoCant(cp, card: card, vurl: vurl); return }
         check("pv_card_from_daemon_copy", early && et.count == 4 && et[0].playMark && et[3].playMark && !et[2].playMark, "tiles \(et.map { $0.image.map { "\(Int($0.size.width))x\(Int($0.size.height))" } ?? "none" }) marks \(et.map { $0.playMark })")
         board.hub.testCheckpoints = cps
         settle(0.5)
@@ -63,12 +66,12 @@ extension SelfTestBoard {
         // A click on A's frame: up close, it plays (muted, looping, with its controls); its time moves on.
         if tiles.count == 4 { click(tiles[0]) }
         check("pv_card_click_opens_player", wait(6) { self.board.root.middle === pk && pk.viewing == 0 && !pl.isHidden && pk.zoom.isHidden }, "viewing \(String(describing: pk.viewing)) player hidden \(pl.isHidden)")
-        _ = wait(10) { pl.player?.currentItem?.status == .readyToPlay && pl.time > 0.05 }
+        _ = wait(10) { pl.ready && pl.time > 0.05 }
         let a0 = pl.time
         settle(1.5)
         let a1 = pl.time
-        check("pv_click_plays_time_advances", a1 > a0 + 0.8 && pl.playing && pl.player?.isMuted == true && pl.playerView.controlsStyle == .inline && pl.url == vurl(0),
-              "time \(a0) to \(a1) after 1.5 s, rate \(pl.player?.rate ?? -1), muted \(pl.player?.isMuted ?? false), url \(pl.url)")
+        check("pv_click_plays_time_advances", a1 > a0 + 0.8 && pl.playing && pl.muted && pl.controlsShown && pl.url == vurl(0) && !pl.cantPlay,
+              "time \(a0) to \(a1) after 1.5 s, playing \(pl.playing), muted \(pl.muted), controls \(pl.controlsShown), url \(pl.url), engine \(String(describing: pl.engine))")
         window.contentView?.layoutSubtreeIfNeeded()
         let vr = pl.videoRect
         check("pv_player_at_fit", "\(Int(pl.natural.width))x\(Int(pl.natural.height))" == wantSizes[0] && vr.minX >= -0.5 && vr.maxX <= pl.bounds.width + 0.5 && vr.minY >= -0.5 && vr.maxY <= pl.bounds.height + 0.5 && (abs(vr.width - pl.bounds.width) < 1 || abs(vr.height - pl.bounds.height) < 1),
@@ -80,10 +83,10 @@ extension SelfTestBoard {
         settle(0.3)
         let p0 = pl.time
         settle(0.6)
-        check("pv_space_pauses", !pl.playing && abs(pl.time - p0) < 0.02, "rate \(pl.player?.rate ?? -1), time \(p0) then \(pl.time)")
+        check("pv_space_pauses", !pl.playing && abs(pl.time - p0) < 0.02 && p0 > 0.2, "playing \(pl.playing), time \(p0) then \(pl.time)")
         if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49) { window.sendEvent(e) }
         settle(0.5)
-        check("pv_space_plays", pl.playing && pl.time > p0 + 0.2, "rate \(pl.player?.rate ?? -1), time \(pl.time)")
+        check("pv_space_plays", pl.playing && pl.time > p0 + 0.2, "playing \(pl.playing), time \(pl.time)")
         pictures("pickvideo-playing")
 
         // Next: B, the page that holds a video, plays its video the same way.
@@ -97,20 +100,20 @@ extension SelfTestBoard {
         var switches: [String] = []
         for r in 1...5 {
             for (button, n) in [("previous", 0), ("next", 1)] {
-                let left = pl.player, leftT = pl.time
+                let left = pl.shown
                 pk.buttons[button]?.performClick(nil)
                 _ = wait(10) { pk.viewing == n && pl.url == vurl(n) && pl.time > 0.05 }
                 let t0 = pl.time
                 settle(1.0)
-                let ok = pk.viewing == n && pl.url == vurl(n) && pl.playing && pl.time > t0 + 0.4 && left !== pl.player && (left?.rate ?? 0) == 0
-                    && abs((left?.currentTime().seconds ?? leftT) - leftT) < 0.3
-                switches.append("\(r)\(n == 0 ? "A" : "B") \(ok ? "ok" : "NO: rate left \(left?.rate ?? -1), time \(String(format: "%.2f", t0)) to \(String(format: "%.2f", pl.time))")")
+                // The one left was let go (paused, its video dropped); the one come to plays.
+                let ok = pk.viewing == n && pl.url == vurl(n) && pl.playing && pl.time > t0 + 0.4 && left != pl.shown && pl.letGo.contains(left)
+                switches.append("\(r)\(n == 0 ? "A" : "B") \(ok ? "ok" : "NO: left \(left) let go \(pl.letGo.contains(left)), time \(String(format: "%.2f", t0)) to \(String(format: "%.2f", pl.time))")")
             }
         }
         check("pv_switch_one_plays_left_stops", switches.allSatisfy { $0.hasSuffix("ok") }, switches.joined(separator: ", "))
         // C, a picture: the zoom as before, the player gone.
         pk.buttons["next"]?.performClick(nil)
-        check("pv_picture_in_zoom", pk.viewing == 2 && pl.isHidden && !pk.zoom.isHidden && pl.player == nil, "viewing \(String(describing: pk.viewing)) player \(pl.player == nil ? "gone" : "kept")")
+        check("pv_picture_in_zoom", pk.viewing == 2 && pl.isHidden && !pk.zoom.isHidden && pl.player == nil && pl.engine == nil, "viewing \(String(describing: pk.viewing)) player \(pl.player == nil && pl.engine == nil ? "gone" : "kept")")
         // D, the second video, whose agent's file is gone: it plays from the hub's copy.
         pk.buttons["next"]?.performClick(nil)
         _ = wait(15) { pk.viewing == 3 && pl.url == vurl(3) && pl.time > 0.05 }
@@ -127,7 +130,7 @@ extension SelfTestBoard {
         settle(0.3)
         let stopped = pl.time
         settle(0.5)
-        check("pv_circle_stops_on_frame", pk.circling && pl.still && !pl.playing && abs(pl.time - stopped) < 0.02 && pl.playerView.controlsStyle == .none && pl.ring.drawing, "circling \(pk.circling) still \(pl.still) rate \(pl.player?.rate ?? -1) time \(stopped) then \(pl.time)")
+        check("pv_circle_stops_on_frame", pk.circling && pl.still && !pl.playing && stopped > 0.2 && abs(pl.time - stopped) < 0.02 && !pl.controlsShown && pl.ring.drawing, "circling \(pk.circling) still \(pl.still) playing \(pl.playing) time \(stopped) then \(pl.time)")
         window.contentView?.layoutSubtreeIfNeeded()
         let rr = pl.ring
         let mid = rr.convert(NSPoint(x: rr.bounds.midX, y: rr.bounds.midY), to: nil)
@@ -167,6 +170,31 @@ extension SelfTestBoard {
         check("pv_send_landed", wait(6) { self.board.hub.answers.last { $0.seq >= sent && $0.path == "/api/checkpoints/answer" }?.code == 200 }, "hub answered \(lastStatus("/api/checkpoints/answer") ?? 0)")
         // The region and its second for the agent's check (sidetest.mjs reads it from the result).
         check("pv_region_for_agent \(pvJSON(reg))", true)
+        board.hub.testCheckpoints = nil
+    }
+
+    /// A pick whose videos this Mac cannot decode (SIDETEST_PICK_CANT, AV1 on an M1 or M2): the card's tiles, the
+    /// strip and the viewer show the still that says "This video can't play here", with no play mark and no player
+    /// waiting; the picture still shows, and the pick can still be sent.
+    private func screenPickVideoCant(_ cp: [String: Any], card: () -> CheckpointCard?, vurl: (Int) -> String) {
+        let pk = board.picker, pl = pk.video
+        board.hub.testCheckpoints = [cp]
+        settle(0.5)
+        board.render(force: true)
+        let still = wait(25) { card()?.tiles.count == 4 && [0, 1, 3].allSatisfy { card()?.tiles[$0].image != nil && card()?.tiles[$0].playMark == false } && card()?.tiles[2].image != nil }
+        let tiles = card()?.tiles ?? []
+        let cant = [0, 1, 3].map { PickVideos.shared.cant(vurl($0)) }
+        check("pv_cant_card_stills", still && cant.allSatisfy { $0 }, "images \(tiles.map { $0.image != nil }) marks \(tiles.map { $0.playMark }) cant \(cant)")
+        pictures("pickvideo-cant-card")
+        if tiles.count == 4 { click(tiles[0]) }
+        let shown = wait(10) { self.board.root.middle === pk && pk.viewing == 0 && pl.cantPlay }
+        settle(1.0)
+        check("pv_cant_viewer_still", shown && pl.cantPlay && !pl.playing && pl.player == nil && pl.web?.isHidden != false && pk.thumbs.count == 4 && !pk.thumbs[0].playMark, "viewing \(String(describing: pk.viewing)) cant \(pl.cantPlay) playing \(pl.playing)")
+        pictures("pickvideo-cant-viewer")
+        pk.buttons["next"]?.performClick(nil)
+        check("pv_cant_page_video_still", wait(10) { pk.viewing == 1 && pl.cantPlay }, "viewing \(String(describing: pk.viewing)) cant \(pl.cantPlay)")
+        pk.buttons["next"]?.performClick(nil)
+        check("pv_cant_picture_shows", wait(5) { pk.viewing == 2 && pl.isHidden && !pk.zoom.isHidden })
         board.hub.testCheckpoints = nil
     }
 }

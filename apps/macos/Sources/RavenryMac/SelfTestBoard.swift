@@ -9,6 +9,7 @@
 // <out>.arrive-N and waits for <out>.go-N.
 
 import AppKit
+import WebKit
 
 final class SelfTestBoard {
     let board: Board
@@ -126,6 +127,23 @@ final class SelfTestBoard {
                 guard let img = b.term.snapshotImage() else { continue }
                 let r = b.term.convert(b.term.bounds, to: root)
                 ctx.draw(img, in: CGRect(x: r.minX * s, y: CGFloat(h) - r.maxY * s, width: r.width * s, height: r.height * s))
+            }
+        }
+        // A pick's video in a web view (PickVideo.swift): WebKit draws it out of the window's own drawing, in a
+        // window off every screen too: its own snapshot, at its place, then the ring over it.
+        let pl = board.picker.video
+        if let w = pl.web, !w.isHidden, !pl.isHiddenOrHasHiddenAncestor, w.window != nil {
+            var snap: NSImage?, done = false
+            w.takeSnapshot(with: nil) { i, _ in snap = i; done = true }
+            _ = wait(3) { done }
+            if let cg = snap?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                let r = w.convert(w.bounds, to: root)
+                ctx.draw(cg, in: CGRect(x: r.minX * s, y: CGFloat(h) - r.maxY * s, width: r.width * s, height: r.height * s))
+                if pl.ring.region != nil, let rep = pl.ring.bitmapImageRepForCachingDisplay(in: pl.ring.bounds) {
+                    pl.ring.cacheDisplay(in: pl.ring.bounds, to: rep)
+                    let rr = pl.ring.convert(pl.ring.bounds, to: root)
+                    if let ri = rep.cgImage { ctx.draw(ri, in: CGRect(x: rr.minX * s, y: CGFloat(h) - rr.maxY * s, width: rr.width * s, height: rr.height * s)) }
+                }
             }
         }
         var over: [NSView] = []

@@ -1,6 +1,8 @@
 # Ravenry for macOS (native)
 
-A native Mac app, Swift and AppKit with no web view, that draws its
+A native Mac app, Swift and AppKit with no web view (one exception: a
+pick's video AVFoundation cannot open, WebM VP8 or VP9, plays in a web
+view that holds only its `<video>`, `PickVideo.swift`), that draws its
 terminal itself: the daemon's screen (libghostty-vt in
 `ravenryd`) is the only screen, the app draws the rows the daemon sends
 with its own Metal renderer, and the daemon encodes the person's keys and
