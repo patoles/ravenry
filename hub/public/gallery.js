@@ -63,6 +63,39 @@ export function cardPicture(p, x, { esc, escRaw }) {
   return `<div class="pc-b${n === 2 ? ' n2' : ''}">${tiles.join('')}</div>`;
 }
 
+// A video this engine cannot decode (the webm round, 2026-11-17: AV1 on an
+// Apple chip without its decoder, VP9 on the iOS simulator): the hub's
+// `videoType` the engine says it cannot play, a player's decode error, or
+// its size read and no frame after 15 s. It shows a still that says so,
+// never a blank or a spinner. url -> true.
+const cantSet = new Set();
+const typeOf = new Map();
+let cantWords = "This video can't play here";
+export function videoCant(url, type) {
+  if (type) typeOf.set(url, type);
+  if (cantSet.has(url)) return true;
+  const t = type || typeOf.get(url);
+  try { if (t && document.createElement('video').canPlayType(t) === '') { cantSet.add(url); return true; } } catch { /* none */ }
+  return false;
+}
+/** The still in a video's place where it cannot play. */
+export function cantTag(url, escRaw, words) {
+  if (words) cantWords = words;
+  return `<span class="pk-cant" data-cant="${escRaw(url)}">${escRaw(cantWords)}</span>`;
+}
+// A video found unplayable once its thumbnails are on the page: each becomes the still, its play mark gone.
+function cantNow(url) {
+  cantSet.add(url);
+  for (const im of document.querySelectorAll('img[data-frame]')) {
+    if (im.dataset.frame !== url) continue;
+    const sp = document.createElement('span');
+    sp.className = 'pk-cant'; sp.dataset.cant = url; sp.textContent = cantWords;
+    const play = im.parentElement && im.parentElement.querySelector('.pk-play');
+    if (play) play.remove();
+    im.replaceWith(sp);
+  }
+}
+
 // A video's first frame as a picture: drawn once by a player of its own,
 // one video after another, shown over a thumbnail waiting for it while it
 // loads, that player let go at once. url -> object URL.
@@ -90,7 +123,8 @@ function grabFrame(url) {
     const moving = setInterval(home, 300);
     let over = false, drawn = false, played = false;
     const end = (out) => { if (over) return; over = true; clearTimeout(timer); clearInterval(moving); v.pause(); v.removeAttribute('src'); v.load(); v.remove(); resolve(out); };
-    const timer = setTimeout(() => end(null), 15000);
+    // Its size read and no frame in 15 s: this engine cannot decode it.
+    const timer = setTimeout(() => end(v.readyState === 1 ? 'cant' : null), 15000);
     // Drawn: some pixel has colour (an engine that has not decoded the frame draws nothing).
     const draw = () => {
       if (drawn) return true;
@@ -122,7 +156,7 @@ function grabFrame(url) {
     };
     v.addEventListener('seeked', tryDraw);
     v.addEventListener('loadeddata', () => { if (!v.seeking) tryDraw(); });
-    v.addEventListener('error', () => end(null));
+    v.addEventListener('error', () => end(v.error && (v.error.code === 3 || v.error.code === 4) ? 'cant' : null));
     v.src = `${url}#t=0.001`;
   });
 }
@@ -132,8 +166,9 @@ function frameOf(url) {
   if (!p) {
     // Asked again (three times in all) while a thumbnail on the page waits for it.
     const waits = () => [...document.querySelectorAll('img[data-frame]')].some((i) => i.dataset.frame === url);
-    const tries = async () => { for (let k = 0; k < 3; k++) { const u = await grabFrame(url); if (u || !waits()) return u; } return null; };
+    const tries = async () => { for (let k = 0; k < 3; k++) { if (videoCant(url)) return 'cant'; const u = await grabFrame(url); if (u || !waits()) return u; } return null; };
     p = frameLine.then(tries).then((u) => {
+      if (u === 'cant') { cantNow(url); framing.delete(url); return null; }
       // A frame that could not be drawn is asked for again by the next thumbnail drawn.
       if (u) frames.set(url, u);
       framing.delete(url);
@@ -147,7 +182,8 @@ function frameOf(url) {
   return p;
 }
 // A video's thumbnail: its first frame as a picture (once drawn; asked for now when not).
-export function frameTag(url, escRaw) {
+export function frameTag(url, escRaw, type) {
+  if (videoCant(url, type)) return cantTag(url, escRaw);
   const now = frames.get(url);
   if (!now) void frameOf(url);
   return `<img data-frame="${escRaw(url)}"${now ? ` src="${escRaw(now)}"` : ''} alt="">`;
@@ -371,7 +407,7 @@ export function createGallery(d) {
     zoomClear();
     // The picture sits in a view that clips it, so a zoomed picture stays
     // inside the picture's own area (never over the arrows or the caption).
-    const VIEW = `<div class="gb-view" id="gl-view"><img class="gb-im" id="gl-im" alt="" draggable="false"><video class="gb-im gb-vid" id="gl-vid" controls muted loop playsinline hidden></video><button class="btn sm gb-fit" data-gl-fit hidden aria-label="Back to the whole picture"><span class="num t2" id="gl-pct"></span>Fit</button></div>`;
+    const VIEW = `<div class="gb-view" id="gl-view"><img class="gb-im" id="gl-im" alt="" draggable="false"><video class="gb-im gb-vid" id="gl-vid" controls muted loop playsinline hidden></video><div class="gb-im gb-cant" id="gl-cant" hidden></div><button class="btn sm gb-fit" data-gl-fit hidden aria-label="Back to the whole picture"><span class="num t2" id="gl-pct"></span>Fit</button></div>`;
     layer.classList.toggle('gl-p', phone);
     layer.innerHTML = phone
       ? `<div class="fs-bar" id="gl-bar"></div><div class="gb-stage">${VIEW}</div><div class="gb-cap" id="gl-cap"></div><div class="gb-strip" id="gl-strip"></div><div class="gb-ctl"><button class="btn gb-big" data-gl-step="-1">${ICON.left(18)}Previous</button><button class="btn gb-big" data-gl-step="1">Next${ICON.right(18)}</button></div>`
@@ -402,7 +438,15 @@ export function createGallery(d) {
     // A video plays in the picture's place, at once, muted and looping, with its controls. Another video gets a
     // player of its own, made then; the one left lets its video go (a player whose source was dropped and set
     // again could load for ever on an iPhone).
-    if (x && x.video) {
+    const cantEl = layer.querySelector('#gl-cant');
+    // A video this engine cannot play: the still that says so, no player.
+    const cant = !!(x && x.video && videoCant(x.video, x.videoType));
+    cantEl.hidden = !cant;
+    if (cant) {
+      im.hidden = true; vid.hidden = true;
+      letGo();
+      cantEl.textContent = (pb && pb.cantPlay) || cantWords;
+    } else if (x && x.video) {
       im.hidden = true; vid.hidden = false;
       if (vid.getAttribute('src') !== x.video) {
         zoomClear();
@@ -411,6 +455,9 @@ export function createGallery(d) {
         vid.replaceWith(nv);
         vid = nv;
         vid.muted = true; vid.setAttribute('src', x.video); vid.setAttribute('aria-label', x.name);
+        // It cannot decode it after all (no type to ask): the still, at once.
+        const url = x.video;
+        vid.addEventListener('error', () => { if (vid.error && (vid.error.code === 3 || vid.error.code === 4)) { cantNow(url); draw(); } });
         const pl = vid.play(); if (pl && pl.catch) pl.catch(() => {});
       }
     } else {
@@ -439,7 +486,7 @@ export function createGallery(d) {
     if (g.strip !== keys) {
       g.strip = keys;
       strip.innerHTML = g.pick
-        ? g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb pk-th" data-gl-go="${k}" aria-label="${esc(y.name)}">${y.video ? frameTag(y.video, escRaw) : `<img src="${escRaw(y.url)}" alt="">`}<span class="pk-lt">${esc(y.letter)}</span></button>${g.phone ? '' : `<span class="gl-time pk-nm">${esc(y.label)}</span>`}</span>`).join('')
+        ? g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb pk-th" data-gl-go="${k}" aria-label="${esc(y.name)}">${y.video ? frameTag(y.video, escRaw, y.videoType) : `<img src="${escRaw(y.url)}" alt="">`}<span class="pk-lt">${esc(y.letter)}</span></button>${g.phone ? '' : `<span class="gl-time pk-nm">${esc(y.label)}</span>`}</span>`).join('')
         : g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb" data-gl-go="${k}" aria-label="${esc(`${y.name}${y.at ? ', ' + agoWords(y.at) : ''}`)}"><img src="${escRaw(y.url)}" alt=""></button>${g.phone ? '' : `<span class="gl-time num"></span>`}</span>`).join('');
     }
     strip.querySelectorAll('.gl-cell').forEach((c, k) => {
@@ -480,7 +527,7 @@ export function createGallery(d) {
     return (cp.variants || []).map((v, k) => {
       const nm = (w.variants || [])[k] || {};
       const letter = nm.letter || String(k + 1);
-      return { key: `v${k}`, letter, label: nm.name || v.label || '', name: `${letter}. ${nm.name || v.label || ''}`, says: nm.says || null, url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${k}${v.type === 'html' && !v.video ? '?as=png' : ''}`, video: v.video || null };
+      return { key: `v${k}`, letter, label: nm.name || v.label || '', name: `${letter}. ${nm.name || v.label || ''}`, says: nm.says || null, url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${k}${v.type === 'html' && !v.video ? '?as=png' : ''}`, video: v.video || null, videoType: v.videoType || null };
     });
   }
   // Opens a pick's picture n up close (a tile on its answer card).

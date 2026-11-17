@@ -16,7 +16,9 @@
 //       path the agent gave, on its machine), file (the kept copy, or null
 //       when it could not be copied), size, pane?, video? (an HTML page's
 //       own video, kept beside it as <n>.video.<ext>: the page's first
-//       <video>, from a data: URI or a file next to the page) } ],
+//       <video>, from a data: URI or a file next to the page), codec? and
+//       container? (a video's, from its headers: videocodec.mjs), videoCodec?
+//       and videoContainer? (a page's video's) } ],
 //     answer?: { label, region?, note?, by?, at } | { declined: true,
 //       reason?, by?, at } | { closed: "cancelled" | "expired", at } }
 //
@@ -33,6 +35,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { RAVENRY_HOME, assertDataWrite } from './home.mjs';
+import { videoCodec, videoType } from './videocodec.mjs';
 
 export const TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8', mp4: 'video/mp4', m4v: 'video/x-m4v', mov: 'video/quicktime', webm: 'video/webm' };
 export const VIDEO = new Set(['mp4', 'm4v', 'mov', 'webm']);
@@ -145,6 +148,9 @@ async function keepNow(cp, { projectId = null, machine = null, read, home = RAVE
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(f, r.data, { mode: 0o600 });
     const kept = { ...out, file: name, size: r.data.length };
+    // A video's codec, from its headers (videocodec.mjs): a client that cannot decode it says so at once.
+    const codecOf = (data) => { const c = videoCodec(data); return c.codec ? { codec: c.codec, container: c.container } : {}; };
+    if (out.type === 'video') Object.assign(kept, codecOf(r.data));
     // A page that holds a video: the video kept beside it, played in its place.
     if (out.type === 'html') {
       const pv = await pageVideo(r.data.toString('utf8'), v.path, read).catch(() => null);
@@ -154,6 +160,8 @@ async function keepNow(cp, { projectId = null, machine = null, read, home = RAVE
         assertDataWrite(vf);
         fs.writeFileSync(vf, pv.data, { mode: 0o600 });
         kept.video = vname;
+        const c = codecOf(pv.data);
+        if (c.codec) { kept.videoCodec = c.codec; kept.videoContainer = c.container; }
       }
     }
     return kept;
@@ -185,6 +193,14 @@ export function keptFile(cpId, n, home = RAVENRY_HOME) {
   if (!fs.existsSync(f)) return null;
   const vf = v.type === 'video' ? f : v.video && /^\d\.video\.[a-z0-9]+$/.test(v.video) ? path.join(r.dir, v.video) : null;
   return { file: f, ext: extOf(v.file), type: v.type, ...(vf && fs.existsSync(vf) ? { video: vf, videoExt: extOf(vf) } : {}) };
+}
+
+// The type a player is asked about for the video variant n plays (a
+// video's own, a page's video), from its kept record, or null.
+export function videoTypeOf(kept, n) {
+  const k = kept && kept.variants && kept.variants[n];
+  if (!k) return null;
+  return k.type === 'video' ? videoType(k.codec, k.container) : k.video ? videoType(k.videoCodec, k.videoContainer) : null;
 }
 
 // The URL a client plays variant n of a kept pick from, or null: a video's

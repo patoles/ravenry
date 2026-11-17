@@ -23,6 +23,7 @@
 //     frame's second) reaches the agent.
 // Usage: node tools/picks-test.mjs [RAVENRYD_BIN=../daemon/ravenryd]
 import { withStubMachine } from './test-guard.mjs';
+import { videoCodec } from '../server/videocodec.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -86,6 +87,18 @@ check('a pick with no project is kept under picks/', picks.dirFor('cnoproj1', nu
   check('the URL each plays from', picks.videoUrl('cvideo01', vcp.variants[0], 0, vr) === '/api/checkpoints/cvideo01/variants/0' && picks.videoUrl('cvideo01', vcp.variants[1], 1, vr) === '/api/checkpoints/cvideo01/variants/1?as=video');
   check('a video named by its type but not its file is not kept', (await picks.keep({ ...vcp, id: 'cvideo02', variants: [{ label: 'A', path: path.join(FILES, 'a.png'), type: 'video' }, vcp.variants[0]] }, { projectId: 'game', read })).variants[0].file === null);
   check('the first <video>\'s src, or its first <source>\'s; none is none', picks.pageVideoSrc('<video src="a.mp4"></video><video src="b.mp4"></video>') === 'a.mp4' && picks.pageVideoSrc("<video controls><source src='x.webm'></video>") === 'x.webm' && picks.pageVideoSrc('<img src="a.png">') === null);
+  // A video's codec from its headers (the webm round): kept with it, and the type a player is asked about.
+  const ebml = (id) => Buffer.concat([Buffer.from('1a45dfa39f4282847765626d', 'hex'), Buffer.from([0x86, 0x86]), Buffer.from('A_OPUS'), Buffer.from([0x86, 0x80 | id.length]), Buffer.from(id)]);
+  const box = (t, ...b) => { const body = Buffer.concat(b); const h = Buffer.alloc(8); h.writeUInt32BE(8 + body.length); h.write(t, 4, 'latin1'); return Buffer.concat([h, body]); };
+  const iso = (entry) => Buffer.concat([box('ftyp', Buffer.from('isom\0\0\x02\0', 'latin1')), box('moov', box('trak', box('mdia', box('hdlr', Buffer.alloc(8), Buffer.from('vide'), Buffer.alloc(12)), box('minf', box('stbl', box('stsd', Buffer.from([0, 0, 0, 0, 0, 0, 0, 1]), box(entry, Buffer.alloc(20))))))))]);
+  const vc = (b) => { const c = videoCodec(b); return `${c.codec}/${c.container}`; };
+  check('a video\'s codec from its headers: VP8, VP9, AV1 in WebM, H.264, HEVC, AV1 in MP4; nothing else', vc(ebml('V_VP8')) === 'vp8/webm' && vc(ebml('V_VP9')) === 'vp9/webm' && vc(ebml('V_AV1')) === 'av1/webm' && vc(iso('avc1')) === 'h264/mp4' && vc(iso('hvc1')) === 'hevc/mp4' && vc(iso('av01')) === 'av1/mp4' && vc(PNG) === '/' && vc(MP4) === '/mp4',
+    [ebml('V_VP9'), iso('hvc1'), MP4].map(vc).join(', '));
+  fs.writeFileSync(path.join(FILES, 'h.webm'), ebml('V_AV1'));
+  fs.writeFileSync(path.join(FILES, 'h.html'), `<video src="data:video/webm;base64,${ebml('V_VP9').toString('base64')}"></video>`);
+  const hr = await picks.keep({ ...vcp, id: 'cvideo03', variants: [{ label: 'A', path: path.join(FILES, 'h.webm'), type: 'video' }, { label: 'B', path: path.join(FILES, 'h.html'), type: 'html' }, vcp.variants[0]] }, { projectId: 'game', read });
+  check('the codec is kept, a page\'s video\'s too; the type a player is asked about', hr.variants[0].codec === 'av1' && hr.variants[0].container === 'webm' && hr.variants[1].videoCodec === 'vp9' && picks.videoTypeOf(hr, 0) === 'video/webm; codecs="av01.0.05M.08"' && picks.videoTypeOf(hr, 1) === 'video/webm; codecs="vp9"' && picks.videoTypeOf(hr, 2) === null,
+    JSON.stringify(hr.variants.map((v) => [v.codec, v.videoCodec, v.container])));
   check('a page\'s video on the web is never fetched', (await picks.pageVideo('<video src="https://example.com/a.mp4"></video>', '/x/p.html', async () => { throw new Error('read'); })) === null);
 }
 const done = picks.closed({ ...cp, state: 'answered', answer: { pick: { label: 'B', region: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, note: 'this, but bigger' }, by: 'phone', at: '2026-11-07T10:05:00.000Z' } });

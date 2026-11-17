@@ -2616,7 +2616,7 @@ function cpWords(cp, projects = snapshot.projects || []) {
     const n = (cp.variants || []).length;
     out.words.board = {
       elsewhere: word(out.words.kind === 'secret' ? 'pick.typeElsewhere' : 'pick.answerElsewhere'),
-      ...(out.words.kind === 'pick' ? { look: word('pick.look'), sub: word('pick.viewerSub', { top: out.words.top || '', n }), keys: word('pick.keysHint'), close: word('pick.close'), fit: word('pick.fit') } : {}),
+      ...(out.words.kind === 'pick' ? { look: word('pick.look'), sub: word('pick.viewerSub', { top: out.words.top || '', n }), keys: word('pick.keysHint'), close: word('pick.close'), fit: word('pick.fit'), cantPlay: word('pick.cantPlay') } : {}),
     };
   }
   return out;
@@ -2648,7 +2648,8 @@ function checkpointsView(projects) {
     if (dn) rest.drive = { ...rest.drive, name: dn.name || null, session: dn.session || null };
     const ck = checked(cp, p ? p.id : null);
     // The video each variant plays (a video, a page that holds one): its URL.
-    if (cp.kind === 'pick' && Array.isArray(rest.variants)) rest.variants = rest.variants.map((v, n) => { const u = picks.videoUrl(cp.id, v, n, kept); return u ? { ...v, video: u } : v; });
+    // Its type (videoType: a client that cannot decode it shows a still that says so).
+    if (cp.kind === 'pick' && Array.isArray(rest.variants)) rest.variants = rest.variants.map((v, n) => { const u = picks.videoUrl(cp.id, v, n, kept); const t = u && picks.videoTypeOf(kept, n); return u ? { ...v, video: u, ...(t ? { videoType: t } : {}) } : v; });
     return cpWords({ ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(!p && askerPanes.has(cp.id) ? { paneName: askerPanes.get(cp.id) } : {}), ...(ck ? { checked: ck } : {}), ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file, ...(v.video ? { video: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}?as=video` } : {}) })) } } : {}) }, projects);
   });
 }

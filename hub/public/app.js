@@ -2,7 +2,7 @@
 // Renders the snapshot the server pushes over SSE (/api/events).
 
 import { KIND, glyphKey, rowModel, flowItems, statusWords, gateTiles } from './plan-view.js';
-import { createGallery, cardPicture, frameTag } from './gallery.js';
+import { createGallery, cardPicture, frameTag, videoCant, cantTag } from './gallery.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 let gallery = null; // the picture gallery (public/gallery.js), made once the page's helpers exist
@@ -2031,7 +2031,8 @@ ${(cp.options || []).length ? `<div class="q-opts" style="display: flex; flex-wr
     const letter = nm.letter || String(k + 1);
     // A video (or a page that holds one) shows its first frame (a picture drawn once, gallery.js frameTag) and plays in the viewer; a page, as the hub draws it.
     const src = `/api/checkpoints/${escRaw(encodeURIComponent(cp.id))}/variants/${k}`;
-    const media = v.video ? `${frameTag(v.video, escRaw)}<span class="pk-play" aria-hidden="true"></span>` : `<img src="${src}${v.type === 'html' ? '?as=png' : ''}" alt="" loading="lazy">`;
+    // One this engine cannot decode: the still that says so (gallery.js videoCant), no play mark.
+    const media = v.video ? (videoCant(v.video, v.videoType) ? cantTag(v.video, escRaw, bw.cantPlay) : `${frameTag(v.video, escRaw, v.videoType)}<span class="pk-play" aria-hidden="true"></span>`) : `<img src="${src}${v.type === 'html' ? '?as=png' : ''}" alt="" loading="lazy">`;
     return `<button class="pk-tile" data-pick-view="${escRaw(cp.id)}" data-n="${k}" aria-label="${esc(`${letter}. ${nm.name || v.label || ''}`)}">${media}<span class="pk-lt">${esc(letter)}</span></button>`;
   }).join('')}</div>` : '';
   return `${head}
