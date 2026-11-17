@@ -42,7 +42,7 @@ import * as I from './icons.ts';
 import { current, hubUrl } from './shell.ts';
 import { regionOf } from './logic.ts';
 import { t as say } from './strings.ts';
-import { frameBroken, frameNow, frameOf } from './frames.ts';
+import { frameBroken, frameNow, frameOf, markCant, videoCant } from './frames.ts';
 
 export interface PickUI {
   /** The picture on screen. */
@@ -78,12 +78,23 @@ export const videoOf = (cp: HubCheckpoint, n: number): string | null => {
   const u = ((cp.variants || [])[n] as { video?: unknown } | undefined)?.video;
   return typeof u === 'string' && u.startsWith('/api/') ? hubUrl(u) : null;
 };
-/** A video's first frame, as a picture drawn once (frames.ts): no player of its own. `missing`: the video cannot be read. */
-const firstFrame = (url: string, missing?: () => void): HTMLImageElement => {
+/** The hub's type of the video a variant plays (its codec, from its headers), else null. */
+const videoTypeOf = (cp: HubCheckpoint, n: number): string | null => {
+  const t = ((cp.variants || [])[n] as { videoType?: unknown } | undefined)?.videoType;
+  return typeof t === 'string' ? t : null;
+};
+/** The still in place of a video this engine cannot decode (AV1 on an Apple chip without its decoder): it says so. */
+const cantStill = (): HTMLElement => h('div.pcant', say('pick.cantPlay'));
+/** A video's first frame, as a picture drawn once (frames.ts): no player of its own. `missing`: the video cannot be read.
+ * One this engine cannot decode: the still that says so, its play mark gone. */
+const firstFrame = (url: string, missing?: () => void): HTMLElement => {
+  if (videoCant(url)) return cantStill();
   const im = h('img', { alt: '', draggable: 'false', 'data-frame': url }) as HTMLImageElement;
+  const cantNow = () => { const p = im.parentElement; p?.querySelector('.pk-play')?.remove(); im.replaceWith(cantStill()); };
   const now = frameNow(url);
   if (now) im.src = now;
-  else if (now === undefined) void frameOf(url).then((u) => { if (u) im.src = u; else if (frameBroken(url)) missing?.(); });
+  else if (now === undefined) void frameOf(url).then((u) => { if (u) im.src = u; else if (videoCant(url)) cantNow(); else if (frameBroken(url)) missing?.(); });
+  else if (videoCant(url)) queueMicrotask(cantNow);
   else if (frameBroken(url)) missing?.();
   return im;
 };
@@ -94,11 +105,13 @@ export const clock = (t: number): string => `${Math.floor(t / 60)}:${(t % 60).to
 // go (a player whose source was dropped and set again could load for ever on
 // an iPhone).
 let one: HTMLVideoElement | null = null;
-function player(url: string): HTMLVideoElement {
+function player(url: string, cantNow?: () => void): HTMLVideoElement {
   if (one && one.getAttribute('src') === url) return one;
   letGo();
   const v = h('video.pzv-vid', { src: url, preload: 'auto', muted: true, loop: true, playsinline: true, 'webkit-playsinline': true }) as HTMLVideoElement;
   v.muted = true;
+  // It cannot decode it after all (no type to ask): the still, at once.
+  v.addEventListener('error', () => { if (v.error && (v.error.code === 3 || v.error.code === 4)) { markCant(url); cantNow?.(); } });
   one = v;
   return v;
 }
@@ -125,12 +138,13 @@ function slide(cp: HubCheckpoint, w: CheckpointWords, n: number, total: number, 
   const missing = h('div.pmiss', say('phone.pick.missing'));
   missing.hidden = true;
   const vid = videoOf(cp, n);
+  const cant = !!vid && videoCant(vid, videoTypeOf(cp, n));
   let media: HTMLElement;
   if (vid) media = firstFrame(vid, () => { missing.hidden = false; });
   else media = v && v.type === 'html'
     ? h('iframe.phtml', { src: variantUrl(cp, n), sandbox: '', title: v.label, loading: 'lazy' })
     : h('img', { src: variantUrl(cp, n), alt: v ? v.label : '', draggable: 'false', on: { error: () => { missing.hidden = false; } } });
-  return h('div.pimg', { 'data-n': String(n), on: { click: open } }, media, vid ? h('span.pk-play', { 'aria-hidden': 'true' }) : null, missing, h('span.lt', say('phone.pick.where', { letter, i: n + 1, n: total })));
+  return h('div.pimg', { 'data-n': String(n), on: { click: open } }, media, vid && !cant ? h('span.pk-play', { 'aria-hidden': 'true' }) : null, missing, h('span.lt', say('phone.pick.where', { letter, i: n + 1, n: total })));
 }
 
 export function pickView(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx): HTMLElement {
@@ -241,8 +255,11 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
   // stage's middle, the ring inside it in its own fractions. A video plays
   // there with its controls; circling, or circled on it, it stays on the
   // ring's frame, its controls hidden so a finger draws on the frame.
-  const vu = videoOf(cp, i);
-  const vid = vu ? player(vu) : null;
+  const vu0 = videoOf(cp, i);
+  // A video this engine cannot decode: the still that says so in its place, no player.
+  const vcant = !!vu0 && videoCant(vu0, videoTypeOf(cp, i));
+  const vu = vcant ? null : vu0;
+  const vid = vu ? player(vu, () => x.repaint()) : null;
   if (!vid) letGo();
   const still = !!vid && (ui.circling || mine);
   if (vid) {
@@ -251,7 +268,7 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
     if (still) { vid.pause(); if (ui.t != null && Math.abs(vid.currentTime - ui.t) > 0.01) vid.currentTime = ui.t; }
     else { const pl = vid.play(); if (pl && pl.catch) pl.catch(() => {}); }
   }
-  const img = vid || (v && v.type === 'html'
+  const img = vid || (vcant ? cantStill() : v && v.type === 'html'
     ? h('iframe.phtml', { src: variantUrl(cp, i), sandbox: '', title: v.label })
     : h('img', { src: variantUrl(cp, i), alt: v ? v.label : '', draggable: 'false' }) as HTMLImageElement);
   let ov = circleSvg(mine ? ui.path : []);

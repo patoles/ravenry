@@ -14,6 +14,19 @@ const broken = new Set<string>();
 const waiting = new Map<string, Promise<string | null>>();
 let line: Promise<unknown> = Promise.resolve();
 
+/** The videos this engine cannot decode (the webm round, 2026-11-17): the still that says so takes their place. */
+const cant = new Set<string>();
+const types = new Map<string, string>();
+/** Whether this engine cannot play the video at `url`: the hub's type (`videoType`) it says it cannot play, or a decode error or no frame seen before. */
+export function videoCant(url: string, type?: string | null): boolean {
+  if (type) types.set(url, type);
+  if (cant.has(url)) return true;
+  const t = type || types.get(url);
+  try { if (t && document.createElement('video').canPlayType(t) === '') { cant.add(url); return true; } } catch { /* none */ }
+  return false;
+}
+export const markCant = (url: string): void => { cant.add(url); };
+
 export const frameNow = (url: string): string | null | undefined => done.get(url);
 export const frameBroken = (url: string): boolean => broken.has(url);
 
@@ -25,8 +38,8 @@ export function frameOf(url: string): Promise<string | null> {
     // A frame that could not be drawn (and a video that can be read) is asked for again by the next thumbnail drawn.
     // Asked again (three times in all) while a thumbnail on the page waits for it.
     const waits = () => [...document.querySelectorAll<HTMLImageElement>('img[data-frame]')].some((i) => i.dataset.frame === url && i.isConnected);
-    const tries = async (): Promise<string | null> => { for (let k = 0; k < 3; k++) { const u = await grab(url); if (u || broken.has(url) || !waits()) return u; } return null; };
-    p = line.then(tries).then((u) => { if (u || broken.has(url)) done.set(url, u); waiting.delete(url); return u; });
+    const tries = async (): Promise<string | null> => { for (let k = 0; k < 3; k++) { if (cant.has(url)) return null; const u = await grab(url); if (u || broken.has(url) || cant.has(url) || !waits()) return u; } return null; };
+    p = line.then(tries).then((u) => { if (u || broken.has(url) || cant.has(url)) done.set(url, u); waiting.delete(url); return u; });
     line = p.catch(() => null);
     waiting.set(url, p);
   }
@@ -67,7 +80,8 @@ function grab(url: string): Promise<string | null> {
       v.remove();
       resolve(out);
     };
-    const timer = setTimeout(() => end(null), 15000);
+    // Its size read and no frame in 15 s: this engine cannot decode it.
+    const timer = setTimeout(() => { if (v.readyState === 1) cant.add(url); end(null); }, 15000);
     // Drawn: some pixel has colour (an engine that has not decoded the frame draws nothing at all).
     let drawn = false;
     const draw = (): boolean => {
@@ -103,7 +117,8 @@ function grab(url: string): Promise<string | null> {
     };
     v.addEventListener('seeked', tryDraw);
     v.addEventListener('loadeddata', () => { if (!v.seeking) tryDraw(); });
-    v.addEventListener('error', () => { broken.add(url); end(null); });
+    // A decode error, or a type it does not play: it cannot play here; else it cannot be read.
+    v.addEventListener('error', () => { if (v.error && (v.error.code === 3 || v.error.code === 4)) cant.add(url); else broken.add(url); end(null); });
     v.src = `${url}#t=0.001`;
   });
 }
