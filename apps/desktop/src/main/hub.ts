@@ -25,9 +25,12 @@ export function hubUrl(env: NodeJS.ProcessEnv = process.env, home: string = os.h
 
 /**
  * `starting`: the hub answers but is not reading yet, with the folder macOS
- * is asking about (hub/server/access.mjs): its 503 says so.
+ * is asking about (hub/server/access.mjs): its 503 says so, as ~/Documents
+ * (waitingFor), as System Settings names it (folder), its path (for the app
+ * to ask macOS itself, accessask.ts) and the pane of System Settings its
+ * words name (settings).
  */
-export type HubStatus = { reachable: boolean; url: string; error?: string; starting?: { waitingFor: string | null; folder: string | null } };
+export type HubStatus = { reachable: boolean; url: string; error?: string; starting?: { waitingFor: string | null; folder: string | null; path?: string | null; settings?: string | null } };
 
 /** Reads the hub's server-sent events (event: state) and calls back with each state. */
 export class HubFeed {
@@ -65,7 +68,7 @@ export class HubFeed {
   }
 
   private setStatus(s: HubStatus): void {
-    if (this.status && s.reachable === this.status.reachable && s.error === this.status.error) return;
+    if (this.status && s.reachable === this.status.reachable && s.error === this.status.error && JSON.stringify(s.starting) === JSON.stringify(this.status.starting)) return;
     this.status = s;
     this.onStatus(s);
   }
@@ -78,9 +81,9 @@ export class HubFeed {
         const res = await fetch(this.url + `/api/events?app=1&client=${this.client}`, { signal: this.abort.signal, headers: { Accept: 'text/event-stream' } });
         if (res.status === 503) {
           // Starting: waiting for macOS to say whether it may read a folder.
-          let j: { error?: string; waitingFor?: string; folder?: string } = {};
+          let j: { error?: string; waitingFor?: string; folder?: string; path?: string; settings?: string } = {};
           try { j = await res.json() as typeof j; } catch { /* not JSON */ }
-          this.setStatus({ reachable: false, url: this.url, error: j.error || 'The board is starting.', starting: { waitingFor: j.waitingFor || null, folder: j.folder || null } });
+          this.setStatus({ reachable: false, url: this.url, error: j.error || 'The board is starting.', starting: { waitingFor: j.waitingFor || null, folder: j.folder || null, path: j.path || null, settings: j.settings || null } });
           await new Promise((r) => setTimeout(r, 1000));
           continue;
         }

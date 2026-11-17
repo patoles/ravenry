@@ -55,6 +55,7 @@ import { postNotification } from './notify.ts';
 import type { NotifyRequest } from './notify.ts';
 import { helperArgs, MARKER, paneVars, readMarker, relaunchPlan } from './relaunch.ts';
 import { applyGate } from './gate.ts';
+import { AccessAsker, isTestRun, wanted } from './accessask.ts';
 import { t } from '../shared/strings.ts';
 
 // build.mjs defines it: false in a release build, so what it guards is not
@@ -105,6 +106,23 @@ let store: Store;
 let win: BrowserWindow | null = null;
 let feed: HubFeed | null = null;
 const updates = new Updates(process.resourcesPath, () => menu());
+
+// A folder the hub has no answer for from macOS, or was refused: this app,
+// in front with its window on screen, asks macOS itself, then the hub asks
+// again (accessask.ts, the Mac app's AccessAsk.swift).
+const asker = new AccessAsker({ test: isTestRun(process.env), log: (l) => appLog(l) });
+function askForFolders(): void {
+  if (!feed) return;
+  const st = feed.last as { access?: unknown } | null;
+  const want = wanted(st?.access, feed.status?.starting?.path ?? null);
+  if (!want.length) return;
+  const w = win && !win.isDestroyed() ? win : null;
+  // Tests (offscreen, a test build): a driver step says the window is in front.
+  const testFront = RAVENRY_TEST_HOOKS && OFFSCREEN && (globalThis as { __ravenryAccessFront?: boolean }).__ravenryAccessFront === true;
+  const front = testFront || (!!w && w.isVisible() && !w.isMinimized() && w.isFocused());
+  const url = feed.url;
+  asker.ask(want, front, () => { void hubPost(url, '/api/access/retry', {}).catch((e) => appLog(`access: the hub did not take the retry: ${(e as Error).message || e}`)); });
+}
 
 // Windows (Cmd+N): all on the same daemon and hub. `win` is the first one,
 // which keeps the tabs, their splits and the window's place in window.json;
@@ -241,7 +259,7 @@ function createWindow(primary = true): BrowserWindow {
   });
   w.webContents.on('will-navigate', (e) => e.preventDefault());
   // In front: the hub sends Mac notifications to this app, not to another one running beside it.
-  w.on('focus', () => { if (feed) void hubPost(feed.url, '/api/alerts/desktop/focus', { client: feed.client }).catch(() => {}); });
+  w.on('focus', () => { if (feed) void hubPost(feed.url, '/api/alerts/desktop/focus', { client: feed.client }).catch(() => {}); askForFolders(); });
   w.on('closed', () => {
     wins.delete(w);
     // The first window gone: the next one keeps the tabs from now on.
@@ -510,8 +528,13 @@ function ipc(): void {
     win.show();
     win.focus();
   });
-  // Links: the web, and files (a terminal's file:// links), nothing else.
-  ipcMain.on('open-external', (_e, url: string) => { if (/^(https?|file):\/\//i.test(String(url))) outside('url', url, () => void shell.openExternal(url)); });
+  // Links: the web, and files (a terminal's file:// links), and the panes of
+  // System Settings > Privacy & Security the access words name (the hub's
+  // state.access.settings: Files & Folders, Full Disk Access), nothing else.
+  ipcMain.on('open-external', (_e, url: string) => {
+    if (/^(https?|file):\/\//i.test(String(url))) outside('url', url, () => void shell.openExternal(url));
+    else if (/^x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_[A-Za-z]+$/.test(String(url))) outside('settings', url, () => void shell.openExternal(url));
+  });
   // A page's file, an item's file or its folder, in the person's editor or
   // file manager: only page files, markdown items and folders.
   ipcMain.on('open-path', (_e, p: string) => {
@@ -857,7 +880,7 @@ app.whenReady().then(async () => {
   staged = stage();
   ipc();
   menu();
-  feed = new HubFeed(hubUrl(), (s) => send('hub:state', s), (st: HubStatus) => send('hub:status', st));
+  feed = new HubFeed(hubUrl(), (s) => { send('hub:state', s); askForFolders(); }, (st: HubStatus) => { send('hub:status', st); askForFolders(); });
   feed.onNotify = (n) => void notifyFromHub(n);
   // Tests (offscreen): a step can hand the app a notification as the hub would.
   if (OFFSCREEN) (globalThis as unknown as { __ravenryNotify?: (n: unknown) => Promise<void> }).__ravenryNotify = notifyFromHub;

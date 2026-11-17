@@ -83,8 +83,21 @@ export interface HubState {
   settings?: { handoffThreshold?: number; handoffCeiling?: number; handoffEnabled?: boolean };
   sessions?: { totalKb?: number };
   views?: { ideas?: number; rules?: number; ship?: number };
-  /** macOS's privacy answers for the protected folders the board reads (hub/server/access.mjs). */
-  access?: { waiting: { folder: string; name: string } | null; denied: { folder: string; name: string }[] } | null;
+  /**
+   * macOS's privacy answers for the protected folders the board reads
+   * (hub/server/access.mjs view): the folder it is asking about, the ones it
+   * refused, the ones it allows but checks file by file (a Full Disk Access
+   * entry gone stale after an update), every folder left alone with its
+   * state, the words and the pane of System Settings they name.
+   */
+  access?: {
+    waiting: AccessFolder | null;
+    denied: AccessFolder[];
+    slow?: AccessFolder[];
+    blocked?: (AccessFolder & { state: 'waiting' | 'denied' | 'slow' })[];
+    words?: string | null;
+    settings?: string | null;
+  } | null;
   /** The phone alerts: on and set up means an open checkpoint is on the phone too. */
   alerts?: { enabled?: boolean; configured?: boolean } | null;
   /** The home folder of each machine, "" for the hub's own: folders are said against them (hub/public/homepath.mjs). */
@@ -95,10 +108,15 @@ export interface HubState {
   sidebar?: HubSidebar | null;
 }
 
+/** A protected folder as the hub says it: "~/Documents", "Documents", its path. */
+export interface AccessFolder { folder: string; name: string; path?: string }
+/** A project whose folder macOS has not let the board read (hub/server/sidebar.mjs). */
+export interface ProjectAccess { state: 'waiting' | 'denied' | 'slow'; folder: string; name: string }
+
 /** A row as the hub sends it (hub/server/sidebar.mjs). */
 export interface HubRow { key: string; surfaceId: string; name: string; assistant: string | null; pct: number | null; pctWarn: boolean; line: string | null; mark: RowMark | null; group: Group; machine: string | null }
 export interface HubSidebar {
-  sections: { group: Group; title: string; count: number; projects: { id: string; name: string; machine: string | null; time: { at: string | null; style: 'clock' | 'ago' }; rows: HubRow[] }[] }[];
+  sections: { group: Group; title: string; count: number; projects: { id: string; name: string; machine: string | null; access?: ProjectAccess; time: { at: string | null; style: 'clock' | 'ago' }; rows: HubRow[] }[] }[];
   counts: Record<Group, number>;
 }
 
@@ -170,6 +188,8 @@ export interface ProjectRow {
   project: HubProject;
   time: string;
   machine: string | null;
+  /** Its folder is one macOS has not let the board read: a lock on its row. */
+  access: ProjectAccess | null;
   rows: Row[];
 }
 
@@ -228,6 +248,7 @@ export function board(state: HubState | null, now: number): BoardGroup[] {
         project,
         time: pr.time.style === 'clock' ? clock(pr.time.at, now) : ago(pr.time.at, now),
         machine: pr.machine,
+        access: pr.access || null,
         rows: pr.rows.map(({ surfaceId, ...r }) => ({ ...r, session: project.sessions.find((x) => x.surfaceId === surfaceId) || { surfaceId, state: 'idle' } })),
       };
     }),

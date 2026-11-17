@@ -16,7 +16,7 @@ export interface AppConfig {
 }
 
 /** `starting`: the hub answers but waits for macOS to say whether it may read a folder (hub/server/access.mjs). */
-export interface HubStatus { reachable: boolean; url: string; error?: string; starting?: { waitingFor: string | null; folder: string | null } }
+export interface HubStatus { reachable: boolean; url: string; error?: string; starting?: { waitingFor: string | null; folder: string | null; path?: string | null; settings?: string | null } }
 export interface FolderPick { name: string; path: string; short: string }
 export interface AssistantInfo { kind: 'claude' | 'codex'; name: string; found: boolean; signedIn: boolean; path: string | null }
 /** The first launch's Start screen: the hub's GET /api/setup/start (hub/server/firstlaunch.mjs). */

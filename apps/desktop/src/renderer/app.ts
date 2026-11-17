@@ -33,7 +33,7 @@ import * as I from './icons.ts';
 import {
   ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, rekeyed, sessionGroup, sessionKey, sessionOfPane, tokens,
 } from './model.ts';
-import type { Group, HubProject, HubSession, HubState } from './model.ts';
+import type { Group, HubProject, HubSession, HubState, ProjectAccess } from './model.ts';
 import { Machines, MACHINES_ICON } from './machines.ts';
 import { initNpmSwitch, npmChosen, npmTakesCentre, renderNpmCentre, renderNpmPointer, setBoardLive } from './npmswitch.ts';
 import type { MachineView } from './machines.ts';
@@ -59,6 +59,7 @@ import { Review } from './review.ts';
 import { sayPathOn } from '../../../../hub/public/homepath.mjs';
 import { wordsOf as cpWordsOf } from '../../../../hub/server/cpwords.mjs';
 import { PhoneCard } from './phonecard.ts';
+import { t } from '../shared/strings.ts';
 import { InApp, IN_KINDS } from './inapp.ts';
 import type { InView } from './inapp.ts';
 import * as onb from './onboarding.ts';
@@ -747,6 +748,34 @@ function machineTag(name: string | null): HTMLElement | null {
   return name ? h('span.mt', { title: `Runs on ${name}` }, svg(I.MACHINE), name) : null;
 }
 
+/** A project whose folder macOS has not let the board read (hub/server/access.mjs): a lock, its words in the tip. */
+function accessTag(a: ProjectAccess | null): HTMLElement | null {
+  if (!a) return null;
+  const tip = t(a.state === 'waiting' ? 'side.accessProject' : 'side.accessProjectDenied', { folder: a.folder });
+  return h('span.acc-tag', { title: tip, 'aria-label': tip, role: 'img' }, svg(I.LOCK));
+}
+
+/** A folder path that wraps as one word: a word joiner after each slash, so a narrow sidebar never breaks "~/Documents" after "~/". */
+const unbroken = (p: string) => p.replace(/\//g, '/\u2060');
+
+/**
+ * macOS's answers for the folders the board reads (hub/server/access.mjs):
+ * the folder it is asking about (the hub's 503 before its first state, its
+ * state's access.waiting after), else the folders it refused or allows but
+ * checks file by file (access.denied and .slow: a Full Disk Access entry
+ * gone stale after an update), and the pane of System Settings the words
+ * name (the hub's settings). Null when the board may read every folder.
+ */
+function accessNow(): { asking: { folder: string; name: string } | null; refused: string[]; settings: string | null } | null {
+  const st = S.hubStatus?.starting;
+  const a = S.hub?.access;
+  if (st?.waitingFor) return { asking: { folder: st.waitingFor, name: st.folder || st.waitingFor }, refused: [], settings: st.settings || null };
+  if (st) return null;
+  if (a?.waiting) return { asking: { folder: a.waiting.folder, name: a.waiting.name || a.waiting.folder }, refused: [], settings: a.settings || null };
+  const refused = [...(a?.denied || []), ...(a?.slow || [])].map((d) => d.folder);
+  return refused.length ? { asking: null, refused, settings: a?.settings || null } : null;
+}
+
 /** Replaces a node's children, leaving in place the ones it keeps, so a kept card never loses its focus. */
 function patch(parent: Element, nodes: (Node | null | undefined | false)[]): void {
   const want = nodes.filter((n): n is Node => !!n);
@@ -994,14 +1023,14 @@ function renderSidebar(): void {
         // An idle project is one line; an idle session of a project at work is a row under it.
         if (g.group === 'idle' && !pr.rows.length) {
           return h(`button.idl${psel ? '.sel' : ''}`, { 'data-key': pk, on: rowPress(() => pickProject((S.hub?.projects || []).find((x) => x.id === pr.project.id) || pr.project)) },
-            h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time));
+            h('span.n', pr.project.name), machineTag(pr.machine), accessTag(pr.access), h('span.t3.num.when', pr.time));
         }
         if (!pr.rows.length) {
           return h(`div.pj.open${psel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': pk, on: rowPress(() => pickProject((S.hub?.projects || []).find((x) => x.id === pr.project.id) || pr.project)) },
-            h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time));
+            h('span.n', pr.project.name), machineTag(pr.machine), accessTag(pr.access), h('span.t3.num.when', pr.time));
         }
         return [
-          h('div.pj', h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time)),
+          h('div.pj', h('span.n', pr.project.name), machineTag(pr.machine), accessTag(pr.access), h('span.t3.num.when', pr.time)),
           pr.rows.map((r) => {
             const sel = frontKey() === r.key;
             const pinned = S.tabs.some((t) => t.kind === 'session' && t.key === r.key);
@@ -1042,13 +1071,16 @@ function renderSidebar(): void {
 
   const mix = !empty && total ? h('div.mix', (['you', 'work', 'wait', 'idle'] as Group[]).filter((g) => counts[g]).map((g) => h('span', { style: { flex: String(counts[g]), background: GROUP_VAR[g] } }))) : null;
 
-  // A folder macOS did not let the board read: its projects show without
-  // their files, and one line says where to turn it on.
-  const denied = S.hub?.access?.denied || [];
-  const asking = S.hubStatus?.starting?.waitingFor ? S.hubStatus.starting : null;
-  const deniedNote = asking
-    ? h('div.access-note', h('b', `macOS is asking whether Ravenry may read ${asking.waitingFor}. Click Allow in the dialog.`), ' ', `Closed it? System Settings > Privacy & Security > Files & Folders > Ravenry, turn on ${asking.folder || asking.waitingFor}.`, h('button.lk.ac-open', { on: { click: () => api().openExternal(PRIVACY_PANE) } }, 'Open Files & Folders'))
-    : denied.length ? h('div.access-note', `macOS did not let Ravenry read ${denied.map((d) => d.folder).join(', ')}. Turn it on in System Settings > Privacy & Security > Files & Folders.`) : null;
+  // A folder macOS has not let the board read: its projects show without
+  // their files, and the note says why and where to fix it, in the Mac
+  // app's words (Sidebar.swift): macOS's question while it asks; refused or
+  // stale, how to add Ravenry to Full Disk Access again.
+  const acc = accessNow();
+  const deniedNote = !acc ? null : acc.asking
+    ? h('div.access-note', h('b', t('start.askingT', { folder: unbroken(acc.asking.folder) })), ' ', t('side.accessClosed', { folder: acc.asking.name }),
+      acc.settings ? h('button.lk.ac-open', { on: { click: () => api().openExternal(acc.settings!) } }, t('side.openPrivacy')) : null)
+    : h('div.access-note', h('b', t('start.deniedT', { folders: acc.refused.map(unbroken).join(', ') })), ' ', t('start.denied'),
+      acc.settings ? h('button.lk.ac-open', { on: { click: () => api().openExternal(acc.settings!) } }, t('start.openFullDisk')) : null);
   // Drawn again only when it changed, and its list keeps where it was
   // scrolled (it was set back to the top at each state from the board).
   redraw($('side'), h('div.side-top'), brand, mix, deniedNote, list, empty ? h('span.fill') : null, nav, foot);
@@ -2476,8 +2508,9 @@ function openStart(folder?: string): void {
 function renderStart(): void {
   // The switch from the npm board takes the first-launch place (npmswitch.ts).
   if (npmTakesCentre()) { renderNpmCentre($('start')); return; }
-  // The hub waits for macOS to say whether it may read a folder.
-  if (S.hubStatus?.starting) { replace($('start'), accessCard(S.hubStatus.starting)); return; }
+  // The hub waits for macOS to say whether it may read a folder: the card alone
+  // (the folders and assistants are read once the board answers).
+  if (S.hubStatus?.starting) { replace($('start'), S.hubStatus.starting.waitingFor ? accessCard('alone') : h('div.access-card.alone.plain', h('p.ac-t', 'The board is starting.'))); return; }
   const need = npmNeed();
   if (need) { renderNpmPointer($('start'), need, { url: S.config?.hubUrl || 'http://localhost:4600', reachable: !!S.hubStatus?.reachable, newShell: () => void newShell(), openUrl: (u) => api().openExternal(u) }); return; }
   const st = S.start;
@@ -2529,6 +2562,8 @@ function renderStart(): void {
     svg(I.APP_ICON),
     h('h2', first ? 'Start your first session' : 'Start a session'),
     h('p.lead', 'Pick a folder and an assistant. It opens in a real terminal here, and the list on the left keeps every session in order, the ones that need you first.'),
+    // A folder macOS has not let the board read, over the card (StartView.swift accessCard).
+    accessCard('over'),
     card,
     st.error ? h('p.err', st.error) : null,
     h('div.fl-foot', 'Keeping cmux, iTerm2 or Rex? Ravenry still follows the sessions you run there.')));
@@ -2560,13 +2595,17 @@ function onDrop(e: DragEvent): void {
 
 // macOS's privacy question, said in the window while the hub waits for the
 // answer (hub/server/access.mjs): the dialog is easy to miss, or was closed.
-const PRIVACY_PANE = 'x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders';
-function accessCard(st: { waitingFor: string | null; folder: string | null }): HTMLElement {
-  if (!st.waitingFor) return h('div.access-card', h('p.ac-t', 'The board is starting.'));
-  return h('div.access-card',
-    h('p.ac-t', `macOS is asking whether Ravenry may read ${st.waitingFor}. Click Allow in the dialog.`),
-    h('p.ac-s', `Closed the dialog? Open System Settings > Privacy & Security > Files & Folders, find Ravenry and turn on ${st.folder || st.waitingFor}. The board starts by itself once it may read it.`),
-    h('div.row', h('button.btn', { on: { click: () => api().openExternal(PRIVACY_PANE) } }, 'Open Files & Folders')));
+// Refused, or a Full Disk Access entry gone stale after an update: how to
+// remove Ravenry from Full Disk Access and add it again. The Mac app's card
+// and words (StartView.swift accessCard), the hub's pane of System Settings.
+function accessCard(where: 'alone' | 'over'): HTMLElement | null {
+  const acc = accessNow();
+  if (!acc) return null;
+  const col = acc.asking
+    ? [h('p.ac-t', t('start.askingT', { folder: acc.asking.folder })), h('p.ac-s', t('start.askingS', { folder: acc.asking.folder }))]
+    : [h('p.ac-t', t('start.deniedT', { folders: acc.refused.join(', ') })), h('p.ac-s', t('start.denied'))];
+  const open = acc.settings ? h('div.row', h('button.btn.ac-open', { on: { click: () => api().openExternal(acc.settings!) } }, t(acc.asking ? 'start.openPrivacy' : 'start.openFullDisk'))) : null;
+  return h(`div.access-card.${where}`, h('span.ac-lock', svg(I.LOCK)), h('div.ac-col', ...col, open));
 }
 
 async function startSession(): Promise<void> {
