@@ -20,6 +20,7 @@ name: desktop
 # the hub, the daemon, the shared words and tokens), the test guard, the
 # lockfile or this file; not for Markdown alone.
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'apps/desktop/**'

@@ -30,6 +30,7 @@ name: code
 # (shared/) or the test guard change;
 # not for Markdown alone, except the person routes' list the hub suite reads.
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'daemon/**'
