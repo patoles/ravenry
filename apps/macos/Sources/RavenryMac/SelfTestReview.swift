@@ -46,6 +46,24 @@ extension SelfTestBoard {
         check("review_grid_rows", shows(g, "app/sync.js") && shows(g, "NOTES.md") && shows(g, "read"))
         pictures("review-grid")
         g.buttons["close"]?.performClick(nil)
+        // Files it changed has a limit (2026-11-17: a session's 33 files ran down the whole panel): its first 6 rows,
+        // then "and 27 more", which opens the grid as See all does; the count above still says all 33.
+        let many: [[String: Any]] = (0..<33).map { ["path": String(format: "app/screens/many-%02d.js", $0), "added": 3, "removed": 1] }
+        wc.testFiles = ["notes-app": ["ok": true, "sessions": [["surfaceId": s.surfaceId, "files": many]], "you": []]]
+        board.pickSession(key, why: "test")
+        board.render(force: true)
+        let listed = { (0..<33).filter { self.shows(self.board.panel, String(format: "app/screens/many-%02d.js", $0)) } }
+        let capped = wait(6) { wc.buttons["filesMore"] != nil && listed() == Array(0..<6) }
+        check("review_files_capped", capped && wc.buttons["filesMore"]?.title == "and 27 more" && shows(board.panel, "33 files, +99 −33") && wc.buttons["seeAll"] != nil,
+              "rows \(listed()), more \(wc.buttons["filesMore"]?.title ?? "none")")
+        // The box in sight in the panel's scroll (its rows, "and 27 more" and See all) for the pictures.
+        if let m = wc.buttons["seeAll"] { m.scrollToVisible(m.bounds.insetBy(dx: 0, dy: -12)) }
+        settle(0.3)
+        pictures("review-files-capped")
+        wc.buttons["filesMore"]?.performClick(nil)
+        check("review_files_more_opens_grid", wait(3) { self.board.root.middle === g } && shows(g, "Who changed what in notes-app"), texts(g).prefix(6).joined(separator: " | "))
+        g.buttons["close"]?.performClick(nil)
+        wc.testFiles = nil
         board.pickSession(key, why: "test")
         _ = wait(4) { wc.buttons["review"] != nil }
         wc.buttons["review"]?.performClick(nil)

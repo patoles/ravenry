@@ -58,7 +58,11 @@ final class WorktreeCards {
     /// A diff read again at once (after a merge, from the review).
     func forget(_ surface: String) { diffs[surface] = nil }
 
+    /// The self-test's own answer of a project's files (SelfTestReview.swift), in place of the hub's.
+    var testFiles: [String: [String: Any]]?
+
     func filesOf(_ pid: String) -> [String: Any]? {
+        if let f = testFiles?[pid] { return f }
         let c = files[pid]
         if c == nil || (!(c!.loading) && Date().timeIntervalSince(c!.at) > 4) {
             files[pid] = (c?.at ?? .distantPast, c?.d, true)
@@ -150,6 +154,9 @@ final class WorktreeCards {
         return l
     }
 
+    /// The rows Files it changed shows before "and N more".
+    static let filesShown = 6
+
     /// Files it changed (19 A): each with its counts, one another session changed too in orange with what that means.
     private func filesSection(_ p: HubProject, _ s: HubSession, sec: (String?, NSView?, [NSView?]) -> NSView) -> NSView? {
         guard let d = filesOf(p.id), let me = (d["sessions"] as? [[String: Any]] ?? []).first(where: { $0["surfaceId"] as? String == s.surfaceId }) else { return nil }
@@ -161,7 +168,8 @@ final class WorktreeCards {
         let hit = { (f: [String: Any]) in f["clash"] != nil && !(f["read"] as? Bool ?? false) ? 1 : 0 }
         let sorted = fs.sorted { hit($0) != hit($1) ? hit($0) > hit($1) : !($0["read"] as? Bool ?? false) && ($1["read"] as? Bool ?? false) }
         var rows: [NSView?] = []
-        for f in sorted {
+        // At most filesShown rows (the panel's lists show 6, as Sessions' closed ones), then "and N more", which opens the grid.
+        for f in sorted.prefix(Self.filesShown) {
             let path = f["path"] as? String ?? ""
             let pl = label(path, Fonts.mono(11.5), "tx")
             pl.lineBreakMode = .byTruncatingHead
@@ -185,6 +193,11 @@ final class WorktreeCards {
                 rows.append(hstack([pl, spring(), counts(num(f, "added"), num(f, "removed"))], spacing: 8))
             }
         }
+        if sorted.count > Self.filesShown {
+            let more = RButton(t("files.more", ["n": "\(sorted.count - Self.filesShown)"]), .link) { [weak self] in self?.openGrid(p.id) }
+            buttons["filesMore"] = more
+            rows.append(hstack([more, spring()], spacing: 0))
+        } else { buttons["filesMore"] = nil }
         let all = RButton(t("files.seeAll", ["project": p.name]), .link) { [weak self] in self?.openGrid(p.id) }
         buttons["seeAll"] = all
         rows.append(hstack([all, spring()], spacing: 0))
