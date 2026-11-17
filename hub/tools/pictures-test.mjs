@@ -199,6 +199,47 @@ check('limit: an empty file is skipped', P.checkFile(empty, roots) === null);
   check('shown: the caption still names the script that wrote a shown picture', zero && zero.by === 'tools/shoot.mjs' && zero.made, zero && JSON.stringify(zero.by));
 }
 
+// ------------------------------------------------------------ unit: the 2026-11-17 case (a picture "shown" that never was)
+// The shape of a real main session's transcript (2026-11-17, Claude Code's
+// record kinds of that day: queue-operation, api-request, api-request-blob,
+// attachment, system around the turns): a subagent's hand-back names a
+// scratchpad picture (a user record with string content, not the person's
+// "[Image: source: ...]"), the main session Reads it, then tells the person
+// about it in words only, and later names it in a subagent's brief (a Write)
+// and a request blob. No reply of its own text carries the path, so the
+// gallery stays empty: d20a452's rule, by design. The same picture on its own
+// line in a reply is admitted at once, with these record kinds around it.
+{
+  const W = path.join(T, 'root', 'unit-case-1117');
+  const S = 'eeeeeeee-0000-4000-8000-000000001117';
+  const pic = img(path.join(SCRATCH, slug(W), S, 'scratchpad', 'access', 'access-refused.png'), { ageDays: 0.2 });
+  const at = (min) => new Date(Date.now() - min * 60000).toISOString();
+  const rec = (o, min) => JSON.stringify({ timestamp: at(min), cwd: W, sessionId: S, isSidechain: false, ...o });
+  const asst = (content, min) => rec({ type: 'assistant', message: { role: 'assistant', content } }, min);
+  const lines = [
+    rec({ type: 'queue-operation', operation: 'enqueue', content: `<agent-message from="a1">Report: the refused state, ${pic}</agent-message>` }, 300),
+    rec({ type: 'user', message: { role: 'user', content: `Another Claude session sent a message:\n<agent-message from="a1">\n  Pictures:\n  ${pic}\n</agent-message>` } }, 300),
+    asst([{ type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: pic } }], 299.9),
+    rec({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r1', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } }] }] } }, 299.9),
+    rec({ type: 'api-request' }, 299.8),
+    asst([{ type: 'text', text: 'I looked at the picture of the refused state, and the card and sidebar note read correctly.' }], 299.7),
+    rec({ type: 'system', subtype: 'turn_duration' }, 299.7),
+    asst([{ type: 'text', text: 'Checking: none on this project even though I opened a picture in this session.' }], 10),
+    asst([{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: path.join(W, 'BRIEF.md'), content: `wrote\n${pic}\non its own line` } }], 5),
+    rec({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'w1', content: 'File created successfully' }] } }, 5),
+    rec({ type: 'api-request-blob', hash: 'x', message: { role: 'assistant', content: [{ type: 'thinking', thinking: '' }, { type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: path.join(W, 'BRIEF.md'), content: pic } }] } }, 5),
+    asst([{ type: 'text', text: 'My earlier check of the gallery also failed: I showed you a picture by writing its path in my reply.' }], 4),
+  ];
+  const tp = path.join(T, 'case-1117.jsonl');
+  fs.writeFileSync(tp, lines.join('\n') + '\n');
+  const roots = P.rootsFor(W, [S]);
+  check('1117 case: a picture only in a hand-back, a Read, a brief and a request blob, described in words, is not in the gallery (by design)', P.listFromTranscripts([tp], roots).length === 0);
+  check('1117 case: the same picture passes the privacy rule (the session\'s own scratchpad), so only the showing was missing', !!P.checkFile(pic, roots));
+  fs.appendFileSync(tp, [rec({ type: 'api-request' }, 3), asst([{ type: 'text', text: `The refused state:\n\n${pic}\n\nThe card reads correctly.` }], 3), rec({ type: 'system', subtype: 'turn_duration' }, 3)].join('\n') + '\n');
+  const after = P.listFromTranscripts([tp], roots);
+  check('1117 case: written on its own line in a reply, it is the gallery\'s picture at once', after.length === 1 && after[0].abs === fs.realpathSync(pic), JSON.stringify(after.map((x) => [path.basename(x.abs), x.by])));
+}
+
 // ------------------------------------------------------------ unit: current session only (main transcript)
 {
   const U = path.join(T, 'root', 'unit-session');

@@ -19,9 +19,13 @@
 // gallery. Both kinds pass the privacy rule below, so a screenshot the person
 // attached from the Desktop is never shown. When
 // the current session showed no image, the project has no picture. When the
-// current session changes (a hand-off's fresh session), the old pick is
-// dropped at once and the new session shows nothing until it shows an
-// image: only what the agent sent in the current session helps.
+// current session changes, the old pick is dropped at once. A hand-off's
+// fresh session is the exception (decided 2026-11-17: "Yes, keep them across
+// hand-offs"): it carries the session it continues (and that one's own
+// predecessor, a few hand-offs back) until it shows pictures of its own, then
+// its own lead, newest first, the old ones after, 6 in all. Each carried
+// picture passed the same rule for the session that showed it, and is checked
+// against that session's roots again whenever it is served.
 //
 // Who made a picture (the gallery's caption) may still come from the main
 // transcript's tool calls and their output: the call that wrote the file.
@@ -551,12 +555,52 @@ function relFor(abs, roots) {
 }
 
 const sidOf = (session) => (session && session.sessionId) || null;
+// The sessions a project's current one carries pictures from (hand-offs), as a key.
+const prevKey = (session) => ((session && session.prev) || []).map((x) => x.sessionId).join(',');
+
+// How many hand-offs back a fresh session's gallery reaches.
+export const CARRY_DEPTH = 3;
+
+// The sessions a hand-off's fresh session continues, nearest first, from the
+// hand-off markers (server/handoff.mjs: sessionId -> marker): the marker whose
+// fresh session is this one, by its session id (resumeSessionId), or, when it
+// was seen only on its tab's screen, by that tab (resumeSurfaceId) for a
+// session started after the board started it there. Only a hand-off of the
+// same project. Each: { sessionId, path } (path: the old transcript).
+// `transcript(sid, marker)` finds a transcript the marker does not name.
+export function handedFrom(markers, session, projectId, transcript = () => null, depth = CARRY_DEPTH) {
+  const out = [];
+  if (!markers || !session || !session.sessionId) return out;
+  const all = markers instanceof Map ? [...markers.values()] : Object.values(markers);
+  const seen = new Set([session.sessionId]);
+  let cur = session;
+  while (out.length < depth) {
+    const sid = cur.sessionId;
+    const start = Date.parse(cur.startedAt || '') || 0;
+    const of = (m) => m && m.sessionId && !seen.has(m.sessionId) && m.state === 'resumed' && (!projectId || !m.projectId || m.projectId === projectId);
+    let m = all.filter((x) => of(x) && x.resumeSessionId === sid).sort((a, b) => (Date.parse(b.resumedAt || '') || 0) - (Date.parse(a.resumedAt || '') || 0))[0];
+    if (!m && cur.surfaceId) {
+      m = all.filter((x) => of(x) && !x.resumeSessionId && x.resumeSurfaceId === cur.surfaceId
+        && (!start || start >= (Date.parse(x.resumeLaunchedAt || x.resumeStartedAt || '') || 0) - 2000))
+        .sort((a, b) => (Date.parse(b.resumedAt || '') || 0) - (Date.parse(a.resumedAt || '') || 0))[0];
+    }
+    if (!m) break;
+    let p = null;
+    try { p = m.transcriptPath && fs.existsSync(m.transcriptPath) ? m.transcriptPath : null; } catch { p = null; }
+    if (!p) p = transcript(m.sessionId, m) || null;
+    seen.add(m.sessionId);
+    if (p) out.push({ sessionId: m.sessionId, path: p });
+    // The old session's own predecessor: its tab, by the surface the marker names.
+    cur = { sessionId: m.sessionId, surfaceId: m.surfaceId || null, startedAt: null };
+  }
+  return out;
+}
 
 // True when the project's pick should be worked out again: never worked out,
 // a minute old, or the current session is not the one it was worked out for.
 export function due(id, session, now = Date.now()) {
   const c = picks.get(id);
-  return !c || c.sessionId !== sidOf(session) || now - c.at >= LIMITS.refreshMs;
+  return !c || c.sessionId !== sidOf(session) || c.prev !== prevKey(session) || now - c.at >= LIMITS.refreshMs;
 }
 
 // Works out a project's pictures now, from what its current session's main
@@ -564,25 +608,40 @@ export function due(id, session, now = Date.now()) {
 // newest of them.
 // `session`: { sessionId, path } (path = its transcript), or null when the
 // project has no current session (then no picture).
+// `session.prev`: the sessions it continues after hand-offs (handedFrom),
+// nearest first: their pictures follow its own, 6 in all.
 export function refresh(project, session, now = Date.now()) {
   const t0 = performance.now();
   const sid = sidOf(session);
   const roots = rootsFor(project.folder, sid ? [sid] : []);
   const files = sid ? sessionTranscripts(session) : [];
   const newest = files.length ? listFromTranscripts(files, roots, now) : [];
+  for (const pic of newest) pic.roots = roots;
+  // Carried: each old session's pictures under that session's own roots.
+  const seen = new Set(newest.map((x) => x.abs));
+  for (const old of (sid && session.prev) || []) {
+    if (newest.length >= LIMITS.gallery) break;
+    const oroots = rootsFor(project.folder, [old.sessionId]);
+    for (const pic of listFromTranscripts(sessionTranscripts(old), oroots, now)) {
+      if (newest.length >= LIMITS.gallery) break;
+      if (seen.has(pic.abs)) continue;
+      seen.add(pic.abs);
+      newest.push({ ...pic, roots: oroots, carried: old.sessionId });
+    }
+  }
   const list = newest.slice().reverse();
   for (const pic of list) {
     pic.key = keyOf(pic.abs);
     pic.name = path.basename(pic.abs);
     pic.alt = `Latest picture: ${pic.name}`;
     pic.url = urlFor(project.id, pic);
-    pic.rel = relFor(pic.abs, roots);
+    pic.rel = relFor(pic.abs, pic.roots || roots);
     const d = imageSize(pic.abs, pic.mtimeMs);
     pic.w = d ? d.w : null;
     pic.h = d ? d.h : null;
   }
   const pick = list.length ? list[list.length - 1] : null;
-  const entry = { at: now, sessionId: sid, pick, list, roots, ms: performance.now() - t0, transcripts: files.length };
+  const entry = { at: now, sessionId: sid, prev: prevKey(session), pick, list, roots, ms: performance.now() - t0, transcripts: files.length + ((sid && session.prev) || []).length };
   picks.set(project.id, entry);
   return entry;
 }
@@ -640,7 +699,7 @@ function served(id, name, key, now) {
   if (key) pic = (c.list || []).find((x) => x.key === key) || null;
   else pic = c.pick;
   if (!pic || (name != null && name !== path.basename(pic.abs))) return null;
-  const f = checkFile(pic.abs, c.roots, now);
+  const f = checkFile(pic.abs, pic.roots || c.roots, now);
   return f ? f.abs : null;
 }
 

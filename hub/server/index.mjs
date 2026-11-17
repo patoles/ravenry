@@ -852,10 +852,16 @@ function briefFor(project) {
 
 // The project's picture comes from its current session only (its primary,
 // the session the detail view shows first), from its main transcript alone:
-// what that session showed the user, never its subagents' shots.
-function pictureSession(primary) {
+// what that session showed the user, never its subagents' shots. A hand-off's
+// fresh session also carries the sessions it continues (`prev`, from the
+// hand-off markers: server/pictures.mjs handedFrom) until it shows its own.
+function pictureSession(primary, projectId = null) {
   if (primary && !asst.supports(primary.assistant, 'pictures')) return null;
-  return primary && primary.sessionId ? { sessionId: primary.sessionId, path: (primary.transcript && primary.transcript.path) || null } : null;
+  if (!primary || !primary.sessionId) return null;
+  const e = ev.all.get(primary.sessionId);
+  const found = (sid, m) => { try { return asst.findTranscript(asst.kindOf(ev.all.get(sid) || m), sid, m.cwd || m.folder || null); } catch { return null; } };
+  const prev = pictures.handedFrom(markers, { sessionId: primary.sessionId, surfaceId: primary.surfaceId || null, startedAt: (e && e.startedAt) || null }, projectId, found);
+  return { sessionId: primary.sessionId, path: (primary.transcript && primary.transcript.path) || null, prev };
 }
 
 function refreshPicture(project, session, now) {
@@ -984,7 +990,7 @@ function buildProject(project, wsById, hooks, settings, now) {
   // when the current session changes. Only for a project with a brief: the
   // board shows pictures from the brief, the latest one after its own list.
   if (brief) {
-    const ps0 = pictureSession(primary);
+    const ps0 = pictureSession(primary, project.id);
     if (picBudget > 0 && pictures.due(project.id, ps0, now)) {
       picBudget--;
       try { refreshPicture(project, ps0, now); } catch (e) { console.error('pictures:', project.id, e.message); }

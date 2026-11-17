@@ -201,6 +201,50 @@ const session = { sessionId: SID, path: path.join(TD, SID + '.jsonl') };
   check('session: a switch drops the 6 at once', P.gallery('u', { sessionId: OTHER, path: session.path }).length === 0 && P.revealable('u', e.list[0].key) === null);
 }
 
+// ------------------------------------------------------------ hand-off: the fresh session keeps the gallery
+// (decided 2026-11-17: "Yes, keep them across hand-offs"). The fresh session
+// carries the old one's 6 until it shows its own; then its own lead, newest
+// first, the old ones after, 6 in all, each under the rule of the session
+// that showed it.
+const FRESH = 'efefefef-0000-4000-8000-000000000003';
+const freshPath = path.join(T, 'handed-fresh.jsonl'); // outside the board's transcripts until its own phase
+const freshSays = (text, ageMin) => JSON.stringify({ type: 'assistant', timestamp: at(ageMin), cwd: H, sessionId: FRESH, message: { content: [{ type: 'text', text }] } });
+const freshPic = await draw('chart', path.join(SCRATCH, slug(H), FRESH, 'scratchpad', 'fresh-chart.png'), 0.3);
+const oldScratch = await draw('landscape', path.join(SCRATCH, slug(H), SID, 'scratchpad', 'old-scratch.png'), 0.6);
+// The old session (a copy of its transcript, so the board below keeps its 6)
+// also showed a picture of its own scratchpad: it stays its own.
+const oldPath = path.join(T, 'handed-old.jsonl');
+fs.writeFileSync(oldPath, fs.readFileSync(session.path, 'utf8') + says(`From my scratchpad:\n${oldScratch}`, 0.55) + '\n');
+const marker = { sessionId: SID, projectId: 'sketchbook', state: 'resumed', transcriptPath: oldPath, surfaceId: 'sf-h', resumeSessionId: FRESH, resumedAt: at(0.5), resumeLaunchedAt: at(0.51) };
+{
+  const hasCarry = typeof P.handedFrom === 'function';
+  const chain = hasCarry ? P.handedFrom(new Map([[SID, marker]]), { sessionId: FRESH }, 'sketchbook') : [];
+  check('hand-off: the fresh session is found to continue the old one (its marker\'s resumeSessionId)', chain.length === 1 && chain[0].sessionId === SID && chain[0].path === oldPath, JSON.stringify(chain));
+  const bySurface = hasCarry ? P.handedFrom(new Map([[SID, { ...marker, resumeSessionId: null, resumeSurfaceId: 'sf-new' }]]), { sessionId: FRESH, surfaceId: 'sf-new', startedAt: at(0.5) }, 'sketchbook') : [];
+  check('hand-off: a fresh session seen only on its tab\'s screen is found by that tab', bySurface.length === 1 && bySurface[0].sessionId === SID, JSON.stringify(bySurface));
+  const before = hasCarry ? P.handedFrom(new Map([[SID, { ...marker, resumeSessionId: null, resumeSurfaceId: 'sf-new' }]]), { sessionId: FRESH, surfaceId: 'sf-new', startedAt: at(5) }, 'sketchbook') : [];
+  const otherProj = hasCarry ? P.handedFrom(new Map([[SID, marker]]), { sessionId: FRESH }, 'elsewhere') : [];
+  check('hand-off: not a session that started in that tab before the hand-off, nor another project\'s hand-off', before.length === 0 && otherProj.length === 0, JSON.stringify({ before, otherProj }));
+
+  fs.writeFileSync(freshPath, freshSays('Reading the hand-off.', 0.45) + '\n');
+  let f = P.refresh({ id: 'h', folder: H }, { sessionId: FRESH, path: freshPath, prev: chain });
+  let names = f.list.map((x) => x.name);
+  check('hand-off: before it shows any, the fresh session\'s gallery is the old session\'s last 6 (its own scratchpad picture included)', names.length === 6 && names[5] === 'old-scratch.png' && names[4] === 'settings.png' && f.pick && f.pick.name === 'old-scratch.png', names.join(' '));
+  check('hand-off: each carried picture is served, the old scratchpad\'s too (under the old session\'s rule)', f.list.every((x) => P.serveable('h', x.name, x.key) === x.abs), f.list.map((x) => `${x.name}:${!!P.serveable('h', x.name, x.key)}`).join(' '));
+  check('hand-off: the board\'s gallery() keeps them for the fresh session', P.gallery('h', { sessionId: FRESH, path: freshPath, prev: chain }).length === 6);
+  fs.appendFileSync(freshPath, freshSays(`The new chart:\n${freshPic}`, 0.25) + '\n');
+  f = P.refresh({ id: 'h', folder: H }, { sessionId: FRESH, path: freshPath, prev: chain });
+  names = f.list.map((x) => x.name);
+  check('hand-off: once it shows its own, its own leads (newest first), the old ones after, 6 in all', names.length === 6 && names[5] === 'fresh-chart.png' && names[4] === 'old-scratch.png' && names[3] === 'settings.png' && !names.includes('phone-screen.png') && f.pick.name === 'fresh-chart.png', names.join(' '));
+  check('hand-off: the fresh session\'s own scratchpad picture is served under its rule', P.serveable('h', 'fresh-chart.png', f.pick.key) === real(freshPic));
+  const plain = P.refresh({ id: 'h2', folder: H }, { sessionId: FRESH, path: freshPath });
+  check('hand-off: a new session that continues no hand-off still starts empty but for its own', plain.list.length === 1 && plain.pick.name === 'fresh-chart.png', plain.list.map((x) => x.name).join(' '));
+  // Privacy: the old session's scratchpad counts only for what the old session showed.
+  fs.appendFileSync(freshPath, freshSays(`Also this: ${otherScratch}`, 0.2) + '\n');
+  f = P.refresh({ id: 'h', folder: H }, { sessionId: FRESH, path: freshPath, prev: chain });
+  check('hand-off privacy: another session\'s scratchpad is still refused', !f.list.some((x) => x.abs === real(otherScratch)));
+}
+
 // ------------------------------------------------------------ the board
 const PORT = 4679;
 const MC = path.join(T, 'mc');
@@ -303,6 +347,18 @@ try {
     return { ctx, pg, errs };
   }
   const cur = (pg) => pg.evaluate(() => { const l = document.querySelector('#gl-fs'); if (!l || l.hidden) return null; const on = [...l.querySelectorAll('.gl-thumb')].findIndex((b) => b.classList.contains('on')); return { on, src: l.querySelector('#gl-im').getAttribute('src'), cap: l.querySelector('#gl-cap').textContent, thumbs: l.querySelectorAll('.gl-thumb').length, times: [...l.querySelectorAll('.gl-time')].map((t) => t.textContent) }; });
+  // What the person sees in the viewer: the picture itself, decoded, on top at
+  // its centre, and no player drawn (2026-11-17: a PNG opened on the
+  // phone showed as a dead video, the empty <video> over the <img>).
+  const seen = (pg) => pg.evaluate(() => {
+    const v = document.querySelector('#gl-view');
+    const i = document.querySelector('#gl-im');
+    const vid = document.querySelector('#gl-vid');
+    const r = v.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { top: top ? (top.id || top.className || top.tagName) : null, natural: i.naturalWidth, player: getComputedStyle(vid).display, still: getComputedStyle(document.querySelector('#gl-cant')).display };
+  });
+  const seenOk = (x) => x.top === 'gl-im' && x.natural > 0 && x.player === 'none' && x.still === 'none';
   const settle = async (pg) => {
     await pg.waitForFunction(() => { const i = document.querySelector('#gl-im'); return [...document.querySelectorAll('#gl-fs img')].every((x) => x.complete && x.naturalWidth > 0) && i && i.complete; });
     await pg.evaluate(() => Promise.all([...document.querySelectorAll('#gl-fs img')].map((x) => x.decode().catch(() => {}))));
@@ -317,6 +373,8 @@ try {
     await settle(pg);
     let c = await cur(pg);
     check('open: the whole window, on the newest (the last thumbnail)', c && c.on === 5 && c.thumbs === 6 && /settings\.png/.test(c.src), JSON.stringify(c));
+    let sn = await seen(pg);
+    check('open: the PNG shows as a picture (decoded, on top, no video player drawn)', seenOk(sn), JSON.stringify(sn));
     check('open: the caption says who made it, its age, size and path, with Show in Finder and Copy path', c && /Made by tools\/shoot\.mjs/.test(c.cap) && /1 min ago/.test(c.cap) && /2880 x 1620/.test(c.cap) && /shots\/settings\.png/.test(c.cap) && /Show in Finder/.test(c.cap) && /Copy path/.test(c.cap), c && c.cap);
     check('open: each thumbnail has its age', c && JSON.stringify(c.times) === JSON.stringify(['26 min', '21 min', '15 min', '9 min', '4 min', '1 min']), c && JSON.stringify(c.times));
     const nextOff = await pg.$eval('[data-gl-step="1"]', (b) => b.disabled);
@@ -709,6 +767,8 @@ try {
     await pg.click('.picard');
     await settle(pg);
     let c = await cur(pg);
+    const sn = await seen(pg);
+    check(`phone ${theme}: the PNG shows as a picture (decoded, on top, no video player drawn)`, seenOk(sn), JSON.stringify(sn));
     const bar = await pg.$eval('#gl-bar', (b) => b.textContent);
     check(`phone ${theme}: opens on the newest, "6 of 6", no Show in Finder`, c.on === 5 && /6 of 6/.test(bar) && !/Show in Finder/.test(c.cap) && c.times.length === 0, `${bar} | ${c.cap}`);
     // Like turning pages: a finger moving right goes back, left goes forward.
@@ -743,6 +803,20 @@ try {
     await pg.click('[data-gl-close]');
     check(`phone ${theme}: the X closes`, (await cur(pg)) === null);
     check(`phone ${theme}: no script errors`, errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
+  {
+    const { ctx, pg, errs } = await page({ width: 360, height: 780 }, 'dark', { hasTouch: true, isMobile: true });
+    await pg.click('.picard');
+    await settle(pg);
+    let sn = await seen(pg);
+    check('phone 360: the PNG shows as a picture (decoded, on top, no video player drawn)', seenOk(sn), JSON.stringify(sn));
+    await pg.click('.gb-ctl [data-gl-step="-1"]');
+    await settle(pg);
+    sn = await seen(pg);
+    check('phone 360: Previous, the next PNG shows as a picture too', seenOk(sn), JSON.stringify(sn));
+    if (SHOTS) await pg.screenshot({ path: path.join(SHOTS, 'B-phone-360-dark.png') });
+    check('phone 360: no script errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
   // Zoom on a phone: a real two-finger pinch (CDP touch events, so the
@@ -824,6 +898,38 @@ try {
     check('zoom phone: no script errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   } else console.log('SKIP  zoom phone (CDP touch is Chromium only)');
+  // The board: a hand-off's fresh session takes the tab; its gallery is the old one's 6 at once.
+  {
+    fs.mkdirSync(path.join(MC, 'handoffs'), { recursive: true });
+    fs.writeFileSync(path.join(MC, 'handoffs', SID + '.json'), JSON.stringify({ ...marker, transcriptPath: session.path, cwd: H, folder: H }));
+    fs.writeFileSync(path.join(TD, FRESH + '.jsonl'), freshSays('Reading the hand-off.', 0) + '\n');
+    const fk = JSON.parse(fs.readFileSync(FAKE, 'utf8'));
+    fk.screens['sf-h'] = `Resume this session with:\nclaude --resume ${FRESH}\n~/sketchbook $ `;
+    fs.writeFileSync(FAKE, JSON.stringify(fk));
+    let sw = null;
+    for (let i = 0; i < 100; i++) {
+      const st = await (await fetch(base + '/api/state')).json();
+      const p = st.projects.find((x) => x.id === 'sketchbook');
+      const prim = p && (p.sessions || []).find((x) => x.surfaceId === p.primary);
+      const auto = p && p.brief && p.brief.pictures.find((x) => x.auto);
+      sw = { sid: prim ? prim.sessionId : null, gal: auto && auto.gallery ? auto.gallery.map((x) => x.name) : [], urls: auto && auto.gallery ? auto.gallery.map((x) => x.url) : [] };
+      if (sw.sid === FRESH && sw.gal.length) break;
+      await sleep(200);
+    }
+    check('board hand-off: the fresh session is the project\'s current one, and its gallery is the old session\'s 6', sw && sw.sid === FRESH && sw.gal.join(' ') === 'home.png phone-screen.png response-times.png landscape.png shapes.png settings.png', JSON.stringify(sw && { sid: sw.sid, gal: sw.gal }));
+    let okAll = sw && sw.urls.length === 6;
+    for (const u of (sw && sw.urls) || []) { const r = await fetch(base + u); if (!(r.ok && r.headers.get('content-type') === 'image/png')) okAll = false; }
+    check('board hand-off: each carried picture is served', okAll);
+    const { ctx, pg, errs } = await page({ width: 360, height: 780 }, 'dark', { hasTouch: true, isMobile: true });
+    await pg.click('.picard');
+    await settle(pg);
+    const sn = await seen(pg);
+    const c = await cur(pg);
+    check('board hand-off: the gallery opens on the old session\'s newest, as a picture', c && /settings\.png/.test(c.src) && seenOk(sn), JSON.stringify({ c, sn }));
+    if (SHOTS) await pg.screenshot({ path: path.join(SHOTS, 'handoff-kept-360.png') });
+    check('board hand-off: no script errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
 } catch (e) {
   check('no exception', false, e.stack);
 } finally {
