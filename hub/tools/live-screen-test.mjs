@@ -48,8 +48,8 @@ function noChrome(label, r) {
 }
 
 // Checks on real captured screens (tools/fixtures/live/checks.mjs) run only
-// where those screens are: the private repo. The public copy has none, so it
-// runs the crafted screens below.
+// where those screens are: a maintainer's own copy (they are real sessions,
+// never committed). Elsewhere it runs the crafted screens below.
 const PRIV = fs.existsSync(path.join(FIX, 'checks.mjs')) ? await import(pathToFileURL(path.join(FIX, 'checks.mjs')).href) : null;
 if (PRIV) PRIV.trimChecks({ trimScreen, check, noChrome, read, allText });
 else console.log('SKIP  trim rules on captured real screens (tools/fixtures/live/ is not in this copy)');

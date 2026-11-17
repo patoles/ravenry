@@ -14,8 +14,12 @@ Windows of tabs and splits, each pane of ravenryd drawn by the app,
 as the Electron app's terminal area has them, with the Electron app's
 sidebar and session panel around them, drawn from the hub's state.
 
-Licence: GPL-3.0-only, like the other apps. No third-party code: the
-renderer, the WebSocket client and the key table are this app's.
+Licence: GPL-3.0-only, like the other apps. No third-party code in the
+Swift app: the renderer, the WebSocket client and the key table are this
+app's. What the packaged app carries from other projects (ravenryd's
+modules and libghostty-vt, Node.js, fonts) is listed with each licence in
+THIRD_PARTY_NOTICES.txt, in its resources and under Help, Open Source
+Licences.
 
 ## How it works
 

@@ -157,7 +157,7 @@ fs.cpSync(path.join(STAGE, 'hub-modules'), path.join(R, 'hub', 'node_modules'), 
 fs.cpSync(path.join(STAGE, 'remote'), path.join(R, 'remote'), { recursive: true });
 fs.writeFileSync(path.join(R, 'build.json'), JSON.stringify(build, null, 2) + '\n');
 // Where updates come from: the public releases (the root package.json's ravenry.releases),
-// or RAVENRY_UPDATE_REPO. Not GITHUB_REPOSITORY: CI sets it to the private source repository.
+// or RAVENRY_UPDATE_REPO. Not GITHUB_REPOSITORY: a fork's CI sets it to the fork.
 {
   const rootPkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
   const slug = process.env.RAVENRY_UPDATE_REPO || rootPkg.ravenry?.releases;

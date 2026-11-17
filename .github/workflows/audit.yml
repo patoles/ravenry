@@ -1,10 +1,13 @@
 # The personal-data audit (tools/audit.mjs) on every push and pull request,
 # and in the same job the page files' checks (packages/page-format): each
 # took under 20 s in a job of its own, billed a whole minute each.
-# This repository's whole history goes public at launch, so a commit that
+# This repository is public with its whole history, so a commit that
 # carries personal data must fail here. The personal term list comes from
 # the repository secret AUDIT_TERMS (one term per line) and is never
-# committed. Without it the audit fails and says how to add it.
+# committed. Without it the audit fails and says how to add it, except on a
+# pull request from a fork: GitHub gives such a run no secrets, so it audits
+# the generic shapes only (emails, keys, home paths...) and the full audit
+# runs on main once it is merged (run it locally before merging).
 name: audit
 
 on:
@@ -28,6 +31,7 @@ jobs:
         with:
           node-version: 22
       - name: Check that the AUDIT_TERMS secret is set
+        if: ${{ !github.event.pull_request.head.repo.fork }}
         env:
           AUDIT_TERMS: ${{ secrets.AUDIT_TERMS }}
         run: |
@@ -36,9 +40,13 @@ jobs:
             exit 1
           fi
       - name: Audit every file
+        if: ${{ !github.event.pull_request.head.repo.fork }}
         env:
           AUDIT_TERMS: ${{ secrets.AUDIT_TERMS }}
         run: node tools/audit.mjs --require-terms
+      - name: Audit every file, generic shapes only (a pull request from a fork has no secrets)
+        if: ${{ github.event.pull_request.head.repo.fork }}
+        run: node tools/audit.mjs
       # Page files (packages/page-format): typecheck (the library with no
       # Node types, so it stays usable in a browser and the phone's WebView;
       # then the tests and tools), every test and conformance case, the

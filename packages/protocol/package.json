@@ -7,7 +7,7 @@
   "author": "Simon Patole",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/patoles/ravenry-app.git",
+    "url": "git+https://github.com/patoles/ravenry.git",
     "directory": "packages/protocol"
   }
 }

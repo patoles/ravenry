@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// The personal-data audit. This repository goes public at launch with its
-// whole history, so no commit may ever carry personal data. CI runs this on
+// The personal-data audit. This repository is public with its whole
+// history, so no commit may ever carry personal data. CI runs this on
 // every push and pull request, and so should you before a commit.
 //
 //   node tools/audit.mjs [<dir>] [--terms <file>] [--require-terms]
@@ -60,6 +60,7 @@ const ALLOWED = [
   { file: 'package.json', sha256: NAME, why: 'the package author' },
   { file: 'package.json', sha256: OWNER, why: 'the GitHub owner in repository' },
   { file: 'README.md', sha256: OWNER, why: 'the GitHub owner in the repository URL' },
+  { file: '.github/ISSUE_TEMPLATE/config.yml', sha256: OWNER, why: 'the GitHub owner in the security report and download page links' },
   { file: 'packages/protocol/package.json', sha256: OWNER, why: 'the GitHub owner in repository' },
   { file: 'packages/protocol/package.json', sha256: NAME, why: 'the package author' },
   { file: '.github/workflows/cla.yml', sha256: OWNER, why: 'the GitHub owner in the CLA document URL' },

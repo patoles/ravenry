@@ -33,11 +33,12 @@ Playwright; and checks the real `~/.claude/settings.json` and
 
 ## The public repository
 
-The hub is developed in the `hub/` folder of the Ravenry monorepo, private
-until launch. The personal-data audit (`node tools/audit.mjs` at the
-repository root) runs in CI on every push and pull request, so the whole
-history can go public at launch as it is, into github.com/patoles/ravenry.
-Releases of 0.4.x before then were exported from a separate private repo.
+The hub is developed in the `hub/` folder of the Ravenry monorepo,
+github.com/patoles/ravenry, public with its whole history. The
+personal-data audit (`node tools/audit.mjs` at the repository root) runs in
+CI on every push and pull request. The npm board's own code, 0.4.x and
+earlier, is on that repository's `npm-board` branch, with its tags; those
+releases were exported from a separate private repository.
 
 ## The README's screenshots
 

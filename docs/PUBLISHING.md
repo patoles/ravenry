@@ -2,7 +2,9 @@
 
 Until the store releases, testers get Ravenry from one page and one public
 repository: github.com/patoles/ravenry (the root package.json's
-`ravenry.releases`; it also holds the npm board's code, on its `main`).
+`ravenry.releases`), which is also this source: its `main` is this
+repository's history, and the npm board's code (0.4.x) is on its
+`npm-board` branch.
 
 | What | Where |
 | --- | --- |
@@ -11,8 +13,8 @@ repository: github.com/patoles/ravenry (the root package.json's
 | The Mac app's updates | the same Releases: `latest-mac-native.json` and `RavenryNative-<version>.zip`, read by every packaged app (Resources/app-update.json, `Updater.swift`) |
 | The Android app | the same Releases: `Ravenry-android.apk`. It has no updater: a tester downloads the new one from the page, and it installs over the old one, pairing kept |
 
-The page is on `gh-pages`, not in a `docs/` folder, so the repository's
-`main` (the npm board's code, whose own `docs/` is in use) is never touched.
+The page is on `gh-pages`, not in a `docs/` folder, so publishing it never
+touches `main` (the source, whose own `docs/` is in use).
 
 ## Tags and "latest"
 
@@ -24,7 +26,8 @@ both read the release marked latest. The npm board (`ravenry-app` on npm,
 one; if a release is ever made there by hand for it, make it with
 `--latest=false`. The Electron app, and native builds packaged before
 `ravenry.releases` (up to the first 0.1.47 package, on 2026-11-14), read the
-private source repository's releases, not this one: nothing older picks up
+releases of the private repository the source lived in before it moved
+here (patoles/ravenry-app, archived), not this one: nothing older picks up
 a testers' release, and such a copy gets the testers' updates only once a
 newer package is installed by hand. `tools/publish-testers.mjs` refuses a version
 that is not newer than the release marked latest.
@@ -143,10 +146,9 @@ older upload key (certificate `7ba7b99d...`) signs nothing any more; keep
 its backup. For a Play release later, give Play this key as the app
 signing key, so the testers' copies update from Play.
 
-## The public repository's README
+## The npm board's README
 
-Proposed for patoles/ravenry's README, under the title (not applied):
-
-> **Ravenry is now a Mac app.** The early test is open: get the Mac app and
-> the Android app at https://patoles.github.io/ravenry/. This repository
-> holds the npm board (`ravenry-app` 0.4), which the Mac app replaces.
+The npm board's code is on the `npm-board` branch; its README there keeps
+the npm board's words. The repository's README (the root README.md) is the
+app's. The npm package itself is deprecated with a message that sends to
+the download page (done by the maintainer when the source moved here).

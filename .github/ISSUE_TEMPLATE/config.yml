@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/patoles/ravenry/security/advisories/new
+    about: Privately, never in a public issue (SECURITY.md).
+  - name: Download Ravenry
+    url: https://patoles.github.io/ravenry/
+    about: The Mac app and the Android app.
