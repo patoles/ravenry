@@ -58,8 +58,9 @@
 //
 // Signing: this Mac's Apple Development identity when the keychain has it
 // (apps/desktop/scripts/local-identity.mjs; the keychain is only read),
-// every binary inside, the hardened runtime, the Electron app's
-// entitlements (apps/desktop/build/entitlements.mac.plist). Else ad hoc,
+// every binary inside (the Mac builds in Resources/remote/*.gz too), the
+// hardened runtime, the Electron app's entitlements
+// (apps/desktop/build/entitlements.mac.plist). Else ad hoc,
 // said loudly: macOS then keeps no privacy answer from one build to the
 // next. Checked with codesign --verify --deep --strict and the team of
 // every Mach-O inside.
@@ -79,6 +80,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
@@ -215,7 +217,20 @@ const xcrun = (args) => {
   if (dry) { say(`would run: xcrun ${args.map((a) => (a === process.env.APPLE_API_KEY_ID || a === process.env.APPLE_API_ISSUER ? '<secret>' : a)).join(' ')}`); return ''; }
   return run('/usr/bin/xcrun', args, { stdio: ['ignore', 'pipe', 'inherit'] });
 };
-const notarize = (f) => { say(`notarizing ${path.basename(f)} (waits for Apple's answer)`); xcrun(['notarytool', 'submit', f, ...notary, '--wait']); };
+// notarytool exits 0 on an Invalid answer too: its status is read, and Apple's log printed when it is not Accepted.
+const notarize = (f) => {
+  say(`notarizing ${path.basename(f)} (waits for Apple's answer)`);
+  const out = xcrun(['notarytool', 'submit', f, ...notary, '--wait']);
+  if (dry) return;
+  const sub = (/^\s*id: (\S+)/m.exec(out) || [])[1] || '?';
+  const status = [...out.matchAll(/^\s*status: (.+)$/gm)].map((m) => m[1].trim()).pop() || 'unknown';
+  say(`notarization ${sub}: ${status}`);
+  if (status !== 'Accepted') {
+    let log = '';
+    try { log = xcrun(['notarytool', 'log', sub, ...notary]); } catch { /* none */ }
+    throw new Error(`${path.basename(f)}: notarization ${sub} is ${status}, not Accepted\n${log}`);
+  }
+};
 const staple = (f) => { xcrun(['stapler', 'staple', f]); if (!dry) xcrun(['stapler', 'validate', f]); };
 const ents = path.join(DESKTOP, 'build', id ? 'entitlements.mac.plist' : 'entitlements.adhoc.plist');
 if (id?.release) say(`signing with ${id.name} (${id.hash.slice(0, 8)}), hardened runtime, a secure timestamp; ${notary ? 'notarized and stapled below' : 'NOT notarized (no RAVENRY_NOTARY_PROFILE or APPLE_API_KEY*)'}`);
@@ -225,6 +240,30 @@ const stamp = id?.release ? '--timestamp' : '--timestamp=none';
 const sign = (f, ident) => run('/usr/bin/codesign', ['--force', '--sign', id ? id.hash : '-', '--options', 'runtime', stamp, '--entitlements', ents, ...(ident ? ['--identifier', ident] : []), f]);
 sign(path.join(C, 'MacOS', 'node'), 'dev.ravenry.app.node');
 sign(path.join(C, 'MacOS', 'ravenryd'), 'dev.ravenry.app.ravenryd');
+// The Mac builds a remote machine gets (Resources/remote/ravenryd-darwin-*.gz, hub/server/remoteinstall.mjs)
+// are Mach-O too, and Apple's notary service looks inside the .gz: each is signed as ravenryd is, gzipped
+// again, and builds.json given its new SHA-256 and size (the remote install checks the copy against them).
+const remoteTeams = [];
+if (id) {
+  const rdir = path.join(R, 'remote');
+  const bj = path.join(rdir, 'builds.json');
+  const builds = fs.existsSync(bj) ? JSON.parse(fs.readFileSync(bj, 'utf8')) : { builds: {} };
+  for (const [key, b] of Object.entries(builds.builds || {})) {
+    if (!key.startsWith('darwin-')) continue;
+    const gz = path.join(rdir, b.file);
+    const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rvn-remote-')), `ravenryd-${key}`);
+    fs.writeFileSync(tmp, zlib.gunzipSync(fs.readFileSync(gz)), { mode: 0o755 });
+    sign(tmp, 'dev.ravenry.app.ravenryd');
+    execFileSync('/usr/bin/codesign', ['--verify', '--strict', tmp], { stdio: 'inherit' });
+    const t = (execFileSync('/bin/sh', ['-c', 'codesign -dv "$1" 2>&1', 'sh', tmp], { encoding: 'utf8' }).match(/^TeamIdentifier=(.*)$/m) || [])[1] || 'none';
+    remoteTeams.push([t, `Contents/Resources/remote/${b.file}/ravenryd-${key}`]);
+    const raw = fs.readFileSync(tmp);
+    fs.writeFileSync(gz, zlib.gzipSync(raw, { level: 9 }));
+    Object.assign(b, { sha256: crypto.createHash('sha256').update(raw).digest('hex'), size: raw.length });
+    fs.rmSync(path.dirname(tmp), { recursive: true, force: true });
+  }
+  if (remoteTeams.length) fs.writeFileSync(bj, JSON.stringify(builds, null, 2) + '\n');
+}
 sign(app);
 execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
 const teams = {};
@@ -241,6 +280,7 @@ const walk = (d) => {
   }
 };
 walk(app);
+for (const [t, f] of remoteTeams) (teams[t] ||= []).push(f);
 say(`teams: ${Object.entries(teams).map(([t, fs_]) => `${t}: ${fs_.join(', ')}`).join('; ')}`);
 if (id && (Object.keys(teams).length !== 1 || (id.team && !teams[id.team]) || teams.none)) throw new Error(`a binary inside is not signed by team ${id.team || Object.keys(teams).join(' or ')}`);
 say(`requirement: ${execFileSync('/bin/sh', ['-c', 'codesign -d -r- "$1" 2>&1 | sed -n "s/^designated => //p"', 'sh', app], { encoding: 'utf8' }).trim()}`);
