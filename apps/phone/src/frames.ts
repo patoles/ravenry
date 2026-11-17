@@ -17,7 +17,7 @@ let line: Promise<unknown> = Promise.resolve();
 /** The videos this engine cannot decode (the webm round, 2026-11-17): the still that says so takes their place. */
 const cant = new Set<string>();
 const types = new Map<string, string>();
-/** Whether this engine cannot play the video at `url`: the hub's type (`videoType`) it says it cannot play, or a decode error or no frame seen before. */
+/** Whether this engine cannot play the video at `url`: the hub's type (`videoType`) it says it cannot play, or a player that refused its type or no frame seen before. */
 export function videoCant(url: string, type?: string | null): boolean {
   if (type) types.set(url, type);
   if (cant.has(url)) return true;
@@ -28,6 +28,21 @@ export function videoCant(url: string, type?: string | null): boolean {
 export const markCant = (url: string): void => { cant.add(url); };
 
 export const frameNow = (url: string): string | null | undefined => done.get(url);
+
+/** A frame drawn on a canvas the page may show but not read: `canvas:<url>` in place of a picture's URL. */
+export const CANVAS = 'canvas:';
+const drawnOn = new Map<string, HTMLCanvasElement>();
+/** A canvas of its own with the video's first frame (one drawn but not readable), for a thumbnail; null when none. */
+export function frameCanvas(url: string): HTMLCanvasElement | null {
+  const src = drawnOn.get(url);
+  if (!src) return null;
+  const c = document.createElement('canvas');
+  c.width = src.width;
+  c.height = src.height;
+  c.dataset.frame = url;
+  c.getContext('2d')?.drawImage(src, 0, 0);
+  return c;
+}
 export const frameBroken = (url: string): boolean => broken.has(url);
 
 /** The first frame of the video at `url`: drawn once, the videos one after another. */
@@ -95,14 +110,16 @@ function grab(url: string): Promise<string | null> {
       const g = c.getContext('2d');
       if (!g) { end(null); return true; }
       try {
+        const has = (): boolean => { const px = g.getImageData(0, 0, c.width, c.height).data; for (let i = 3; i < px.length; i += 4 * 97) if (px[i]) return true; return false; };
         g.drawImage(v, 0, 0, c.width, c.height);
-        const px = g.getImageData(0, 0, c.width, c.height).data;
-        let seen = false;
-        for (let i = 3; i < px.length; i += 4 * 97) if (px[i]) { seen = true; break; }
-        if (!seen) return false;
+        if (!has()) return false;
         drawn = true;
         c.toBlob((b) => end(b ? URL.createObjectURL(b) : null), 'image/jpeg', 0.86);
-      } catch { end(null); }
+      } catch (e) {
+        // A frame the page may draw but not read (WebKit's own WebM player through the iPhone app's shell: a
+        // SecurityError): the canvas it was drawn on is the frame, shown as it is (frameCanvas).
+        if ((e as Error).name === 'SecurityError') { drawn = true; drawnOn.set(url, c); end(`${CANVAS}${url}`); } else end(null);
+      }
       return true;
     };
     let played = false;
@@ -111,14 +128,15 @@ function grab(url: string): Promise<string | null> {
       // Not decoded until it plays (some engines): a moment of it, muted, then drawn.
       if (played) return;
       played = true;
-      v.addEventListener('timeupdate', () => { if (!over && v.currentTime > 0) { v.pause(); if (!draw()) end(null); } });
+      // Drawn at the first moment it shows; given up after a second of it.
+      v.addEventListener('timeupdate', () => { if (!over && v.currentTime > 0) { if (draw()) v.pause(); else if (v.currentTime > 1) end(null); } });
       const pl = v.play();
       if (pl && pl.catch) pl.catch(() => end(null));
     };
     v.addEventListener('seeked', tryDraw);
     v.addEventListener('loadeddata', () => { if (!v.seeking) tryDraw(); });
-    // A decode error, or a type it does not play: it cannot play here; else it cannot be read.
-    v.addEventListener('error', () => { if (v.error && (v.error.code === 3 || v.error.code === 4)) cant.add(url); else broken.add(url); end(null); });
+    // A type it does not play (MEDIA_ERR_SRC_NOT_SUPPORTED): it cannot play here; else (a decode error can pass) it cannot be read now.
+    v.addEventListener('error', () => { if (v.error && v.error.code === 4) cant.add(url); else broken.add(url); end(null); });
     v.src = `${url}#t=0.001`;
   });
 }

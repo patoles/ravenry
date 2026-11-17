@@ -42,7 +42,7 @@ import * as I from './icons.ts';
 import { current, hubUrl } from './shell.ts';
 import { regionOf } from './logic.ts';
 import { t as say } from './strings.ts';
-import { frameBroken, frameNow, frameOf, markCant, videoCant } from './frames.ts';
+import { CANVAS, frameBroken, frameCanvas, frameNow, frameOf, markCant, videoCant } from './frames.ts';
 
 export interface PickUI {
   /** The picture on screen. */
@@ -91,9 +91,12 @@ const firstFrame = (url: string, missing?: () => void): HTMLElement => {
   if (videoCant(url)) return cantStill();
   const im = h('img', { alt: '', draggable: 'false', 'data-frame': url }) as HTMLImageElement;
   const cantNow = () => { const p = im.parentElement; p?.querySelector('.pk-play')?.remove(); im.replaceWith(cantStill()); };
+  // A frame the page may show but not read: its own canvas in the picture's place.
+  const show = (u: string) => { if (!u.startsWith(CANVAS)) { im.src = u; return; } const cv = frameCanvas(url); if (cv && im.isConnected) im.replaceWith(cv); };
   const now = frameNow(url);
+  if (now && now.startsWith(CANVAS)) return frameCanvas(url) ?? im;
   if (now) im.src = now;
-  else if (now === undefined) void frameOf(url).then((u) => { if (u) im.src = u; else if (videoCant(url)) cantNow(); else if (frameBroken(url)) missing?.(); });
+  else if (now === undefined) void frameOf(url).then((u) => { if (u) show(u); else if (videoCant(url)) cantNow(); else if (frameBroken(url)) missing?.(); });
   else if (videoCant(url)) queueMicrotask(cantNow);
   else if (frameBroken(url)) missing?.();
   return im;
@@ -111,7 +114,7 @@ function player(url: string, cantNow?: () => void): HTMLVideoElement {
   const v = h('video.pzv-vid', { src: url, preload: 'auto', muted: true, loop: true, playsinline: true, 'webkit-playsinline': true }) as HTMLVideoElement;
   v.muted = true;
   // It cannot decode it after all (no type to ask): the still, at once.
-  v.addEventListener('error', () => { if (v.error && (v.error.code === 3 || v.error.code === 4)) { markCant(url); cantNow?.(); } });
+  v.addEventListener('error', () => { if (v.error && v.error.code === 4) { markCant(url); cantNow?.(); } });
   one = v;
   return v;
 }
@@ -204,7 +207,8 @@ export function pickView(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: P
     const hs = [...track.querySelectorAll('.pimg')].map((s) => {
       const im = s.querySelector('img') as HTMLImageElement | null;
       const vd = s.querySelector('video') as HTMLVideoElement | null;
-      return im && im.naturalWidth ? tw * im.naturalHeight / im.naturalWidth : vd && vd.videoWidth ? tw * vd.videoHeight / vd.videoWidth : tw * 10 / 16;
+      const cv = s.querySelector('canvas[data-frame]') as HTMLCanvasElement | null;
+      return im && im.naturalWidth ? tw * im.naturalHeight / im.naturalWidth : cv && cv.width ? tw * cv.height / cv.width : vd && vd.videoWidth ? tw * vd.videoHeight / vd.videoWidth : tw * 10 / 16;
     }).map((v) => Math.min(v, Math.round(window.innerHeight * 0.58)));
     const f = track.scrollLeft / tw, a = Math.max(0, Math.floor(f)), b = Math.min(hs.length - 1, a + 1), k = f - a;
     const want = Math.round((hs[a] ?? hs[0] ?? 200) * (1 - k) + (hs[b] ?? hs[a] ?? 200) * k);

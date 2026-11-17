@@ -65,7 +65,7 @@ export function cardPicture(p, x, { esc, escRaw }) {
 
 // A video this engine cannot decode (the webm round, 2026-11-17: AV1 on an
 // Apple chip without its decoder, VP9 on the iOS simulator): the hub's
-// `videoType` the engine says it cannot play, a player's decode error, or
+// `videoType` the engine says it cannot play, a player that refuses its type, or
 // its size read and no frame after 15 s. It shows a still that says so,
 // never a blank or a spinner. url -> true.
 const cantSet = new Set();
@@ -93,6 +93,23 @@ function cantNow(url) {
     const play = im.parentElement && im.parentElement.querySelector('.pk-play');
     if (play) play.remove();
     im.replaceWith(sp);
+  }
+}
+
+// A frame drawn on a canvas the page may show but not read: `canvas:<url>`
+// in place of a picture's URL; each thumbnail gets a canvas of its own.
+const CANVAS = 'canvas:';
+const drawnOn = new Map();
+function paintCanvases(url) {
+  const src = drawnOn.get(url);
+  if (!src) return;
+  for (const im of document.querySelectorAll('img[data-frame]')) {
+    if (im.dataset.frame !== url) continue;
+    const c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height; c.dataset.frame = url;
+    const g = c.getContext('2d');
+    if (g) g.drawImage(src, 0, 0);
+    im.replaceWith(c);
   }
 }
 
@@ -136,27 +153,30 @@ function grabFrame(url) {
       const g = c.getContext('2d');
       if (!g) { end(null); return true; }
       try {
+        const has = () => { const px = g.getImageData(0, 0, c.width, c.height).data; for (let i = 3; i < px.length; i += 4 * 97) if (px[i]) return true; return false; };
         g.drawImage(v, 0, 0, c.width, c.height);
-        const px = g.getImageData(0, 0, c.width, c.height).data;
-        let seen = false;
-        for (let i = 3; i < px.length; i += 4 * 97) if (px[i]) { seen = true; break; }
-        if (!seen) return false;
+        if (!has()) return false;
         drawn = true;
         c.toBlob((b) => end(b ? URL.createObjectURL(b) : null), 'image/jpeg', 0.86);
-      } catch { end(null); }
+      } catch (e) {
+        // A frame the page may draw but not read (WebKit's own WebM player through the iPad app's shell: a
+        // SecurityError): the canvas it was drawn on is the frame, shown as it is (paintCanvases).
+        if (e && e.name === 'SecurityError') { drawn = true; drawnOn.set(url, c); end(CANVAS + url); } else end(null);
+      }
       return true;
     };
     const tryDraw = () => {
       if (over || draw() || played) return;
       // Not decoded until it plays (some engines): a moment of it, muted, then drawn.
       played = true;
-      v.addEventListener('timeupdate', () => { if (!over && v.currentTime > 0) { v.pause(); if (!draw()) end(null); } });
+      // Drawn at the first moment it shows; given up after a second of it.
+      v.addEventListener('timeupdate', () => { if (!over && v.currentTime > 0) { if (draw()) v.pause(); else if (v.currentTime > 1) end(null); } });
       const pl = v.play();
       if (pl && pl.catch) pl.catch(() => end(null));
     };
     v.addEventListener('seeked', tryDraw);
     v.addEventListener('loadeddata', () => { if (!v.seeking) tryDraw(); });
-    v.addEventListener('error', () => end(v.error && (v.error.code === 3 || v.error.code === 4) ? 'cant' : null));
+    v.addEventListener('error', () => end(v.error && v.error.code === 4 ? 'cant' : null));
     v.src = `${url}#t=0.001`;
   });
 }
@@ -173,7 +193,8 @@ function frameOf(url) {
       if (u) frames.set(url, u);
       framing.delete(url);
       // Every thumbnail of this video on the page now shows it.
-      if (u) for (const im of document.querySelectorAll('img[data-frame]')) if (im.dataset.frame === url && im.getAttribute('src') !== u) im.setAttribute('src', u);
+      if (u && u.startsWith(CANVAS)) paintCanvases(url);
+      else if (u) for (const im of document.querySelectorAll('img[data-frame]')) if (im.dataset.frame === url && im.getAttribute('src') !== u) im.setAttribute('src', u);
       return u;
     });
     frameLine = p.catch(() => null);
@@ -186,6 +207,8 @@ export function frameTag(url, escRaw, type) {
   if (videoCant(url, type)) return cantTag(url, escRaw);
   const now = frames.get(url);
   if (!now) void frameOf(url);
+  // A frame on a canvas: the picture's place now, its canvas once the markup is on the page.
+  if (now && now.startsWith(CANVAS)) { queueMicrotask(() => paintCanvases(url)); return `<img data-frame="${escRaw(url)}" alt="">`; }
   return `<img data-frame="${escRaw(url)}"${now ? ` src="${escRaw(now)}"` : ''} alt="">`;
 }
 
@@ -457,7 +480,7 @@ export function createGallery(d) {
         vid.muted = true; vid.setAttribute('src', x.video); vid.setAttribute('aria-label', x.name);
         // It cannot decode it after all (no type to ask): the still, at once.
         const url = x.video;
-        vid.addEventListener('error', () => { if (vid.error && (vid.error.code === 3 || vid.error.code === 4)) { cantNow(url); draw(); } });
+        vid.addEventListener('error', () => { if (vid.error && vid.error.code === 4) { cantNow(url); draw(); } });
         const pl = vid.play(); if (pl && pl.catch) pl.catch(() => {});
       }
     } else {
