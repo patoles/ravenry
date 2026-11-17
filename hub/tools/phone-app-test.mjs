@@ -160,7 +160,7 @@ const auth = crypto.randomBytes(16);
   const plain = phone.hubName();
   process.env.RAVENRY_HUB_NAME = 'MacBook Pro';
   check('the hub\'s name: the host name up to its first dot, unless RAVENRY_HUB_NAME says', !plain.includes('.') && plain.length > 0 && phone.hubName() === 'MacBook Pro');
-  check('the Mac as a person names it, never its host name', phone.sayMac('owners-macbook-pro-1') === 'MacBook Pro' && phone.sayMac('Owners-MacBook-Pro.local') === 'MacBook Pro' && phone.sayMac('annes-mac-mini-2') === 'Mac mini' && phone.sayMac('studio') === 'studio' && phone.sayMac('Test hub') === 'Test hub' && phone.sayMac(null) === '', phone.sayMac('owners-macbook-pro-1'));
+  check('the Mac as a person names it, never its host name', phone.sayMac('owners-macbook-pro-1') === 'MacBook Pro' && phone.sayMac('Owners-MacBook-Pro.local') === 'MacBook Pro' && phone.sayMac('users-mac-mini-2') === 'Mac mini' && phone.sayMac('studio') === 'studio' && phone.sayMac('Test hub') === 'Test hub' && phone.sayMac(null) === '', phone.sayMac('owners-macbook-pro-1'));
   if (had === undefined) delete process.env.RAVENRY_HUB_NAME; else process.env.RAVENRY_HUB_NAME = had;
   check('a typed code is read the Crockford way', phone.normalizeCode('abcd-efgh ijkl-mnoo') === 'ABCDEFGH1JK1MN00');
 }

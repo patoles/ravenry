@@ -75,7 +75,7 @@ final class PairingTests: XCTestCase {
     func testTheMacAsAPersonNamesIt() {
         XCTAssertEqual(MacName.say("owners-macbook-pro-1"), "MacBook Pro")
         XCTAssertEqual(MacName.say("Owners-MacBook-Pro.local"), "MacBook Pro")
-        XCTAssertEqual(MacName.say("annes-mac-mini-2"), "Mac mini")
+        XCTAssertEqual(MacName.say("users-mac-mini-2"), "Mac mini")
         XCTAssertEqual(MacName.say("studio"), "studio")
         XCTAssertEqual(MacName.say("Test hub"), "Test hub")
         XCTAssertEqual(MacName.say(nil), "your Mac")

@@ -94,6 +94,15 @@ const ALLOWED = [
   { file: 'hub/server/vendor/page-format.mjs', sha256: '77ae22ae1f20b65edb73b3fbbfac406010c0991c5bf5745754b42eeb37fd4483', why: "the yaml package's copyright line in its ISC licence, which every copy must carry" },
   { file: 'hub/tools/vendor-page-format.mjs', sha256: '77ae22ae1f20b65edb73b3fbbfac406010c0991c5bf5745754b42eeb37fd4483', why: "the yaml package's copyright line in its ISC licence, which the bundle it writes carries" },
   { file: 'package-lock.json', sha256: 'b0373516d594ddd199b25c3655332b354837e065c5cc232f5043189897900ca7', why: "the public address in glob 7's npm deprecation notice (glob comes with electron-builder's @electron/asar)" },
+  { file: 'THIRD_PARTY_NOTICES.txt', sha256: '7ffda4ec1113576bb55888ac772d65ccf32105044a9996ff7ac5316e3a5f39ae', why: "the copyright line of github.com/huin/goupnp's licence, which every copy must carry" },
+  { file: 'THIRD_PARTY_NOTICES.txt', sha256: 'f7cbe14c99286a608993987ffcf70018eb2fca8c063376c284080d7504800a83', why: "the copyright line of the UTF-8 decoder's licence in uucode (libghostty-vt), which every copy must carry" },
+  { file: 'tools/third-party/uucode-LICENSE_Bjoern_Hoehrmann.txt', sha256: 'f7cbe14c99286a608993987ffcf70018eb2fca8c063376c284080d7504800a83', why: "the copyright line of the UTF-8 decoder's licence in uucode (libghostty-vt), which every copy must carry" },
+  { file: 'THIRD_PARTY_NOTICES.txt', sha256: '77ae22ae1f20b65edb73b3fbbfac406010c0991c5bf5745754b42eeb37fd4483', why: "the yaml package's copyright line in its ISC licence, which every copy must carry" },
+  { file: 'THIRD_PARTY_NOTICES.txt', sha256: 'd7c7dcd6b212ad8eaa5aacef394e491daaa510680bf770245bf8065ed13e5908', why: "the copyright line of the debug package's licence, which every copy must carry" },
+  { file: 'THIRD_PARTY_NOTICES.txt', sha256: '295dee0d3dbb93aac67e72ae4af40f728f050e5fd18417ad60d1ed19186ae03b', why: "the copyright line of the has-flag and supports-color licences, which every copy must carry" },
+  { file: 'THIRD_PARTY_NOTICES.txt', sha256: '37c3da3f13f7aaf6a0560e208e129aeeae2400a922b237399bd9c15ecc4c218b', why: "the copyright line of the jsonfile package's licence, which every copy must carry" },
+  { file: 'THIRD_PARTY_NOTICES.txt', sha256: 'a8d7083c22cc3754a9d65988865ac270f6dec807b7e5f8cda40a174377010de6', why: "the copyright line of the universalify package's licence, which every copy must carry" },
+  { file: 'THIRD_PARTY_NOTICES.txt', sha256: '439caf3a901bc93070a23184327bd78ce9ecc9384d1356abacb91d6f611e493c', why: "the copyright line of the ws package's licence, which every copy must carry" },
 ];
 
 const SHAPES = [
@@ -121,6 +130,12 @@ const SHAPES = [
   ['home path', /(?:\/Users|\/home)\/(?!(?:x|old|you|me|example|someone|Shared|runner)\b)[A-Za-z0-9._-]+/g],
   ['home path', /\b[A-Z]:\\Users\\[A-Za-z0-9._-]+/g],
   ['home path slug', /-Users-(?!(?:x|old|you|me|example|someone)-)[A-Za-z0-9._]+-/g],
+  // A tailnet's DNS name (tailXXXXXX.ts.net) names one person's tailnet; a
+  // made-up one is digits only or a run like abcdef.
+  ['tailnet name', /\btail[0-9a-f]{6}\b/gi, (m) => !/^tail(?:\d{6}|abcdef|0{6}|f{6})$/i.test(m)],
+  // A Mac's host name as macOS makes it from its owner's name
+  // ("<name>s-macbook-pro-1"); the made-up one is "owners-".
+  ['a Mac host name', /\b[A-Za-z]+s-(?:macbook(?:-pro|-air)?|imac|mac-mini|mac-studio|mac-pro)\b/gi, (m) => !/^(?:owners|yours|users)-/i.test(m)],
   ['long hex (a key or id)', /\b[0-9a-f]{32,}\b/gi, (m) => !/^(.)\1+$/.test(m) && !/^(?:0123456789abcdef)+/i.test(m) && !/^89504e470d0a1a0a/i.test(m)], // a PNG written as hex is a picture, not a key
   // Ravenry owns no domain: every reverse-domain id is dev.ravenry (the app dev.ravenry.app, the services dev.ravenry.hub and dev.ravenry.board).
   ['a domain Ravenry does not own (ids are dev.ravenry.*)', /\bgg\\?\.ravenry\b|\bravenry\\?\.gg\b/gi],

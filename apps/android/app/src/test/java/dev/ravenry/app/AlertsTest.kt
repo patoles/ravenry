@@ -159,7 +159,7 @@ class AlertsTest {
     @Test fun theMacIsNamedAsAPersonNamesItNeverByItsHostName() {
         assertEquals("MacBook Pro", MacName.say("owners-macbook-pro-1"))
         assertEquals("MacBook Pro", MacName.say("Owners-MacBook-Pro.local"))
-        assertEquals("MacBook Air", MacName.say("annes-macbook-air"))
+        assertEquals("MacBook Air", MacName.say("users-macbook-air"))
         assertEquals("Mac mini", MacName.say("mac-mini-2"))
         assertEquals("iMac", MacName.say("office-imac"))
         assertEquals("MacBook Pro", MacName.say("MacBook Pro"))
