@@ -162,7 +162,13 @@ try {
   adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
   adb('shell', 'wm', 'dismiss-keyguard');
   adb('shell', 'settings', 'put', 'system', 'screen_off_timeout', '1800000');
-  adb('install', '-r', APK);
+  // An APK of another key there (a release over a debug build, or the other
+  // way): uninstalled first, on this read-only emulator only.
+  try { adb('install', '-r', APK); } catch (e) {
+    if (!/INSTALL_FAILED_UPDATE_INCOMPATIBLE/.test(String(e.stderr || e.message))) throw e;
+    adb('uninstall', APP);
+    adb('install', APK);
+  }
   adb('shell', 'pm', 'clear', APP);
   if (API >= 33) adb('shell', 'pm', 'grant', APP, 'android.permission.POST_NOTIFICATIONS');
   adb('shell', 'pm', 'grant', APP, 'android.permission.CAMERA');
