@@ -238,8 +238,6 @@
 .merged .cp-h { color: var(--ok); }
 .mg-acts { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 
-#lstrip[hidden], #showing[hidden], #fsheet[hidden], #movebar[hidden] { display: none; }
-.rv[hidden] { display: none; }
 .toast .lk { color: var(--link); }
 .fl-card { flex: none; }
 .tab:not(.on):not(:hover) .x { display: none; }
@@ -277,7 +275,6 @@
 .bf .ft2 { display: flex; align-items: center; padding-top: 2px; font-size: 12px; color: var(--tx3); }
 .bf .ft2 .lk { font-size: 12px; }
 .bdoc { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--sheet); color: var(--tx); user-select: text; }
-.bdoc[hidden] { display: none; }
 .bdoc .doc-h { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--sep); font-size: 12.5px; color: var(--tx3); }
 .bdoc .doc-h > svg { color: var(--tx3); }
 .bdoc .doc-h b { color: var(--tx); font-weight: 650; font-size: 13px; }
@@ -324,7 +321,6 @@
 .split.flip .gutter { order: 0; }
 .split.flip #pbox0 { order: 1; }
 .pbox { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
-.pbox[hidden] { display: none; }
 .split.two .pbox { flex-grow: 0; flex-shrink: 0; }
 /* Each pane keeps its terminal while it is not on screen (app.ts pools):
    stacked, the one in front shown; the others drawn under it, hidden. */
@@ -335,7 +331,6 @@
 .split.two .pbox:not(.focus) .term-host { opacity: .82; }
 /* The terminal is dark in both themes: its headers are too. */
 .phead { flex: none; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px 0 12px; font-size: 12px; color: color-mix(in srgb, var(--tfg, #D1D1D6) 55%, transparent); background: var(--tbg, var(--term-bg)); border-bottom: 1px solid color-mix(in srgb, var(--tfg, #D1D1D6) 12%, transparent); }
-.phead[hidden] { display: none; }
 .phead b { color: color-mix(in srgb, var(--tfg, #D1D1D6) 75%, transparent); font-weight: 600; }
 .pbox.focus .phead b { color: var(--tfg, #F2F2F4); }
 .phead .t3 { color: inherit; }
@@ -352,7 +347,6 @@
 .split.down .gutter::after { width: 36px; height: 4px; margin: -2px 0 0 -18px; }
 .split .gutter:hover::after { opacity: 1; background: #fff; }
 .dropzone { position: absolute; z-index: 5; pointer-events: none; border-radius: 8px; box-shadow: inset 0 0 0 2px var(--work); background: rgba(10,132,255,.16); display: flex; align-items: center; justify-content: center; margin: 4px; }
-.dropzone[hidden] { display: none; }
 .dropzone.right { top: 0; bottom: 0; right: 0; width: calc(50% - 8px); }
 .dropzone.left { top: 0; bottom: 0; left: 0; width: calc(50% - 8px); }
 .dropzone.up { left: 0; right: 0; top: 0; height: calc(50% - 8px); }
@@ -365,7 +359,6 @@
 
 /* Find (the terminal-basics picture, F1): over the pane's top right. */
 .findbar { position: absolute; top: 8px; right: 14px; z-index: 6; display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 10px; border-radius: 10px; background: var(--card); box-shadow: 0 0 0 1px var(--sep), 0 8px 24px rgba(0,0,0,.35); color: var(--tx2); font-size: 12px; }
-.findbar[hidden] { display: none; }
 .findbar .fb-i { display: inline-flex; color: var(--tx3); }
 .findbar input { width: 220px; height: 24px; border: 0; border-radius: 6px; padding: 0 8px; background: var(--input); color: var(--tx); font: 12.5px -apple-system, BlinkMacSystemFont, sans-serif; outline: none; box-shadow: inset 0 0 0 1px var(--sep); }
 .findbar input:focus { box-shadow: inset 0 0 0 1.5px var(--work); }
@@ -381,7 +374,6 @@
 
 /* Closing a busy shell (F3): a sheet over the window; Cancel is the default. */
 .closesheet { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding-top: 48px; background: rgba(0,0,0,.28); }
-.closesheet[hidden] { display: none; }
 .closesheet .cs { width: 440px; border-radius: 12px; background: var(--card); box-shadow: 0 0 0 1px var(--sep), 0 18px 48px rgba(0,0,0,.45); overflow: hidden; color: var(--tx); }
 .closesheet .cs-b { display: flex; gap: 14px; padding: 18px 20px 14px; }
 .closesheet .cs-i { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 9px; background: rgba(255,159,10,.16); color: #FF9F0A; }

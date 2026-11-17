@@ -1,9 +1,11 @@
 /* The app's layer over the hub's board (src/board.ts): what the app hides,
    its bar for a computer it cannot reach, its toast, and the agents'
    symbols (the glyph font, glyphs.css) in the live screen's text. */
+/* Marked hidden, never drawn, here too: this layer also goes over a Mac's
+   older board, whose sheet may not say so yet. */
+[hidden] { display: none !important; }
 #phone-anchor, #alerts { display: none !important; }
 .rv-reach { position: fixed; left: 10px; right: 10px; top: calc(env(safe-area-inset-top, 0px) + 68px); z-index: 60; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; background: var(--card, #2C2C2E); color: var(--tx, #F2F2F4); box-shadow: 0 8px 28px rgba(0,0,0,.45); font: 14px/1.4 -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif; }
-.rv-reach[hidden] { display: none; }
 .rv-reach b { font-weight: 600; }
 .rv-reach .rv-row { display: flex; gap: 8px; }
 .rv-reach button { flex: 1; min-height: 40px; border-radius: 10px; border: 0; font: inherit; font-weight: 600; background: var(--work, #0A84FF); color: #FFFFFF; }
