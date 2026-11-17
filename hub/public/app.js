@@ -527,6 +527,24 @@ function rowLabel(p, k) {
   return `${p.name}, ${t.word.toLowerCase()}${since && since !== 'now' ? ', ' + (idle ? since + ' ago' : 'since ' + since) : ''}${!idle && p.line ? ': ' + p.line : ''}${p.flags.length ? '. ' + p.flags.map((f) => f.title).join(', ') : ''}`;
 }
 
+// A project whose folder macOS has not let the board read (hub/server/access.mjs):
+// a small lock, its words in the tip.
+function accessTag(p) {
+  if (!p.access) return '';
+  const tip = p.access.state === 'waiting' ? `Waiting for macOS to let Ravenry read ${p.access.folder}` : `Ravenry can't read ${p.access.folder}`;
+  return `<span class="acc-tag" title="${esc(tip)}" aria-label="${esc(tip)}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="5.5" width="7" height="5" rx="1.2"></rect><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5"></path></svg></span>`;
+}
+
+// The note over the list while macOS has not let the board read a folder:
+// the hub's words (the Mac app's), and on this Mac the pane of System
+// Settings they name.
+function accessNote(snap) {
+  const a = snap.access;
+  if (!a || !a.words) return '';
+  const link = ui.local === true && a.settings ? ` <a class="linkish" href="${escRaw(a.settings)}">${a.waiting ? 'Open Files &amp; Folders' : 'Open Full Disk Access'}</a>` : '';
+  return `<div class="access-note" role="status">${esc(a.words)}${link}</div>`;
+}
+
 function rowHtml(p, k) {
   const sel = ui.sel === p.id;
   const idle = k === 'idle';
@@ -537,6 +555,7 @@ function rowHtml(p, k) {
 <span style="display: flex; align-items: center; gap: 8px; width: 100%">
 <span style="flex: 1; min-width: 0; font-weight: ${sel ? 650 : idle ? 400 : 550}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: ${idle && !sel ? 'var(--tx2)' : 'var(--tx)'}">${esc(p.name)}</span>
 ${p.flags.map((f) => `<span title="${esc(f.title)}" style="width: 6px; height: 6px; border-radius: 50%; background: ${FL[f.kind] || 'var(--tx)'}; flex: none"></span>`).join('')}
+${accessTag(p)}
 <span class="num t3" style="font-size: 11.5px">${esc(since)}</span>
 </span>
 ${!idle && p.line ? `<span class="t2" style="font-size: 12px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%">${esc(p.line)}</span>` : ''}
@@ -565,7 +584,7 @@ function renderList() {
   const counts = { you: 0, work: 0, wait: 0, idle: 0 };
   ps.forEach((p) => { counts[p.state]++; });
   const mixLabel = `${counts.you} need you, ${counts.work} working, ${counts.wait} waiting, ${counts.idle} idle`;
-  let h = `<div class="mix"><div class="mix-bar" role="img" aria-label="${esc(mixLabel)}">${ORDER.filter((k) => counts[k]).map((k) => `<span style="flex: ${counts[k]}; background: ${ST[k].c}"></span>`).join('')}</div></div>`;
+  let h = accessNote(snap) + `<div class="mix"><div class="mix-bar" role="img" aria-label="${esc(mixLabel)}">${ORDER.filter((k) => counts[k]).map((k) => `<span style="flex: ${counts[k]}; background: ${ST[k].c}"></span>`).join('')}</div></div>`;
   const g = groups(ps);
   for (const k of ORDER) {
     const items = g[k];
@@ -603,7 +622,7 @@ function pchipHtml(p, k) {
   // The idle tint is nearly clear; a selected idle project's chip sits on the
   // card colour like the idle chip beside it.
   // A project on another machine carries the machine's name (several machines).
-  return `<button class="pchip ${sel ? 'on' : ''}" data-id="${escRaw(p.id)}" style="--c: ${t.c}; --t: ${k === 'idle' ? 'var(--card)' : t.tint}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(rowLabel(p, k) + (p.machine ? ', on ' + p.machine : ''))}">${stateIcon(t)}<span>${esc(p.name)}</span>${p.machine ? `<span class="mtag">${esc(p.machine)}</span>` : ''}</button>`;
+  return `<button class="pchip ${sel ? 'on' : ''}" data-id="${escRaw(p.id)}" style="--c: ${t.c}; --t: ${k === 'idle' ? 'var(--card)' : t.tint}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(rowLabel(p, k) + (p.machine ? ', on ' + p.machine : ''))}">${stateIcon(t)}<span>${esc(p.name)}</span>${accessTag(p)}${p.machine ? `<span class="mtag">${esc(p.machine)}</span>` : ''}</button>`;
 }
 
 function renderProjectChips() {
@@ -613,7 +632,8 @@ function renderProjectChips() {
   // its dashed chip after the working ones; an idle one joins the idle chip.
   g.work = [...g.work, ...g.un.filter((p) => p.state === 'work')];
   g.idle = [...g.idle, ...g.un.filter((p) => p.state === 'idle')];
-  let h = '';
+  // The same note as the list's, a row of its own over the chips.
+  let h = accessNote(ui.snap);
   for (const k of ['you', 'work', 'wait']) for (const p of g[k]) h += pchipHtml(p, k);
   const selIdle = g.idle.find((p) => p.id === ui.sel);
   if (selIdle) h += pchipHtml(selIdle, 'idle');

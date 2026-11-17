@@ -280,10 +280,27 @@ extension SelfTestBoard {
         // MARK: the sidebar: the lease line (A4), the access note (A5), a row by the keyboard (A7), New session lit (A8)
         let oldUse = sb.useLine
         sb.useLine = { k in k == kp ? (true, "Using dev server") : nil }
-        repatch { st in var st = st; st["access"] = ["waiting": NSNull(), "denied": [["folder": "~/Documents", "name": "Documents"]]]; return st }
+        // Refused, or allowed but checked file by file (a Full Disk Access entry gone stale after an
+        // update): the hub's denied and slow. The project in that folder carries a lock in the sidebar.
+        let lockedId = (((hub.state?.raw["sidebar"] as? [String: Any])?["sections"] as? [[String: Any]])?.first?["projects"] as? [[String: Any]])?.first?["id"] as? String ?? ""
+        repatch { st in
+            var st = st
+            st["access"] = ["waiting": NSNull(), "denied": [["folder": "~/Documents", "name": "Documents"]], "slow": [] as [Any], "blocked": [["folder": "~/Documents", "name": "Documents", "path": "/nonexistent/Documents", "state": "denied"]]]
+            if var side = st["sidebar"] as? [String: Any], var secs = side["sections"] as? [[String: Any]], !secs.isEmpty, var ps = secs[0]["projects"] as? [[String: Any]], !ps.isEmpty {
+                ps[0]["access"] = ["state": "denied", "folder": "~/Documents", "name": "Documents"]
+                secs[0]["projects"] = ps; side["sections"] = secs; st["sidebar"] = side
+            }
+            return st
+        }
         check("sess_use_line", shows(sb.rows[kp] ?? NSView(), "Using dev server"), texts(sb.rows[kp] ?? NSView()).joined(separator: " | "))
-        check("sess_access_note", sb.noteShown?.contains("did not let Ravenry read ~/Documents") == true, sb.noteShown ?? "none")
+        check("sess_access_note", sb.noteShown == "Ravenry can't read ~/Documents. macOS stopped allowing it, which can happen after an update. In System Settings > Privacy & Security > Full Disk Access, select Ravenry, remove it with \u{2212}, then add it again with +."
+              && sb.noteButton?.title == "Open Full Disk Access", sb.noteShown ?? "none")
+        func lockTips(_ v: NSView) -> [String] { (v is Icon && v.toolTip != nil ? [v.toolTip!] : []) + v.subviews.flatMap(lockTips) }
+        check("sess_access_project_lock", lockTips(sb).contains("Ravenry can't read ~/Documents"), "\(lockTips(sb)) (project \(lockedId))")
         pictures("sessions-sidebar-note")
+        let o0 = Outside.record?.count ?? 0
+        if let b = sb.noteButton { click(b) }
+        check("sess_access_open_full_disk", Outside.record?.dropFirst(o0).contains("open \(SidebarView.fullDiskPane)") ?? false, Outside.record?.suffix(1).joined() ?? "none")
         // macOS asking (the hub's 503 names the folder): app.ts deniedNote's words, the question first, and Open Files & Folders.
         sb.testWaiting = (folder: "~/Documents", name: "Documents")
         board.render(force: true)
@@ -297,7 +314,24 @@ extension SelfTestBoard {
         sb.testWaiting = nil
         board.render(force: true)
         settle(0.3)
-        check("sess_access_note_back_to_refused", sb.noteShown?.hasPrefix("macOS did not let Ravenry read ~/Documents.") == true, sb.noteShown ?? "none")
+        check("sess_access_note_back_to_refused", sb.noteShown?.hasPrefix("Ravenry can't read ~/Documents.") == true, sb.noteShown ?? "none")
+        // The app asks macOS itself for a folder the hub has no answer for (AccessAsk.swift): it reads
+        // that folder off the main thread, then the hub asks again. A test's folder, never the person's.
+        let askDir = NSTemporaryDirectory() + "ravenry-access-ask-\(getpid())"
+        try? FileManager.default.createDirectory(atPath: askDir, withIntermediateDirectories: true)
+        AccessAsk.testFront = true
+        let sent0 = hub.sentBodies.count
+        repatch { st in var st = st; st["access"] = ["waiting": ["folder": askDir, "name": "Documents", "path": askDir], "denied": [] as [Any], "slow": [] as [Any], "blocked": [["folder": askDir, "name": "Documents", "path": askDir, "state": "waiting"]]]; return st }
+        check("sess_access_app_asks_macos", wait(5) { AccessAsk.record.contains("read \(askDir): ok") && hub.sentBodies.dropFirst(sent0).contains { $0.path == "/api/access/retry" } },
+              "\(AccessAsk.record) \(hub.sentBodies.dropFirst(sent0).map(\.path))")
+        let sent1 = hub.sentBodies.count
+        board.render(force: true)
+        settle(0.5)
+        check("sess_access_app_asks_once", !hub.sentBodies.dropFirst(sent1).contains { $0.path == "/api/access/retry" } && AccessAsk.record.filter { $0.hasPrefix("read \(askDir)") }.count == 1, "\(AccessAsk.record)")
+        let realHome = getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? "/"
+        check("sess_access_never_the_persons_own", AccessAsk.isTest && AccessAsk.personsOwn("\(realHome)/Documents") && AccessAsk.personsOwn("\(realHome)/Desktop/x") && AccessAsk.personsOwn("/Volumes/Disk") && !AccessAsk.personsOwn(askDir))
+        AccessAsk.testFront = false
+        try? FileManager.default.removeItem(atPath: askDir)
         sb.useLine = oldUse
         repatch(nil)
         if let row = sb.rows[kp], let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {

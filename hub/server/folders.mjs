@@ -50,7 +50,11 @@ export function repoRoot(p) {
         const m = fs.readFileSync(path.join(dir, '.git'), 'utf8').match(/gitdir:\s*(.+?)\/\.git\/worktrees\//);
         if (m) root = path.resolve(dir, m[1]);
       }
-    } catch { /* not here */ }
+    } catch (e) {
+      // A folder macOS has not let the board read yet (server/access.mjs):
+      // not known, so nothing is kept of this walk.
+      if (e && e.code === 'EPERM') return null;
+    }
     if (root) { for (const s of seen) roots.set(s, root); return root; }
     dir = path.dirname(dir);
   }
@@ -185,6 +189,9 @@ async function scanAsync(file, size, prev) {
     return { size: upTo, hits: hits.slice(-RECENT) };
   } finally { await fh.close().catch(() => {}); }
 }
+
+/** Forgets every repo root and session folder worked out (a protected folder became readable: what was read without it is read again). */
+export function forgetRoots() { roots.clear(); sessions.clear(); }
 
 // The board hears when a scan it queued is done (it builds its state again).
 let onScan = () => {};

@@ -605,16 +605,20 @@ final class StartView: MiddleView {
 
     // MARK: macOS's question
 
-    /// The folders macOS refused (the hub's state.access.denied), as "~/Documents".
+    /// The folders macOS refused, or allows but checks file by file (a Full Disk Access entry gone
+    /// stale after an update): the hub's state.access.denied and .slow, as "~/Documents".
     var denied: [String] {
         if let d = testDenied { return d }
         let a = hub?.state?.raw["access"] as? [String: Any]
-        return (a?["denied"] as? [[String: Any]] ?? []).compactMap { $0["folder"] as? String }
+        return ((a?["denied"] as? [[String: Any]] ?? []) + (a?["slow"] as? [[String: Any]] ?? [])).compactMap { $0["folder"] as? String }
     }
 
-    static let privacyPane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!
-    /// Opens the Privacy pane (the self-test records it instead).
-    var openPrivacy: () -> Void = { NSWorkspace.shared.open(StartView.privacyPane) }
+    /// Files & Folders, where a folder macOS is asking about is turned on.
+    static let privacyPane = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
+    /// Full Disk Access, where Ravenry is removed and added again when macOS stopped allowing it.
+    static let fullDiskPane = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+    /// Opens a pane of System Settings (a self-test records it, Outside.record).
+    var openPrivacy: (String) -> Void = { Outside.settings($0) }
 
     /// The access card (app.ts accessCard, deniedNote): what macOS asks and
     /// where to answer it, or the folders it refused; nil when neither.
@@ -622,13 +626,19 @@ final class StartView: MiddleView {
         let refused = denied
         guard asking != nil || !refused.isEmpty else { return nil }
         var col: [NSView] = []
+        // macOS's question first (its dialog is up), then the folders it refused or checks file by file
+        // (a Full Disk Access entry gone stale after an update): those need the entry made again.
+        let pane: String
         if let w = asking {
             col.append(wrap(t("start.askingT", ["folder": w]), Fonts.pt(13.5, Fonts.w650), "tx"))
             col.append(wrap(t("start.askingS", ["folder": w]), Fonts.pt(12.5), "tx2"))
+            pane = StartView.privacyPane
         } else {
-            col.append(wrap(t("start.denied", ["folders": refused.joined(separator: ", ")]), Fonts.pt(12.5), "tx2"))
+            col.append(wrap(t("start.deniedT", ["folders": refused.joined(separator: ", ")]), Fonts.pt(13.5, Fonts.w650), "tx"))
+            col.append(wrap(t("start.denied"), Fonts.pt(12.5), "tx2"))
+            pane = StartView.fullDiskPane
         }
-        let open = RButton(t("start.openPrivacy"), .normal) { [weak self] in self?.openPrivacy() }
+        let open = RButton(t(asking != nil ? "start.openPrivacy" : "start.openFullDisk"), .normal) { [weak self] in self?.openPrivacy(pane) }
         controls["openPrivacy"] = open
         col.append(hstack([open, spring()], spacing: 0))
         let icon = Icon("lock", "you", size: 15)

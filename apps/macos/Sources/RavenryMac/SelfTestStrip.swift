@@ -539,18 +539,25 @@ extension SelfTestBoard {
         pictures("start-local")
         // The access card while macOS asks, with Open Files & Folders.
         st.testWaiting = "~/Documents"
-        var opened = 0
-        st.openPrivacy = { opened += 1 }
+        var opened: [String] = []
+        st.openPrivacy = { opened.append($0) }
         st.show(folder: st.folder)
         check("local_access_card", st.controls["access"] != nil && shows(st, "macOS is asking whether Ravenry may read ~/Documents. Click Allow in the dialog.")
-              && shows(st, "Privacy & Security > Files & Folders"), texts(st).prefix(10).joined(separator: " | "))
+              && shows(st, "Privacy & Security > Files & Folders") && (st.controls["openPrivacy"] as? RButton)?.title == "Open Files & Folders", texts(st).prefix(10).joined(separator: " | "))
         pictures("start-access")
         if let b = st.controls["openPrivacy"] { click(b) }
-        check("local_open_privacy", opened == 1)
+        check("local_open_privacy", opened == ["x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"], "\(opened)")
+        // Refused, or the grant gone stale after an update (the hub's denied and slow): remove Ravenry from
+        // Full Disk Access and add it again, with a button to that pane.
         st.testWaiting = nil
         st.testDenied = ["~/Desktop"]
         st.show(folder: st.folder)
-        check("local_denied_note", shows(st, "macOS did not let Ravenry read ~/Desktop."))
+        check("local_denied_note", shows(st, "Ravenry can't read ~/Desktop.")
+              && shows(st, "In System Settings > Privacy & Security > Full Disk Access, select Ravenry, remove it with \u{2212}, then add it again with +.")
+              && (st.controls["openPrivacy"] as? RButton)?.title == "Open Full Disk Access", texts(st).prefix(10).joined(separator: " | "))
+        pictures("start-access-refused")
+        if let b = st.controls["openPrivacy"] { click(b) }
+        check("local_open_full_disk", opened.last == "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles", "\(opened)")
         st.testDenied = nil
         st.show(folder: st.folder)
         check("local_no_card", st.controls["access"] == nil)

@@ -50,8 +50,12 @@ struct SideProject {
     let id: String, name: String, machine: String?
     let timeAt: String?, timeStyle: String
     let rows: [SideRow]
+    /// Its folder is in one macOS has not let the board read (hub/server/access.mjs): "waiting", "denied" or "slow", and that folder ("~/Documents").
+    let access: (state: String, folder: String)?
     init(_ d: [String: Any]) {
         id = d["id"] as? String ?? ""; name = d["name"] as? String ?? ""; machine = d["machine"] as? String
+        let a = d["access"] as? [String: Any]
+        access = (a?["state"] as? String).map { ($0, a?["folder"] as? String ?? "") }
         let t = d["time"] as? [String: Any] ?? [:]
         timeAt = t["at"] as? String; timeStyle = t["style"] as? String ?? "ago"
         rows = (d["rows"] as? [[String: Any]] ?? []).map(SideRow.init)
@@ -304,6 +308,8 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     private(set) var starting = false
     /// What macOS calls that folder in System Settings ("Documents"), the hub's `folder`.
     private(set) var waitingFolder: String?
+    /// That folder's absolute path (the hub's `path`), for the app to ask macOS itself (AccessAsk.swift).
+    private(set) var waitingPath: String?
     var onState: ((HubState) -> Void)?
     var onStatus: ((Bool) -> Void)?
     /// A Mac notification the hub asks this app to post (event: notify, on the app's stream ?app=1).
@@ -652,19 +658,20 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         let ok = code == 200
         if ok { retry = 1; setReachable(true) }
-        if ok, waitingFor != nil { waitingFor = nil; waitingFolder = nil; DispatchQueue.main.async { self.onStatus?(true) } }
+        if ok, waitingFor != nil { waitingFor = nil; waitingFolder = nil; waitingPath = nil; DispatchQueue.main.async { self.onStatus?(true) } }
         // Starting: macOS may be asking whether Ravenry may read a folder;
         // every route says which until the person answers.
         if code == 503, let b = base {
             URLSession.shared.dataTask(with: b.appendingPathComponent("api/state")) { [weak self] d, _, _ in
                 guard let self, let d, let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return }
-                let w = j["waitingFor"] as? String, f = j["folder"] as? String
+                let w = j["waitingFor"] as? String, f = j["folder"] as? String, p = j["path"] as? String
                 let st = j["starting"] as? Bool == true
                 DispatchQueue.main.async {
-                    guard w != self.waitingFor || f != self.waitingFolder || st != self.starting else { return }
+                    guard w != self.waitingFor || f != self.waitingFolder || st != self.starting || p != self.waitingPath else { return }
                     self.starting = st
                     self.waitingFor = w
                     self.waitingFolder = f
+                    self.waitingPath = p
                     self.onStatus?(self.reachable)
                 }
             }.resume()
@@ -703,8 +710,16 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             if let f = testPatch { full = f(full) }
             // The hub's state before its first read of the board: generatedAt null, error "starting".
             let starting = (j["generatedAt"] == nil || j["generatedAt"] is NSNull) && (j["starting"] as? Bool == true || j["error"] as? String == "starting")
+            // Past its first state the hub serves without a folder macOS has not answered for
+            // (hub/server/access.mjs): the state's access.waiting names it, as the 503 did.
+            let aw = starting ? nil : ((full["access"] as? [String: Any])?["waiting"] as? [String: Any])
             DispatchQueue.main.async {
                 self.starting = starting
+                if !starting {
+                    self.waitingFor = aw?["folder"] as? String
+                    self.waitingFolder = aw?["name"] as? String
+                    self.waitingPath = aw?["path"] as? String
+                }
                 self.hubRaw = full
                 let st = HubState(self.withLocal(full))
                 self.state = st

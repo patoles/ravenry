@@ -187,8 +187,10 @@ final class SidebarView: Flipped {
     var waitingFolder: String?
     /// The self-test's stand-in for both, as the hub's 503 says them.
     var testWaiting: (folder: String, name: String?)?
-    /// The pane of System Settings the note's button opens.
+    /// The pane of System Settings the note's button opens: Files & Folders while macOS asks,
+    /// Full Disk Access once it refused (or a stale entry), where Ravenry is removed and added again.
     static let privacyPane = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
+    static let fullDiskPane = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
 
     /// A folder path that wraps as one word: a word joiner after each
     /// slash, so a narrow sidebar never breaks "~/Documents" after "~/".
@@ -204,7 +206,9 @@ final class SidebarView: Flipped {
         let sections = state?.sections ?? []
         uses = [:]
         for s in sections { for p in s.projects { for r in p.rows { if let u = useLine?(r.key) { uses[r.key] = u } } } }
-        let denied = (((state?.raw["access"] as? [String: Any])?["denied"] as? [[String: Any]]) ?? []).compactMap { $0["folder"] as? String }
+        let acc = state?.raw["access"] as? [String: Any]
+        // Refused, or allowed but checked file by file (a Full Disk Access entry gone stale after an update).
+        let denied = (((acc?["denied"] as? [[String: Any]]) ?? []) + ((acc?["slow"] as? [[String: Any]]) ?? [])).compactMap { $0["folder"] as? String }
         let asking = testWaiting ?? waitingFor.map { (folder: $0, name: waitingFolder) }
         // Idle folded: the idle project in front, the one line it keeps (a tab switch to it draws again).
         idleAlone = sections.allSatisfy { $0.group == "idle" }
@@ -234,9 +238,16 @@ final class SidebarView: Flipped {
             noteButton = b
             setNote([noteText, hstack([b, spring()], spacing: 0)])
         } else if !sections.isEmpty, !denied.isEmpty {
-            noteText.stringValue = t("side.accessDenied", ["folders": denied.map(SidebarView.unbroken).joined(separator: ", ")])
-            noteText.textColor = Design.color("you")
-            setNote([noteText])
+            // The same words as the Start card: the folders in bold, then what to do in Settings.
+            let s = NSMutableAttributedString(string: t("start.deniedT", ["folders": denied.map(SidebarView.unbroken).joined(separator: ", ")]), attributes: [.font: Fonts.pt(12, Fonts.w650), .foregroundColor: Design.color("you")])
+            s.append(NSAttributedString(string: " " + t("start.denied"), attributes: [.font: Fonts.pt(12), .foregroundColor: Design.color("you")]))
+            let p = NSMutableParagraphStyle(); p.lineBreakMode = .byWordWrapping; p.lineHeightMultiple = 1.15
+            s.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: s.length))
+            noteText.attributedStringValue = s
+            let b = RButton(t("start.openFullDisk"), .link) { Outside.settings(SidebarView.fullDiskPane) }
+            b.titleColor = "you"
+            noteButton = b
+            setNote([noteText, hstack([b, spring()], spacing: 0)])
         } else { note.isHidden = true }
         // The mix bar: each state's share of the rows.
         mixCounts = ["you", "work", "wait", "idle"].compactMap { g in (state?.counts[g] ?? 0) > 0 ? (g, state!.counts[g]!) : nil }
@@ -336,6 +347,18 @@ final class SidebarView: Flipped {
         return s
     }
 
+    /// A project whose folder macOS has not let the board read (hub/server/access.mjs): a lock, its words in the tip.
+    private func accessTag(_ a: (state: String, folder: String)?) -> NSView? {
+        guard let a else { return nil }
+        let i = Icon("lock", "you", size: 12)
+        let tip = t(a.state == "waiting" ? "side.accessProject" : "side.accessProjectDenied", ["folder": a.folder])
+        i.toolTip = tip
+        i.setAccessibilityLabel(tip)
+        i.setContentCompressionResistancePriority(.required, for: .horizontal)
+        i.setContentHuggingPriority(.required, for: .horizontal)
+        return i
+    }
+
     /// Every section is Idle: it shows open, with no chevron (the sidebar is never empty).
     private var idleAlone = false
     /// The project the tab in front belongs to (its page, or one of its sessions).
@@ -393,7 +416,7 @@ final class SidebarView: Flipped {
                 let idle = s.group == "idle"
                 let r = Row()
                 r.key = pk
-                let line = hstack([yields(label(p.name, idle ? Fonts.pt(12.5) : Fonts.pt(13, Fonts.w650), idle ? "tx2" : "tx"), fill: false), machineTag(p.machine), spring(),
+                let line = hstack([yields(label(p.name, idle ? Fonts.pt(12.5) : Fonts.pt(13, Fonts.w650), idle ? "tx2" : "tx"), fill: false), machineTag(p.machine), accessTag(p.access), spring(),
                                    fixedLabel(timeText(p), Fonts.pt(12.5).withTabularDigits, "tx3")], spacing: 8, insets: NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10))
                 r.addSubview(line)
                 pinEdges(line, r)
@@ -405,7 +428,7 @@ final class SidebarView: Flipped {
                 items.append(r)
                 continue
             }
-            items.append(hstack([yields(label(p.name, Fonts.pt(13, Fonts.w650)), fill: false), machineTag(p.machine), spring(), fixedLabel(timeText(p), Fonts.pt(13).withTabularDigits, "tx3")],
+            items.append(hstack([yields(label(p.name, Fonts.pt(13, Fonts.w650)), fill: false), machineTag(p.machine), accessTag(p.access), spring(), fixedLabel(timeText(p), Fonts.pt(13).withTabularDigits, "tx3")],
                                 spacing: 8, insets: NSEdgeInsets(top: 6, left: 10, bottom: 2, right: 10)))
             for r in p.rows {
                 items.append(sessionRow(r, selected: front == r.key, pinned: pinned.contains(r.key)))

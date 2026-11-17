@@ -74,6 +74,8 @@ export const ROUTES = [
   { m: 'POST', p: '/api/decisions/undo', c: P, what: 'undo a decision', why: 'Taking a decision back is the person\'s call; an agent would undo the person\'s words.' },
   { m: 'POST', p: '/api/decisions/edit', c: P, what: 'edit a decision', why: 'Rewriting a decision changes what every agent follows.' },
   { m: 'POST', p: '/api/decisions/remove', c: P, what: 'remove a decision', why: 'Taking a decision off the record changes what every agent follows.' },
+  // macOS's privacy answers (server/access.mjs)
+  { m: 'POST', p: '/api/access/retry', c: O, why: 'It asks macOS again whether the board may read the folders it has no answer for; it changes nothing and asks the person nothing (the app sends it after asking macOS itself).' },
   // Checkpoints and plans
   { m: 'POST', p: '/api/checkpoints/words', c: O, why: 'It words the checkpoints the caller sends (server/cpwords.mjs) and changes nothing; an answer\'s secret is never read.' },
   { m: 'POST', p: '/api/checkpoints/answer', c: P, what: 'answer a checkpoint', why: 'Answering a checkpoint is the person\'s answer to an agent.', strict: true },

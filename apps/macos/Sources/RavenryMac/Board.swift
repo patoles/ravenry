@@ -268,6 +268,8 @@ final class Board: NSObject {
         followNpm()
         hub.onState = { [weak self] st in self?.onState(st) }
         hub.onStatus = { [weak self] _ in self?.render() }
+        // Back in front: a folder macOS has not answered for is asked about now (AccessAsk.swift).
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.askForFolders(self?.hub.state) }
         ws.onFront = { [weak self] in
             guard let self else { return }
             // A tab came to the front (a click on the strip, a shortcut): the middle is its terminal.
@@ -1587,6 +1589,12 @@ final class Board: NSObject {
         }
     }
 
+    /// The folders the hub has no answer for (state.access.blocked, its 503's path), asked of macOS by this app, then the hub asks again.
+    func askForFolders(_ st: HubState?) {
+        let want = AccessAsk.wanted(st?.raw["access"] as? [String: Any], waitingPath: hub.waitingPath)
+        AccessAsk.ask(want, window: ws.window) { [weak self] in self?.hub.post("/api/access/retry", [:]) { _, _ in } }
+    }
+
     func render(force: Bool = false) {
         let st = hub.state
         // A pane a move or Continue started, once this window has it.
@@ -1652,6 +1660,8 @@ final class Board: NSObject {
         sidebar.waitingFor = hub.waitingFor
         sidebar.starting = hub.starting
         sidebar.waitingFolder = hub.waitingFolder
+        // A folder the hub has no answer for, or was refused: this app asks macOS itself, in front (AccessAsk.swift).
+        askForFolders(st)
         sidebar.newButton.on = front == .start
         sidebar.hasTabs = !ws.tabs.isEmpty
         if !sideHidden { sidebar.update(state: st, reachable: hub.reachable, front: fk, pinned: Set(pinned), page: page, alerts: (st?.counts["you"] ?? 0) > 0) }

@@ -16,6 +16,8 @@
 //         id, name,                 // the project (its id in state.projects)
 //         machine: string | null,   // a remote machine's name, null here
 //         time: { at: ISO | null, style: 'clock' | 'ago' },
+//         access?: { state: 'waiting' | 'denied' | 'slow', folder, name },  // only while
+//                                   // macOS has not let the board read its folder
 //         rows: [{                  // empty: the project is one line
 //           key,                    // "<project id>/<surfaceId>"
 //           surfaceId, name,
@@ -188,6 +190,8 @@ export function build(projects, { threshold = 50, marks = new Map(), now = Date.
         ? { at: new Date(first).toISOString(), style: 'clock' }
         : { at: p.since || null, style: p.state === 'you' || p.state === 'wait' ? 'clock' : 'ago' };
       const pr = { id: p.id, name: p.name, machine: machineOf(p), time, rows: sessions.map((s) => row(p, s, threshold, markOf(s))) };
+      // A project whose folder macOS has not let the board read: { state, folder, name } (server/access.mjs).
+      if (p.access) pr.access = p.access;
       since.set(pr, first !== undefined ? first : p.since ? Date.parse(p.since) : now);
       by.set(k, [...(by.get(k) || []), pr]);
     };

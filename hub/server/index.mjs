@@ -8,6 +8,9 @@
 // new version's first 90 s), so it covers every module's own loading too.
 import { t as word } from './strings.mjs';
 import * as startlog from './startlog.mjs';
+// Before any other module of the hub loads: nothing reads a protected
+// folder macOS has not let the board read (server/access.mjs guard).
+import './accessguard.mjs';
 import * as slice from './slice.mjs';
 import http from 'node:http';
 import zlib from 'node:zlib';
@@ -36,7 +39,7 @@ import * as repeats from './repeats.mjs';
 import * as rulefiles from './rulefiles.mjs';
 import { shipView } from './ship.mjs';
 import { plansFor, onGitAnswer } from './plans.mjs';
-import { ownerOf, repoRoot, isBroadFolder, onFolderScan } from './folders.mjs';
+import { ownerOf, repoRoot, isBroadFolder, onFolderScan, forgetRoots } from './folders.mjs';
 import * as events from './events.mjs';
 import * as sess from './sessions.mjs';
 import * as phone from './phone.mjs';
@@ -1057,6 +1060,9 @@ function buildProject(project, wsById, hooks, settings, now) {
     planPages: planPages(shownPlan, brief ? brief.plan : []),
     planDraft: (() => { try { const d = planner.get(project.id); return d ? { busy: !!d.busy, steps: d.steps.length } : null; } catch { return null; } })(),
     folder: project.folder, folderShort: homes.sayFolder(project.folder, where), shared,
+    // Its folder is in one macOS has not let the board read (yet): its brief,
+    // plan and pictures wait for that (server/access.mjs); { state, folder, name }.
+    access: where || !project.folder ? null : access.folderView(project.folder, homes.sayLocal),
     waitingOn, flags,
     line: words.line, headline: words.headline, quick: words.quick, question: words.question, dialog: words.dialog || null, draft: words.draft || null,
     brief: brief ? { path: homes.sayFolder(brief.path, where), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, nextParts: nextParts(brief.next), notes: brief.notes, pictures: brief.pictures, gallery: pictures.galleryList(brief.pictures), parked: brief.parked, rules: brief.rules, ship: brief.ship, waitingOn: brief.waitingOn } : null,
@@ -1218,7 +1224,11 @@ function accessFolders() {
   if (!reg) return [];
   return [...reg.projects.filter((p) => !p.hidden && !p.machine).map((p) => p.folder), reg.settings && reg.settings.projectsRoot].filter(Boolean);
 }
-access.onChange(() => { wantTick = true; setTimeout(tick, 10); });
+// An answer came (or changed): what was read without the folder is read
+// again (the work folders' cache said "no repo" for paths it could not
+// look at), the gates are adopted once every folder may be read, and the
+// board ticks again.
+access.onChange(() => { forgetRoots(); wantTick = true; setTimeout(tick, 10); if (seedLater && !access.anyWaiting()) { seedLater = false; seedRepeats(); } });
 
 // The hub's record of plan gates starts from what the briefs say once, the
 // first time there is none (server/gates.mjs adopt): at the first tick that
@@ -1231,14 +1241,16 @@ function adoptGates() {
   } catch (e) { console.error('plan gates:', e.message); }
 }
 
-// While macOS has not said whether the board may read a protected folder,
-// every request is answered at once with 503 and the folder, never held:
-// a handler would read a project's file and wait with it.
+// Before the first state, while macOS has not said within the grace
+// (access.GRACE_MS, 3 s) whether the board may read a protected folder,
+// every request is answered at once with 503 and the folder, never held.
+// After it the board serves without that folder (server/access.mjs guard):
+// nothing ever waits on it.
 function accessWait(req, res, url) {
-  const w = access.pending();
+  const w = !snapshot.generatedAt && access.asking();
   if (!w) return false;
   const words = access.waitingWords(w, homes.sayLocal);
-  const body = { starting: true, waitingFor: homes.sayLocal(w), folder: access.label(w), error: words };
+  const body = { starting: true, waitingFor: homes.sayLocal(w), folder: access.label(w), path: w, settings: access.SETTINGS_FILES, error: words };
   const page = req.method === 'GET' && !url.pathname.startsWith('/api/') && (url.pathname === '/' || url.pathname.endsWith('.html'));
   if (page) {
     res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '2' });
@@ -1258,10 +1270,15 @@ async function tick() {
     tickNo++;
     tp.mark('registry');
     reloadRegistry();
-    // Nothing of the projects' folders is read until macOS lets the board
-    // read the protected folders they are in (server/access.mjs).
-    if (access.waitFor(accessFolders())) return;
-    if (!gatesAdopted) { gatesAdopted = true; adoptGates(); }
+    // The protected folders the projects are in are asked for, off the main
+    // thread (server/access.mjs). The first state waits for their answer up
+    // to the grace (3 s), never longer: past it the board is built without
+    // a folder not answered (the guard fails its reads at once) and the
+    // answer, when it comes, ticks again.
+    access.ask(accessFolders());
+    if (!snapshot.generatedAt && access.asking()) { setTimeout(() => { wantTick = true; void tick(); }, access.GRACE_MS + 50).unref(); return; }
+    // The plan gates start from the briefs once: only when every folder has its answer.
+    if (!gatesAdopted && !access.anyWaiting()) { gatesAdopted = true; adoptGates(); }
     const now = Date.now();
     // Without cmux the board still shows what the hook events say.
     let workspaces = [];
@@ -3313,7 +3330,8 @@ const alertsQr = (link) => phone.qrSvg(link, 156, 'QR code that subscribes the n
 const iphoneQr = (link) => phone.qrSvg(link, 156, 'QR code that opens Alerts on this iPhone in Safari');
 
 function shipProjects() {
-  return reg.projects.filter((p) => !p.hidden).map((p) => ({ ...p, state: (snapshot.projects.find((x) => x.id === p.id) || {}).state || null }));
+  // A project in a folder macOS has not let the board read is left out until it may (server/access.mjs).
+  return reg.projects.filter((p) => !p.hidden && !(p.folder && access.blockedRoot(p.folder))).map((p) => ({ ...p, state: (snapshot.projects.find((x) => x.id === p.id) || {}).state || null }));
 }
 
 async function refreshShip() {
@@ -4319,6 +4337,10 @@ async function handleRequest(req, res) {
     }
     if (req.method === 'POST' && p.startsWith('/api/')) {
       if (!allowedWrite(req)) return sendJson(res, 403, { error: 'Writes are only accepted from the board itself.' });
+      // The app asked macOS for a folder itself, or the person changed
+      // System Settings: every folder not allowed is asked again now
+      // (server/access.mjs). Asks nothing of the person.
+      if (p === '/api/access/retry') return sendJson(res, 200, { ok: true, asked: access.retry().map(homes.sayLocal) });
       // A person's decision (server/person.mjs ROUTES, docs/PERSON.md):
       // never from a program inside a pane or in an ssh session.
       if (await refusedAsPerson(req, res, p)) return;
@@ -4800,7 +4822,14 @@ setTimeout(() => void startlog.step('ship', () => refreshShip()), 3000);
 setInterval(refreshShip, 30000);
 // The repeats detector (server/repeats.mjs): daily, and at start when the
 // last run is older than a day. The real board seeds itself at start.
-if (cfg().repeatsAuto) setTimeout(() => (access.pending() ? Promise.resolve() : repeats.ensureSeed(cfg())).then(() => { wantTick = true; }).catch((e) => console.error('repeats seed:', e.message)), 5000);
+// Only once every protected folder has its answer: a seed made while one
+// is still asked would miss its projects' rules for a day.
+let seedLater = false;
+function seedRepeats() {
+  if (access.anyWaiting()) { seedLater = true; return; }
+  repeats.ensureSeed(cfg()).then(() => { wantTick = true; }).catch((e) => console.error('repeats seed:', e.message));
+}
+if (cfg().repeatsAuto) setTimeout(seedRepeats, 5000);
 repeats.schedule(cfg);
 
 // cmux events only make the next refresh come sooner.
