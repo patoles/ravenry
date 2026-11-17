@@ -23,6 +23,7 @@
 //     [--attach-mb N] (test9h: a file of N MB attached too)
 //     [--board-swap] (test9e: a copy of the hub, its board files swapped as an update of the Mac does)
 //     PICKVIDEO_CLIP, PICKVIDEO_CLIP2: the videos of test9d's pick (else made here with ffmpeg)
+//     PICKVIDEO_CANT=1: those clips are ones the simulator cannot decode (test9i: the stills that say so)
 //
 // Pictures go to <out>/shots, the app's log and the marks to <out>.
 import crypto from 'node:crypto';
@@ -148,14 +149,18 @@ const cardsOpened = new Map();
 // PICKVIDEO_CLIP or made here), a page that holds it as a data: URI (B), a
 // picture (C), a second video (D, PICKVIDEO_CLIP2 or made here).
 const VDIR = path.join(OUT, `videos-${THEME}`);
+// A clip given keeps its own type (.webm, .mov): the variant and the page's data: URI say it.
+const VEXT = (src) => (src ? path.extname(src).toLowerCase() : '.mp4');
+const VA = `a${VEXT(process.env.PICKVIDEO_CLIP)}`, VD = `d${VEXT(process.env.PICKVIDEO_CLIP2)}`;
+const VMIME = { '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.mov': 'video/quicktime', '.webm': 'video/webm' };
 function videoFiles() {
-  if (fs.existsSync(path.join(VDIR, 'd.mp4'))) return VDIR;
+  if (fs.existsSync(path.join(VDIR, VD))) return VDIR;
   fs.mkdirSync(VDIR, { recursive: true });
   const ff = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((f) => fs.existsSync(f)) || 'ffmpeg';
   const made = (name, src) => { const f = path.join(VDIR, name); if (src) fs.copyFileSync(src, f); else execFileSync(ff, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=6', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-y', f]); return f; };
-  const a = made('a.mp4', process.env.PICKVIDEO_CLIP || '');
-  made('d.mp4', process.env.PICKVIDEO_CLIP2 || '');
-  fs.writeFileSync(path.join(VDIR, 'b.html'), `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000"><video src="data:video/mp4;base64,${fs.readFileSync(a).toString('base64')}" controls autoplay muted loop playsinline style="width:100%"></video></body></html>`);
+  const a = made(VA, process.env.PICKVIDEO_CLIP || '');
+  made(VD, process.env.PICKVIDEO_CLIP2 || '');
+  fs.writeFileSync(path.join(VDIR, 'b.html'), `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000"><video src="data:${VMIME[path.extname(a)] || 'video/mp4'};base64,${fs.readFileSync(a).toString('base64')}" controls autoplay muted loop playsinline style="width:100%"></video></body></html>`);
   fs.copyFileSync(path.join(PICTURE, fs.readdirSync(PICTURE).find((x) => /\.png$/i.test(x))), path.join(VDIR, 'c.png'));
   return VDIR;
 }
@@ -165,7 +170,7 @@ async function openLooseVideoPick(c) {
   fs.mkdirSync(scratch, { recursive: true });
   const pane = execFileSync(BIN, ['new', '--cwd', scratch, '--name', c.name || 'Video test', '--', '/bin/sh', '-c', 'exec sleep 100000'], { env: demoEnv, encoding: 'utf8' }).trim().split(/\s+/)[0];
   // test9f: two videos alone (the 30 s and 15 s cuts on the person's iPad, PICKVIDEO_CLIP and PICKVIDEO_CLIP2).
-  const vs = c.two ? [['30s', 'a.mp4'], ['15s', 'd.mp4']] : [['Take one', 'a.mp4'], ['Take two', 'b.html'], ['Still', 'c.png'], ['Take three', 'd.mp4']];
+  const vs = c.two ? [['30s', VA], ['15s', VD]] : [['Take one', VA], ['Take two', 'b.html'], ['Still', 'c.png'], ['Take three', VD]];
   const id = execFileSync(BIN, ['pick', c.title || 'Which take should I keep?', ...vs.flatMap(([l, f]) => ['--variant', `${l}=${path.join(dir, f)}`]), '--no-wait', '--timeout', '30m'], { env: { ...demoEnv, RAVENRY_PANE: pane }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   // The hub keeps the copies and names the pane; then the agent's files go (its copies are the only source).
   for (let i = 0; i < 100; i++) { const x = ((await mac('GET', '/api/checkpoints')).body.checkpoints || []).find((y) => y.id === id); if (x && x.paneName && x.pick_record && x.pick_record.variants.every((v) => v.kept) && x.variants[1].video) break; await sleep(300); }
@@ -295,6 +300,8 @@ const runEnv = {
   TEST_RUNNER_RAVENRY_PRIVACY_URL: JSON.parse(fs.readFileSync(path.join(REPO, 'shared', 'strings', 'en.json'), 'utf8'))['privacy.url'],
   // test9e: the board files of an older and a newer Mac (folders swapped over the test hub's, a --hub copy).
   TEST_RUNNER_RAVENRY_BOARD_OLD: SWAP.old || '', TEST_RUNNER_RAVENRY_BOARD_NEW: SWAP.new || '',
+  // test9i: PICKVIDEO_CANT=1, the clips are ones this simulator cannot decode (VP9, AV1): the stills that say so.
+  TEST_RUNNER_RAVENRY_PICKVIDEO_CANT: process.env.PICKVIDEO_CANT ? '1' : '',
 };
 const DD = path.join(IOS, 'build', 'DerivedData');
 async function xcodebuild(scheme, label) {

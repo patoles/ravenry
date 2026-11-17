@@ -763,10 +763,11 @@ final class FlowTests: XCTestCase {
         _ = js("const vis = (x) => !!x && x.getClientRects().length > 0; const r = document.querySelector('#list .row[data-id=\"cp:\(id)\"]'), c = document.querySelector('#pchips .pchip[data-id=\"cp:\(id)\"]'); const e = vis(r) ? r : c; if (e) e.click(); return !!e;")
         let compare = until(15) { self.js("const b = document.querySelector('[data-act=\"cp-open\"][data-cp=\"\(id)\"]'); if (!b || !b.getClientRects().length) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true;") == "true" }
         XCTAssertTrue(compare, "its page shows the card, with Compare")
-        // The pick's screen: each video's first frame (a picture drawn once, no player of its own).
+        // The pick's screen: each video's first frame (a picture drawn once, or the canvas it was drawn on when the
+        // page may not read it: WebM through the app's shell, no player of its own).
         var first: [[String: Any]] = []
         let frames = until(40) {
-            let s = self.js("return [...document.querySelectorAll('.ptrack .pimg')].filter((x) => x.querySelector('.pk-play')).map((x) => { const i = x.querySelector('img'); return { video: !!x.querySelector('video'), w: i && i.complete ? i.naturalWidth : 0 }; });") ?? "[]"
+            let s = self.js("return [...document.querySelectorAll('.ptrack .pimg')].filter((x) => x.querySelector('.pk-play')).map((x) => { const i = x.querySelector('img'), c = x.querySelector('canvas[data-frame]'); return { video: !!x.querySelector('video'), w: c ? c.width : i && i.complete ? i.naturalWidth : 0 }; });") ?? "[]"
             first = (try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [[String: Any]]) ?? []
             return first.count == 3 && first.allSatisfy { ($0["video"] as? Bool) == false && ($0["w"] as? Int ?? 0) > 0 }
         }
@@ -800,6 +801,40 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(bs && (b1.first?["t"] as? Double ?? 0) > (b0.first?["t"] as? Double ?? 0) + 0.6, "B, the page's video, plays")
         a.terminate()
         if pad { rotate(.portrait) }
+    }
+
+    /// A pick whose videos this device cannot decode (test9i, PICKVIDEO_CANT=1 with a VP9 or AV1 clip: the iOS
+    /// simulator has neither decoder): the track and the viewer show the still that says "This video can't play
+    /// here", with no play mark and no player waiting, and the picture between them still shows.
+    func test9i_AVideoThatCannotPlayHere() throws {
+        if shotsOnly { return }
+        guard env["RAVENRY_PICKVIDEO_CANT"] == "1" else { throw XCTSkip("no clips this simulator cannot decode (PICKVIDEO_CANT=1)") }
+        continueAfterFailure = true
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board")
+        guard let id = newCard(["kind": "pickvideo", "name": "Video test"]) else { XCTFail("no card"); return }
+        _ = looseCardShown(id, "videos it cannot play")
+        _ = js("const vis = (x) => !!x && x.getClientRects().length > 0; const r = document.querySelector('#list .row[data-id=\"cp:\(id)\"]'), c = document.querySelector('#pchips .pchip[data-id=\"cp:\(id)\"]'); const e = vis(r) ? r : c; if (e) e.click(); return !!e;")
+        let compare = until(15) { self.js("const b = document.querySelector('[data-act=\"cp-open\"][data-cp=\"\(id)\"]'); if (!b || !b.getClientRects().length) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true;") == "true" }
+        XCTAssertTrue(compare, "its page shows the card, with Compare")
+        var track = ""
+        let stills = until(30) {
+            track = self.js("return [...document.querySelectorAll('.ptrack .pimg')].map((s) => { const c = s.querySelector('.pcant'); return c ? 'still: ' + c.textContent + (s.querySelector('.pk-play') ? ' +play' : '') : s.querySelector('img') ? 'picture' : 'none'; }).join(' | ');") ?? ""
+            return track.components(separatedBy: "still: This video can't play here").count == 4 && !track.contains("+play") && track.contains("picture")
+        }
+        mark("test9i track: \(track)")
+        XCTAssertTrue(stills, "the track: each video the still that says it can't play here, the picture as it is")
+        shot("pick-cant-track")
+        _ = js("const s = document.querySelector('.ptrack .pimg'); if (s) s.click(); return !!s;")
+        var view = ""
+        let viewer = until(15) {
+            view = self.js("const c = document.querySelector('.pzv-box .pcant'); return (c ? c.textContent : 'none') + ', players ' + document.querySelectorAll('video.pzv-vid').length;") ?? ""
+            return view.contains("This video can't play here, players 0")
+        }
+        mark("test9i viewer: \(view)")
+        XCTAssertTrue(viewer, "the viewer: the still, no player")
+        shot("pick-cant-viewer")
+        a.terminate()
     }
 
     /// A pick of two videos (test9f, as on the person's iPad on 2026-11-16: the 30 s and 15 s cuts): one plays at a

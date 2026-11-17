@@ -84,7 +84,9 @@ function gridPng(w, h, a, b) {
   ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
-const CLIP = path.join(WORK, 'take-one.mp4');
+// A clip given keeps its own type (.webm, .mov): the variant and the page's data: URI say it.
+const CLIP = path.join(WORK, `take-one${process.env.PICKVIDEO_CLIP ? path.extname(process.env.PICKVIDEO_CLIP).toLowerCase() : '.mp4'}`);
+const MIME = { '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.mov': 'video/quicktime', '.webm': 'video/webm' };
 if (process.env.PICKVIDEO_CLIP) fs.copyFileSync(process.env.PICKVIDEO_CLIP, CLIP);
 else {
   const ff = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((f) => fs.existsSync(f)) || 'ffmpeg';
@@ -92,7 +94,7 @@ else {
 }
 const VW = Number(execFileSync((['/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe'].find((f) => fs.existsSync(f)) || 'ffprobe'), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width', '-of', 'csv=p=0', CLIP], { encoding: 'utf8' }).trim());
 const PAGE = path.join(WORK, 'take-two.html');
-fs.writeFileSync(PAGE, `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#0d0f12;height:100%;display:flex;align-items:center;justify-content:center}video{max-width:100%;max-height:100vh}</style></head><body><video src="data:video/mp4;base64,${fs.readFileSync(CLIP).toString('base64')}" controls autoplay muted loop playsinline></video></body></html>`);
+fs.writeFileSync(PAGE, `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#0d0f12;height:100%;display:flex;align-items:center;justify-content:center}video{max-width:100%;max-height:100vh}</style></head><body><video src="data:${MIME[path.extname(CLIP)] || 'video/mp4'};base64,${fs.readFileSync(CLIP).toString('base64')}" controls autoplay muted loop playsinline></video></body></html>`);
 const PIC = path.join(WORK, 'still.png');
 fs.writeFileSync(PIC, gridPng(1280, 720, [70, 110, 170], [40, 60, 90]));
 const VARS = [['Take one', CLIP, 'The clip as it is.'], ['Take two', PAGE, 'The same clip in a page.'], ['Still', PIC, 'A picture, for once.']];
@@ -132,7 +134,8 @@ try {
   adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
   adb('shell', 'wm', 'dismiss-keyguard');
   adb('shell', 'settings', 'put', 'system', 'screen_off_timeout', '1800000');
-  adb('install', '-r', APK);
+  // A copy signed by another key (a release build on the image): taken off first, on this read-only emulator only.
+  try { adb('install', '-r', APK); } catch (x) { if (!/INSTALL_FAILED_UPDATE_INCOMPATIBLE/.test(String(x.stderr || x.message))) throw x; adb('uninstall', APP); adb('install', APK); }
   adb('shell', 'pm', 'clear', APP);
   adb('shell', 'pm', 'grant', APP, 'android.permission.POST_NOTIFICATIONS');
   adb('shell', 'cmd', 'uimode', 'night', 'yes');
@@ -204,7 +207,7 @@ try {
   // (pictures drawn once, with no player of their own: the pickvideo round's fourth part)
   const FRAME = `((b) => { const i = b && b.querySelector('img'); return b && !b.querySelector('video') && i && i.complete && i.naturalWidth ? { w: i.naturalWidth, h: i.naturalHeight, blob: /^blob:/.test(i.getAttribute('src') || '') } : null; })`;
   const track = await until(() => board(`(() => { const s = [...document.querySelectorAll('.ptrack .pimg')]; if (s.length !== 3) return null; const v = s.slice(0, 2).map((x) => ${FRAME}(x)); return v.every((x) => x && x.blob && x.w === ${VW}) ? v : null; })()`), 30000, 800);
-  check('android_track_first_frames', !!track, JSON.stringify(track || await board(`[...document.querySelectorAll('.ptrack .pimg')].map((x) => ${FRAME}(x))`)));
+  check('android_track_first_frames', !!track, JSON.stringify(track || await board(`[...document.querySelectorAll('.ptrack .pimg')].map((x) => ${FRAME}(x) || x.innerHTML.replace(/src="[^"]{60,}"/g, 'src=...').slice(0, 300))`)));
   await sleep(500);
   shot('android-swipe-dark.png');
   // A tap on A: the viewer, playing.
