@@ -3,9 +3,9 @@
 // pick` of a video (A), a page that holds a video as a data: URI (B), a
 // picture (C) and a second video (D), which the hub keeps and serves (the
 // agent's files are changed and removed once it has: its copies are the only
-// source). The card is built first from a copy with no `video` (a daemon's
-// own, which reaches the window before the hub's, as on 2026-11-16), then
-// the hub's; the fixture puts it on a demo session so the panel shows its card. Each check drives the control as the
+// source). The card is built first from the agent's daemon's own copy (no
+// `video`, no `videoType`: it reaches the window before the hub's, as on
+// 2026-11-16 and 2026-11-17), then the hub's; the fixture puts it on a demo session so the panel shows its card. Each check drives the control as the
 // person would and reads where it lands: the card's first frames, a click
 // that plays the video up close (the player's time moves on), the page's
 // video playing the same way, Circle a part stopping it on a frame, a ring
@@ -14,8 +14,11 @@
 
 import AppKit
 import AVFoundation
+import VideoToolbox
 
 extension SelfTestBoard {
+    /// The agents' daemon the card first reaches the window from (its own copy), by a name of the self-test's.
+    static let pvAgentsDaemon = "sidetest-agents-daemon"
     private func pvMouse(_ type: NSEvent.EventType, _ p: NSPoint) {
         if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                       context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { window.sendEvent(e) }
@@ -29,6 +32,8 @@ extension SelfTestBoard {
         guard let fx = ProcessInfo.processInfo.environment["RAVENRY_MAC_CARDS"], let d = try? Data(contentsOf: URL(fileURLWithPath: fx)),
               let cps = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]], let cp = cps.first, let id = cp["id"] as? String else { check("pv_fixture", false, "no RAVENRY_MAC_CARDS"); return }
         size(1280, 820)
+        // SIDETEST_PICK_MIX (sidetest.mjs): the card sent to the person's Mac, a VP9, a VP8 and an AV1 .webm.
+        if (cp["_want"] as? [String: Any])?["mix"] as? Bool == true { screenPickVideoMix(cp); return }
         board.hub.testCheckpoints = cps
         settle(0.5)
         let key = "\(cp["projectId"] as? String ?? "")/\(cp["surfaceId"] as? String ?? "")"
@@ -39,11 +44,17 @@ extension SelfTestBoard {
         let wantSizes = (cp["_want"] as? [String: Any])?["sizes"] as? [String] ?? ["640x360", "640x360"]
         check("pv_fixture", vs.count == 4 && vurl(0).hasSuffix("/variants/0") && vurl(1).hasSuffix("/variants/1?as=video") && vurl(2).isEmpty && vurl(3).hasSuffix("/variants/3"), vs.map { "\($0["type"] ?? "?") \($0["video"] ?? "-")" }.joined(separator: ", "))
 
-        // The card built from a copy with no `video` (a daemon's own, first in the window), then the hub's:
-        // each video's first frame with the play mark from the first copy on, the page's once the hub's came.
-        var first = cp
-        first["variants"] = vs.map { v -> [String: Any] in var x = v; x["video"] = nil; return x }
-        board.hub.testCheckpoints = [first]
+        // The card built from the agent's daemon's own copy (no `video`, no `videoType`: first in the window), then
+        // the hub's: each video's first frame with the play mark from the first copy on, the page's once the hub's came.
+        // (It reaches the window as a daemon's checkpoint does, worded by the window: Hub.daemonCheckpoint.)
+        if let own = cp["_daemon"] as? [String: Any] {
+            board.hub.testCheckpoints = []
+            board.hub.daemonCheckpoint(own, socket: Self.pvAgentsDaemon)
+        } else {
+            var first = cp
+            first["variants"] = vs.map { v -> [String: Any] in var x = v; x["video"] = nil; x["videoType"] = nil; return x }
+            board.hub.testCheckpoints = [first]
+        }
         settle(0.5)
         board.pickSession(key, why: "test")
         let card = { self.board.panel.shownCard }
@@ -52,8 +63,10 @@ extension SelfTestBoard {
         // SIDETEST_PICK_CANT (sidetest.mjs): videos this Mac cannot decode (AV1 on an M1): each shows the still that says so.
         let cantMode = (cp["_want"] as? [String: Any])?["cant"] as? Bool ?? false
         if cantMode { screenPickVideoCant(cp, card: card, vurl: vurl); return }
-        check("pv_card_from_daemon_copy", early && et.count == 4 && et[0].playMark && et[3].playMark && !et[2].playMark, "tiles \(et.map { $0.image.map { "\(Int($0.size.width))x\(Int($0.size.height))" } ?? "none" }) marks \(et.map { $0.playMark })")
+        check("pv_card_from_daemon_copy", early && et.count == 4 && et[0].playMark && et[3].playMark && !et[2].playMark, "tiles \(et.map { $0.image.map { "\(Int($0.size.width))x\(Int($0.size.height))" } ?? "none" }) marks \(et.map { $0.playMark }), \(cp["_daemon"] is [String: Any] ? "the daemon's own copy" : "a copy with no video and no videoType")")
         board.hub.testCheckpoints = cps
+        // The hub's copy alone from here (its answer goes to the hub).
+        board.hub.dropDaemon(Self.pvAgentsDaemon)
         settle(0.5)
         board.render(force: true)
         let tilesIn = wait(20) { card()?.kind == "pick" && card()?.tiles.count == 4 && card()?.tiles.allSatisfy { $0.image != nil } == true }
@@ -195,6 +208,93 @@ extension SelfTestBoard {
         check("pv_cant_page_video_still", wait(10) { pk.viewing == 1 && pl.cantPlay }, "viewing \(String(describing: pk.viewing)) cant \(pl.cantPlay)")
         pk.buttons["next"]?.performClick(nil)
         check("pv_cant_picture_shows", wait(5) { pk.viewing == 2 && pl.isHidden && !pk.zoom.isHidden })
+        board.hub.testCheckpoints = nil
+    }
+
+    /// The card sent to the person's Mac on 2026-11-17 (SIDETEST_PICK_MIX: A a VP9, B a VP8, C an AV1 .webm), as
+    /// it reaches the window: first the agent's daemon's own copy (no `video`, no `videoType`), then the hub's. Each
+    /// video this Mac decodes shows its first frame with the play mark and plays up close; one it cannot (AV1 with no
+    /// AV1 decoder) shows the still that says "This video can't play here" at once, and never takes another's place.
+    private func screenPickVideoMix(_ cp: [String: Any]) {
+        let pk = board.picker, pl = pk.video
+        let vs = cp["variants"] as? [[String: Any]] ?? []
+        let vurl = { (n: Int) in n < vs.count ? vs[n]["video"] as? String ?? "" : "" }
+        let codecs = vs.map { ($0["label"] as? String ?? "").lowercased() }
+        // What this Mac decodes: WebKit plays VP8 and VP9 itself; AV1 only with the chip's decoder.
+        let av1 = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
+        let want = codecs.map { $0 == "av1" ? av1 : $0 == "vp8" || $0 == "vp9" || $0 == "h264" }
+        let own = cp["_daemon"] as? [String: Any]
+        let ownTypes = ((own?["variants"] as? [[String: Any]]) ?? []).map { $0["videoType"] as? String ?? "none" }
+        check("pvm_fixture", vs.count == 3 && (0..<3).allSatisfy { vurl($0).hasSuffix("/variants/\($0)") } && own != nil,
+              "\(codecs) videos \((0..<vs.count).map(vurl)), the daemon's own copy \(own == nil ? "missing" : "with types \(ownTypes)"), AV1 decoder \(av1)")
+        guard let own else { return }
+        let key = "\(cp["projectId"] as? String ?? "")/\(cp["surfaceId"] as? String ?? "")"
+        board.hub.testCheckpoints = []
+        board.hub.daemonCheckpoint(own, socket: Self.pvAgentsDaemon)
+        settle(0.3)
+        board.pickSession(key, why: "test")
+        let card = { self.board.panel.shownCard }
+        let t0 = Date()
+        // Each tile settles: a first frame with the play mark, or the still with none.
+        let settled = { (n: Int) -> Bool in
+            guard let tl = card()?.tiles, tl.count == 3, tl[n].image != nil else { return false }
+            return PickVideos.shared.cant(vurl(n)) ? !tl[n].playMark : tl[n].playMark
+        }
+        var at = [Double?](repeating: nil, count: 3)
+        // As the person sees it 3 s after the card came (the day it was sent: B and C blank, a play mark on nothing).
+        _ = wait(3) {
+            for n in 0..<3 where at[n] == nil && settled(n) { at[n] = Date().timeIntervalSince(t0) }
+            return false
+        }
+        let early = (0..<3).map { n -> String in
+            guard let tl = card()?.tiles, n < tl.count else { return "\(codecs[n]) no tile" }
+            return "\(codecs[n]) \(tl[n].image == nil ? "blank" : PickVideos.shared.cant(vurl(n)) ? "still" : "frame")\(tl[n].playMark ? " with play mark" : "")"
+        }
+        pictures("pickvideo-mix-at-3s")
+        _ = wait(37) {
+            for n in 0..<3 where at[n] == nil && settled(n) { at[n] = Date().timeIntervalSince(t0) }
+            return at.allSatisfy { $0 != nil }
+        }
+        let tiles = card()?.tiles ?? []
+        let cant = (0..<3).map { PickVideos.shared.cant(vurl($0)) }
+        let shown = (0..<3).map { n -> String in
+            guard n < tiles.count, let i = tiles[n].image else { return "\(codecs[n]) blank" }
+            return "\(codecs[n]) \(cant[n] ? "still" : "frame") \(Int(i.size.width))x\(Int(i.size.height))\(tiles[n].playMark ? " with play mark" : "") at \(at[n].map { String(format: "%.1f s", $0) } ?? "never")"
+        }
+        check("pvm_card_from_daemon_copy", tiles.count == 3 && (0..<3).allSatisfy { at[$0] != nil && cant[$0] == !want[$0] }, shown.joined(separator: ", "))
+        // No tile is left blank: each first frame, and each still (its type refused at once), within 3 s.
+        check("pvm_no_blank_tile", (0..<3).allSatisfy { (at[$0] ?? 99) < 3 }, "at 3 s: \(early.joined(separator: ", "))")
+        pictures("pickvideo-mix-card")
+        // The hub's copy (its `video`, `videoType`): the tiles stay as they are.
+        board.hub.testCheckpoints = [cp]
+        board.hub.dropDaemon(Self.pvAgentsDaemon)
+        settle(0.5)
+        board.render(force: true)
+        _ = wait(5) { (0..<3).allSatisfy { settled($0) } }
+        let after = (0..<3).map { PickVideos.shared.cant(vurl($0)) }
+        check("pvm_hub_copy_keeps_tiles", after == cant && (0..<3).allSatisfy { settled($0) }, "cant \(after)")
+        // Up close: each one this Mac decodes plays (its time moves on), the other shows the still.
+        let open = card()?.tiles ?? []
+        if open.count == 3 { click(open[1]) }
+        _ = wait(6) { self.board.root.middle === pk && pk.viewing == 1 }
+        var seen: [String] = []
+        for n in [1, 0, 2] {
+            while let v = pk.viewing, v != n { pk.buttons[v < n ? "next" : "previous"]?.performClick(nil); settle(0.2); if pk.viewing == v { break } }
+            if want[n] {
+                _ = wait(12) { pk.viewing == n && pl.url == vurl(n) && pl.ready && pl.time > 0.05 }
+                let a = pl.time
+                settle(1.2)
+                let ok = pk.viewing == n && pl.url == vurl(n) && !pl.cantPlay && pl.playing && pl.time > a + 0.6
+                seen.append("\(codecs[n]) \(ok ? "plays" : "NO") (time \(String(format: "%.2f", a)) to \(String(format: "%.2f", pl.time)), cant \(pl.cantPlay), engine \(String(describing: pl.engine)))")
+                check("pvm_\(codecs[n])_plays", ok, seen.last ?? "")
+            } else {
+                let ok = wait(6) { pk.viewing == n && pl.cantPlay } && !pl.playing && pl.player == nil && pl.web?.isHidden != false
+                seen.append("\(codecs[n]) \(ok ? "still" : "NO") (cant \(pl.cantPlay), playing \(pl.playing))")
+                check("pvm_\(codecs[n])_still_up_close", ok, seen.last ?? "")
+                pictures("pickvideo-mix-cant")
+            }
+            if n == 1 { pictures("pickvideo-mix-vp8") }
+        }
         board.hub.testCheckpoints = nil
     }
 }

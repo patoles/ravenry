@@ -13,6 +13,18 @@
 // WebKit says it cannot play, an error, or no frame in 8 s) shows a still
 // that says "This video can't play here", never a blank or a spinner.
 //
+// The webm round's second part (2026-11-17, a VP9, a VP8 and an AV1 .webm
+// on an M1 Max): the card reaches the window first as a daemon's own copy,
+// with no `videoType`, so the AV1 was loaded instead of refused; its page,
+// in a window off every screen, stalled (WebKit holds a hidden page's
+// timers) until the 15 s give-up, and its late "cant" was taken as the next
+// video's answer (the VP8's): B and C blank for 15 s, then both stills. Now
+// each video's type is read from its own headers when the copy has none
+// (VideoHeaders, as the hub reads it), each first-frame page answers with
+// its own number and a late answer is dropped, and a page that stalls is
+// given up after 8 s by the app itself. Each one said cannot play is
+// written to app.log with why.
+//
 //   - small (the panel's card, side by side, the viewer's strip): its first
 //     frame, with a play mark (`frame`);
 //   - up close (the picker's viewer): it plays at once, muted and looping,
@@ -100,6 +112,20 @@ final class PickVideos {
     func cant(_ path: String) -> Bool { cantPlay.contains(path) }
     func markCant(_ path: String) { cantPlay.insert(path) }
     func engineNow(_ path: String) -> Engine? { engines[path] }
+    /// The type a player is asked about for the video at `path` (read into `file`): the hub's, else its headers'.
+    func type(_ path: String, _ file: URL) -> String? {
+        if let t = types[path] { return t }
+        let t = VideoHeaders.type(file)
+        if let t { types[path] = t }
+        return t
+    }
+    /// A video said here to be one this Mac cannot play, in app.log once with why.
+    func said(_ path: String, _ why: String) {
+        guard !logged.contains(path) else { return }
+        logged.insert(path)
+        AppLog.write("pick video: \(path) (\(types[path] ?? "type unknown")) can't play here: \(why)")
+    }
+    private var logged: Set<String> = []
     /// How the video at `path` (read into `file`) plays, worked out once: AVFoundation when it can play it.
     func engine(_ path: String, _ file: URL, _ done: @escaping (Engine) -> Void) {
         if let e = engines[path] { done(e); return }
@@ -159,8 +185,8 @@ final class PickVideos {
             for w in self.frameWaits.removeValue(forKey: path) ?? [] { w(img) }
         }
         let web = { (f: URL) in
-            WebFrames.shared.grab(f, type: self.types[path]) { img, size, cant in
-                if cant { self.cantPlay.insert(path); finish(cantPlayStill(size)) } else { finish(img) }
+            WebFrames.shared.grab(f, type: self.type(path, f)) { img, size, why in
+                if let why { self.cantPlay.insert(path); self.said(path, why); finish(cantPlayStill(size)) } else { finish(img) }
             }
         }
         let make = { (f: URL?) in
@@ -173,7 +199,7 @@ final class PickVideos {
                 g.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
                 g.generateCGImageAsynchronously(for: .zero) { cg, _, _ in
                     let img = cg.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
-                    DispatchQueue.main.async { if let img { finish(img) } else { self.cantPlay.insert(path); finish(cantPlayStill()) } }
+                    DispatchQueue.main.async { if let img { finish(img) } else { self.cantPlay.insert(path); self.said(path, "AVFoundation drew no first frame"); finish(cantPlayStill()) } }
                 }
             }
         }
@@ -198,12 +224,12 @@ private func playerPage(_ name: String, type: String?, frame: Bool, gen: Int) ->
     const v = document.getElementById('v'), T = \(js(type)), FRAME = \(frame ? "true" : "false"), G = \(gen);
     const say = (o) => window.webkit.messageHandlers.rv.postMessage({ ...o, g: G });
     let over = false;
-    const cant = () => { if (over) return; over = true; v.removeAttribute('src'); v.load(); say({ k: 'cant', w: v.videoWidth, h: v.videoHeight }); };
+    const cant = (r) => { if (over) return; over = true; const w = v.videoWidth, h = v.videoHeight; v.removeAttribute('src'); v.load(); say({ k: 'cant', r, w, h }); };
     const post = (k) => { if (!over) say({ k, t: v.currentTime, paused: v.paused, w: v.videoWidth, h: v.videoHeight, rs: v.readyState }); };
-    if (T && v.canPlayType(T) === '') cant();
+    if (T && v.canPlayType(T) === '') cant('WebKit cannot play ' + T);
     else {
-      v.addEventListener('error', cant);
-      setTimeout(() => { if (v.readyState < 2) cant(); }, 8000);
+      v.addEventListener('error', () => cant('the video said error ' + (v.error ? v.error.code : '?')));
+      setTimeout(() => { if (v.readyState < 2) cant('no frame in 8 s'); }, 8000);
       if (FRAME) {
         // The first frame, drawn once at the video's size.
         v.addEventListener('loadeddata', () => { v.currentTime = 0.001; }, { once: true });
@@ -248,15 +274,18 @@ private func videoWebView(_ on: @escaping ([String: Any]) -> Void) -> WKWebView 
 /// video only in a view in a window).
 final class WebFrames {
     static let shared = WebFrames()
-    private var queue: [(URL, String?, (NSImage?, CGSize, Bool) -> Void)] = []
+    private var queue: [(URL, String?, (NSImage?, CGSize, String?) -> Void)] = []
     private var busy = false
     private var web: WKWebView?
     private var host: NSWindow?
-    private var done: ((NSImage?, CGSize, Bool) -> Void)?
+    private var done: ((NSImage?, CGSize, String?) -> Void)?
+    /// The number of the page asked now: its answers say it, and a late answer of a page given up is dropped.
     private var gen = 0
+    /// How long a page is given before the app gives it up itself (a hidden page's own timers may not run).
+    static var giveUp: TimeInterval = 8
 
-    /// The first frame of the video in `file` (nil, its size and true: this Mac cannot play it), on the main thread.
-    func grab(_ file: URL, type: String?, _ out: @escaping (NSImage?, CGSize, Bool) -> Void) {
+    /// The first frame of the video in `file` (nil, its size and why: this Mac cannot play it), on the main thread.
+    func grab(_ file: URL, type: String?, _ out: @escaping (NSImage?, CGSize, String?) -> Void) {
         queue.append((file, type, out))
         next()
     }
@@ -279,32 +308,34 @@ final class WebFrames {
         }
         host?.orderFrontRegardless()
         var settled = false
-        done = { [weak self] img, size, cant in
+        done = { [weak self] img, size, why in
             guard let self, !settled else { return }
             settled = true
             self.done = nil
             self.gen += 1
-            out(img, size, cant)
+            out(img, size, why)
             self.web?.loadHTMLString("", baseURL: nil)
             self.busy = false
             if self.queue.isEmpty { self.host?.orderOut(nil) }
             self.next()
         }
-        // A page that never answers (no web content process): given up after 15 s as a video that cannot play here.
+        // A page that never answers (no web content process, its timers held while hidden): given up by the app.
         gen += 1
         let mine = gen
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in if let self, self.gen == mine { self.done?(nil, .zero, true) } }
-        loadPlayerPage(web!, file, type: type, frame: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.giveUp) { [weak self] in if let self, self.gen == mine { self.done?(nil, .zero, "no first frame in \(Int(Self.giveUp)) s") } }
+        loadPlayerPage(web!, file, type: type, frame: true, gen: mine)
     }
 
     private func got(_ m: [String: Any]) {
+        // Only the page asked now: one given up may still answer as it goes (that answer is not the next video's).
+        guard (m["g"] as? NSNumber)?.intValue == gen else { return }
         let size = CGSize(width: (m["w"] as? NSNumber)?.doubleValue ?? 0, height: (m["h"] as? NSNumber)?.doubleValue ?? 0)
         switch m["k"] as? String {
         case "frame":
             let img = (m["png"] as? String).flatMap { $0.split(separator: ",", maxSplits: 1).last }.flatMap { Data(base64Encoded: String($0)) }.flatMap { NSImage(data: $0) }
             img?.size = size
-            done?(img, size, img == nil)
-        case "cant": done?(nil, size, true)
+            done?(img, size, img == nil ? "its first frame could not be read" : nil)
+        case "cant": done?(nil, size, m["r"] as? String ?? "the page said so")
         default: break
         }
     }
@@ -424,7 +455,7 @@ final class PickPlayer: NSView {
         }
         webT = 0; webPaused = still; webReady = false; webAt = Date(); pendingSeek = nil
         web?.isHidden = false
-        loadPlayerPage(web!, file, type: PickVideos.shared.types[path], frame: false, gen: shown)
+        loadPlayerPage(web!, file, type: PickVideos.shared.type(path, file), frame: false, gen: shown)
         apply()
         needsLayout = true
     }
@@ -447,6 +478,7 @@ final class PickPlayer: NSView {
         let w = (m["w"] as? NSNumber)?.doubleValue ?? 0, h = (m["h"] as? NSNumber)?.doubleValue ?? 0
         if m["k"] as? String == "cant" {
             PickVideos.shared.markCant(url)
+            PickVideos.shared.said(url, m["r"] as? String ?? "the page said so")
             if w > 0, h > 0 { natural = CGSize(width: w, height: h) }
             showCant(url)
             return
@@ -539,5 +571,86 @@ final class PickPlayer: NSView {
         let ws = cantWords.sizeThatFits(NSSize(width: max(40, cantView.bounds.width - 40), height: .greatestFiniteMagnitude))
         cantWords.frame = NSRect(x: (cantView.bounds.width - ws.width) / 2, y: (cantView.bounds.height - ws.height) / 2, width: ws.width, height: ws.height)
         ring.frame = videoRect
+    }
+}
+
+/// The type a player is asked about (`canPlayType`) for the video in a file, from its own headers, as the
+/// hub's `videoType` is (hub/server/videocodec.mjs): a WebM's first video CodecID, an MP4's first video
+/// sample entry. Nil when neither says (a player is then asked to play it and tells).
+enum VideoHeaders {
+    static func type(_ file: URL) -> String? {
+        guard let h = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? h.close() }
+        guard let d = try? h.read(upToCount: 4 << 20), d.count >= 8 else { return nil }
+        let b = [UInt8](d)
+        let (codec, container): (String, String)
+        if b[0] == 0x1A, b[1] == 0x45, b[2] == 0xDF, b[3] == 0xA3 { (codec, container) = (ebml(b), "webm") }
+        else if ["ftyp", "moov", "mdat", "wide", "free", "skip"].contains(String(decoding: b[4..<8], as: UTF8.self)) { (codec, container) = (iso(b), "mp4") }
+        else { return nil }
+        let codecs: [String: [String: String]] = [
+            "webm": ["vp8": "vp8", "vp9": "vp9", "av1": "av01.0.05M.08", "h264": "avc1.42E01E", "hevc": "hvc1.1.6.L93.B0"],
+            "mp4": ["h264": "avc1.42E01E", "hevc": "hvc1.1.6.L93.B0", "av1": "av01.0.05M.08", "vp9": "vp09.00.10.08", "vp8": "vp8"],
+        ]
+        return codecs[container]?[codec].map { "video/\(container); codecs=\"\($0)\"" }
+    }
+
+    /// The first video CodecID element (0x86) of a Matroska file.
+    private static func ebml(_ b: [UInt8]) -> String {
+        var i = 0
+        while i + 2 < b.count {
+            defer { i += 1 }
+            guard b[i] == 0x86, b[i + 1] & 0x80 != 0 else { continue }
+            let n = Int(b[i + 1] & 0x7F)
+            guard n >= 3, i + 2 + n <= b.count, b[i + 2] == 0x56, b[i + 3] == 0x5F else { continue }
+            let id = String(decoding: b[(i + 2)..<(i + 2 + n)], as: UTF8.self)
+            switch id {
+            case "V_VP8": return "vp8"
+            case "V_VP9": return "vp9"
+            case "V_AV1": return "av1"
+            default:
+                if id.hasPrefix("V_MPEG4/ISO/AVC") { return "h264" }
+                if id.hasPrefix("V_MPEGH/ISO/HEVC") { return "hevc" }
+                return String(id.dropFirst(2)).lowercased()
+            }
+        }
+        return ""
+    }
+
+    private struct Box { let type: String; let start: Int; let end: Int }
+    private static func boxes(_ b: [UInt8], _ from: Int, _ to: Int) -> [Box] {
+        var out: [Box] = [], at = from
+        let u32 = { (o: Int) in Int(b[o]) << 24 | Int(b[o + 1]) << 16 | Int(b[o + 2]) << 8 | Int(b[o + 3]) }
+        while to - at >= 8 {
+            var size = u32(at), head = 8
+            let type = String(decoding: b[(at + 4)..<(at + 8)], as: UTF8.self)
+            if size == 0 { size = to - at } else if size == 1 {
+                guard to - at >= 16 else { break }
+                size = (0..<8).reduce(0) { $0 << 8 | Int(b[at + 8 + $1]) }
+                head = 16
+            }
+            guard size >= head, at + size <= to else { break }
+            out.append(Box(type: type, start: at + head, end: at + size))
+            at += size
+        }
+        return out
+    }
+    private static func child(_ b: [UInt8], _ x: Box?, _ want: String) -> Box? {
+        guard let x else { return nil }
+        return boxes(b, x.start, x.end).first { $0.type == want }
+    }
+
+    /// The sample entry of the first track whose handler is video.
+    private static func iso(_ b: [UInt8]) -> String {
+        let entry = ["avc1": "h264", "avc3": "h264", "hvc1": "hevc", "hev1": "hevc", "dvh1": "hevc", "dvhe": "hevc", "av01": "av1", "vp09": "vp9", "vp08": "vp8"]
+        guard let moov = boxes(b, 0, b.count).first(where: { $0.type == "moov" }) else { return "" }
+        for trak in boxes(b, moov.start, moov.end) where trak.type == "trak" {
+            let mdia = child(b, trak, "mdia")
+            guard let hdlr = child(b, mdia, "hdlr"), hdlr.end - hdlr.start >= 12,
+                  String(decoding: b[(hdlr.start + 8)..<(hdlr.start + 12)], as: UTF8.self) == "vide" else { continue }
+            guard let stsd = child(b, child(b, child(b, mdia, "minf"), "stbl"), "stsd"), stsd.end - stsd.start >= 16 else { continue }
+            let e = String(decoding: b[(stsd.start + 12)..<(stsd.start + 16)], as: UTF8.self)
+            return entry[e] ?? e.trimmingCharacters(in: .whitespaces)
+        }
+        return ""
     }
 }

@@ -834,6 +834,16 @@ if (SCREEN === 'pickzoom') {
 // variant and found B's video, on a demo session. Then the agent's files
 // change and go (A cut short, as a render rewriting it in place, B and D
 // removed): the hub's copies are the only source from then on.
+// The card reaches the window first as the agent's daemon holds it (its own
+// copy, `ravenryd checkpoints --json`: no `video`, no `videoType`), as the
+// app gets it from a daemon of its own before the hub's (the webm round's
+// second part, 2026-11-17: on the Mac a VP8 next to an AV1 that copy's
+// first frames showed "This video can't play here").
+//
+// SIDETEST_PICK_MIX=VP9,VP8,AV1 (three .webm paths): the card is those three
+// videos only, A B C, as the one sent to the person's Mac that day
+// (SelfTestPickVideo.swift screenPickVideoMix): each that this Mac decodes
+// shows its first frame and plays, the one it cannot shows the still.
 const PV_MIME = { mp4: 'video/mp4', m4v: 'video/x-m4v', mov: 'video/quicktime', webm: 'video/webm' };
 const PV = { name: 'pickvideo', out: path.join(tmp, 'pickvideo.out'), idFile: path.join(tmp, 'pickvideo.id') };
 if (SCREEN === 'pickvideo') {
@@ -844,20 +854,33 @@ if (SCREEN === 'pickvideo') {
   const ff = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((f) => fs.existsSync(f)) || 'ffmpeg';
   // A clip given keeps its own type (.webm, .mov): the variant and the page's data: URI say it.
   const made = (name, src) => { const f = path.join(dir, src ? name.replace(/\.mp4$/, path.extname(src).toLowerCase()) : name); if (src) fs.copyFileSync(src, f); else execFileSync(ff, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=6', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-y', f]); return f; };
-  const clip = made('take-one.mp4', process.env.SIDETEST_PICK_VIDEO || '');
-  const clip2 = made('take-three.mp4', process.env.SIDETEST_PICK_VIDEO2 || '');
   const sizeOf = (f) => { try { return execFileSync(ff.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', f], { encoding: 'utf8' }).trim(); } catch { return '640x360'; } };
-  PV.sizes = [sizeOf(clip), sizeOf(clip2)];
-  const page = path.join(dir, 'take-two.html');
-  fs.writeFileSync(page, `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#0d0f12;height:100%;display:flex;align-items:center;justify-content:center}video{max-width:100%;max-height:100vh}</style></head><body><video src="data:${PV_MIME[path.extname(clip).slice(1)] || 'video/mp4'};base64,${fs.readFileSync(clip).toString('base64')}" controls autoplay muted loop playsinline></video></body></html>`);
-  const pic = path.join(dir, 'still.png');
-  fs.writeFileSync(pic, gridPng(1280, 720, [70, 110, 170], [40, 60, 90]));
-  const vars = [['Take one', clip, 'The clip as it is.'], ['Take two', page, 'The same clip in a page.'], ['Still', pic, 'A picture, for once.'], ['Take three', clip2, 'Another clip.']];
+  const codecOf = (f) => { try { return execFileSync(ff.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', f], { encoding: 'utf8' }).trim(); } catch { return ''; } };
+  PV.mix = (process.env.SIDETEST_PICK_MIX || '').split(',').filter(Boolean);
+  let vars, gone;
+  if (PV.mix.length) {
+    // The card sent to the person's Mac: three videos, labelled by their codec.
+    const clips = PV.mix.map((src, k) => made(`clip-${'abc'[k]}.mp4`, src));
+    vars = clips.map((f) => [codecOf(f).toUpperCase(), f, `A ${codecOf(f).toUpperCase()} WebM.`]);
+    PV.sizes = clips.map(sizeOf);
+    PV.codecs = vars.map(([l, f]) => [l, path.basename(f), codecOf(f)]);
+    gone = () => clips.forEach((f) => fs.rmSync(f));
+  } else {
+    const clip = made('take-one.mp4', process.env.SIDETEST_PICK_VIDEO || '');
+    const clip2 = made('take-three.mp4', process.env.SIDETEST_PICK_VIDEO2 || '');
+    PV.sizes = [sizeOf(clip), sizeOf(clip2)];
+    const page = path.join(dir, 'take-two.html');
+    fs.writeFileSync(page, `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#0d0f12;height:100%;display:flex;align-items:center;justify-content:center}video{max-width:100%;max-height:100vh}</style></head><body><video src="data:${PV_MIME[path.extname(clip).slice(1)] || 'video/mp4'};base64,${fs.readFileSync(clip).toString('base64')}" controls autoplay muted loop playsinline></video></body></html>`);
+    const pic = path.join(dir, 'still.png');
+    fs.writeFileSync(pic, gridPng(1280, 720, [70, 110, 170], [40, 60, 90]));
+    vars = [['Take one', clip, 'The clip as it is.'], ['Take two', page, 'The same clip in a page.'], ['Still', pic, 'A picture, for once.'], ['Take three', clip2, 'Another clip.']];
+    PV.codecs = [['Take one', path.basename(clip), codecOf(clip)], ['Take three', path.basename(clip2), codecOf(clip2)]];
+    // A render rewriting A in place (cut short, no moov), B and D removed.
+    gone = () => { fs.writeFileSync(clip, fs.readFileSync(clip).subarray(0, 4096)); fs.rmSync(page); fs.rmSync(clip2); };
+  }
   const pick = `ravenry pick ${sq('Which take should I keep?')} ${vars.map(([l, f, w]) => `--variant ${sq(`${l}=${f}`)} --describe ${sq(`${l}=${w}`)}`).join(' ')}`;
   // What pick says on stderr when it makes the card (a video some clients cannot play) apart from the id it prints.
   PV.notes = path.join(tmp, 'pickvideo.notes');
-  const codecOf = (f) => { try { return execFileSync(ff.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', f], { encoding: 'utf8' }).trim(); } catch { return ''; } };
-  PV.codecs = [['Take one', path.basename(clip), codecOf(clip)], ['Take three', path.basename(clip2), codecOf(clip2)]];
   const sh = `export PATH=${sq(path.join(dir, 'bin'))}:/usr/bin:/bin; ${pick} --no-wait > ${sq(PV.idFile)} 2> ${sq(PV.notes)}; ravenry checkpoint "$(cat ${sq(PV.idFile)})" --wait > ${sq(PV.out)} 2>&1; echo "EXIT $?" >> ${sq(PV.out)}; exec sleep 100000`;
   execFileSync(rd, ['new', '--socket', agentSock, '--cwd', user, '--name', 'pickvideo', '--json', '--', '/bin/sh', '-c', sh], { env: { ...env, RAVENRY_RUNTIME_DIR: AGENT_RUN } });
   for (let i = 0; i < 100 && !/^c[a-z0-9]{6,}$/.test((() => { try { return fs.readFileSync(PV.idFile, 'utf8').trim(); } catch { return ''; } })()); i++) await sleep(100);
@@ -865,13 +888,16 @@ if (SCREEN === 'pickvideo') {
   let cp = null;
   for (let i = 0; i < 300 && !cp; i++) { const st = await hub.state(); cp = (st.checkpoints || []).find((c) => c.id === PV.id && c.variants && c.variants[1] && c.variants[1].video && c.pick_record && c.pick_record.variants.every((v) => v.kept)) || null; if (!cp) await sleep(200); }
   if (!cp) console.log(`sidetest: the hub does not list the pick ${PV.id} with its page's video and every variant kept`);
-  // The agent's files change and go: a render rewriting A in place (cut short, no moov), B and D removed.
-  fs.writeFileSync(clip, fs.readFileSync(clip).subarray(0, 4096));
-  fs.rmSync(page); fs.rmSync(clip2);
+  // The daemon's own copy, as the app gets it from a daemon of its own (checkpoint.list), before the hub's.
+  let own = null;
+  try { own = JSON.parse(execFileSync(rd, ['checkpoints', '--json', '--socket', agentSock], { env: { ...env, RAVENRY_RUNTIME_DIR: AGENT_RUN }, encoding: 'utf8' })).find((c) => c.id === PV.id) || null; } catch (e) { console.log(`sidetest: the agents' daemon did not list its checkpoints: ${e.message}`); }
+  // The agent's files change and go: the hub's copies are the only source.
+  gone();
   const st = await hub.state();
   const p = (st.projects || []).find((x) => (x.sessions || []).length) || {};
   const s = (p.sessions || [])[0] || {};
-  fs.writeFileSync(CARDS, JSON.stringify(cp ? [{ ...cp, projectId: p.id, project: p.name, surfaceId: s.surfaceId, _want: { sizes: PV.sizes, cant: !!process.env.SIDETEST_PICK_CANT } }] : []));
+  const at = { projectId: p.id, project: p.name, surfaceId: s.surfaceId };
+  fs.writeFileSync(CARDS, JSON.stringify(cp ? [{ ...cp, ...at, _daemon: own ? { ...own, ...at } : null, _want: { sizes: PV.sizes, cant: !!process.env.SIDETEST_PICK_CANT, mix: PV.mix.length > 0 } }] : []));
 }
 // --screen review: the worktree's record, as the hub keeps it, and the project's files as the hub works them out.
 const FILES = path.join(OUT, 'review-files.json');
@@ -1141,8 +1167,8 @@ if (SCREEN === 'pickvideo') {
   if (!ok) r.failed++;
 }
 // --screen pickvideo: the agent got Take two, the ring on the paused frame with its second ("region x y w h at t") and the note.
-// (With SIDETEST_PICK_CANT, videos this Mac cannot decode: the stills only, nothing is sent.)
-if (SCREEN === 'pickvideo' && !process.env.SIDETEST_PICK_CANT) {
+// (With SIDETEST_PICK_CANT, videos this Mac cannot decode, and SIDETEST_PICK_MIX: no answer is sent.)
+if (SCREEN === 'pickvideo' && !process.env.SIDETEST_PICK_CANT && !process.env.SIDETEST_PICK_MIX) {
   const sent = (r.checks.find((c) => c.name.startsWith('pv_region_for_agent ')) || { name: '' }).name.replace('pv_region_for_agent ', '');
   let want = null; try { want = JSON.parse(sent); } catch { /* none */ }
   const seen = PV.seen || '';
