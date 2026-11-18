@@ -18,7 +18,8 @@ The version is the Mac app's (`apps/desktop/package.json`) and the build
 number Android's versionCode (major * 1000000 + minor * 1000 + patch:
 0.1.69 is build 1069), so the Mac, Android and iOS apps of one release
 say the same number. App Store Connect takes one upload per build number:
-a second upload of the same version needs `RAVENRY_IOS_BUILD=1069.1`.
+a second upload of the same version needs `RAVENRY_IOS_BUILD=1069.1`
+(the build on 0.1.69 now), then 1069.2 and so on.
 The App Store version in App Store Connect is named the same (0.1.69).
 
 ### The environment
@@ -128,8 +129,8 @@ its demo on the simulator, dark, the status bar at 9:41, no frame and no
 added text, no alpha channel; made by `apps/ios/tools/store-shots.mjs`
 (headless: `xcrun simctl boot`, never Simulator.app), the same moments as
 the Play pictures (docs/store/play/README.md). The demo's bar ("Demo.
-Sample projects, nothing leaves this phone.") is on each, as the app
-draws it.
+Sample projects, nothing leaves this phone.", "this iPad" on the iPad) is
+on each, as the app draws it.
 
 | File | Size | What it shows |
 | --- | --- | --- |
@@ -144,6 +145,7 @@ draws it.
 | `ipad-3-pick.png` | 2752 x 2064 | The pick, B circled with its note. |
 | `ipad-4-approve.png` | 2752 x 2064 | recipe-box's command to approve. |
 | `ipad-5-alert.png` | 2752 x 2064 | The question's alert over the wide board. |
+| `ipad-6-live.png` | 2752 x 2064 | paper-boat's live screen, full, with its keys and the message box. |
 
 ```sh
 cd apps/ios

@@ -79,7 +79,8 @@ const ok = (what, v) => { if (!v) { console.error(`store-shots: ${what}`); } ret
 ok('the demo board', await until(30, "return !!document.querySelector('.rv-demo') && document.body.innerText.includes('paper-boat');"));
 // --sideways: an iPad turned (the wide board at its widest); simctl takes the pictures sideways too.
 const SIDEWAYS = args.includes('--sideways');
-if (SIDEWAYS) { ok('sideways', (await cmd('sideways')) === 'ok'); }
+// Turned each time: a simulator keeps the way it was left.
+ok('the way it is held', (await cmd(SIDEWAYS ? 'sideways' : 'upright')) === 'ok');
 await sleep(1500);
 
 // The pictures, numbered as the Play ones (docs/store/play/README.md): 1 the
