@@ -192,6 +192,37 @@ reopens on the new path (`HubOrderTest`; on the emulator both answering is
 Wi-Fi, the Wi-Fi address dropped is Tailscale in 29 s, back is Wi-Fi in
 29 s).
 
+### Finding the Mac on the Wi-Fi
+
+The Mac's Wi-Fi address can change under a paired phone (the router gives
+it another, another network, a router restart; phonefind, 2026-11-18: the
+phone kept 192.168.1.36, the Mac was 192.168.1.22, and with Tailscale off
+the phone asked for Tailscale). So while phone access is on the hub says
+itself on the Wi-Fi by Bonjour (`hub/server/nearby.mjs`, macOS's
+`dns-sd -R`): `_ravenry._tcp` on the phone port, its TXT record `v=1` and
+`id`, the first 12 bytes of the SHA-256 of the pin's bytes as base64url
+(`Pins.hubId`, 16 characters). No name: the instance is "Ravenry " and the
+id's first characters. Phone access off: no longer said.
+
+When no saved Wi-Fi address answers, the app looks for it (`Nearby`:
+Android's NsdManager, iOS's NWBrowser; at most 3 s, only on a Wi-Fi) before
+Tailscale: the order is the saved Wi-Fi addresses, then the found ones,
+then Tailscale. Only a service whose id is the paired Mac's is taken, only
+its IPv4 address (the phone port takes no other), and the pinned key
+decides whether it is that Mac (another key is refused as anywhere). The
+address that answers is kept (`lastHost`), so the next start goes straight
+there, and the chip says Wi-Fi. While nothing is found the look waits a
+minute, doubling to 15; joining or leaving a network looks again at once.
+iOS: `NSBonjourServices` names the service and `NSLocalNetworkUsageDescription`
+says why. `HubOrderTest` and `ReachTests` hold the order, the id and a
+found address with another key; `hub/tools/nearby-test.mjs` the hub's side.
+
+When the Mac still does not answer, the page that says so (Android's launch
+hold, the board's own page for a board that did not load) has Scan the code
+again under Try again: the pairing screen, with Back to the board; the
+pairing stays until a new one is made, and then the old token is let go on
+the Mac (Revokes).
+
 ### The launch
 
 On Android 13 and later a cold start plays the Mac's Ink (`ShaderInk.kt`,

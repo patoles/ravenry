@@ -24,7 +24,7 @@ object Demo {
 
     /** The ops that would reach a hub: refused in the demo (the page never sends them). */
     val HUB_OPS = setOf("http", "http.part", "hub.call", "hub.events", "socket.open", "socket.send", "socket.close", "reach.retry", "conn.reconnect",
-        "photo", "voice.start", "voice.stop", "voice.cancel", "secret.open", "secret.move", "secret.send", "secret.close", "push.set", "connection.set", "speech", "open.tailscale")
+        "photo", "voice.start", "voice.stop", "voice.cancel", "secret.open", "secret.move", "secret.send", "secret.close", "push.set", "connection.set", "speech", "open.tailscale", "pair.again")
 
     /** The policy of the demo's board page: its own files only, never another origin. */
     private const val CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; " +

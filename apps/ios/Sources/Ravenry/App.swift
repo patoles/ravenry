@@ -104,7 +104,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         Log.say("demo: shown (no Mac, no connection)")
     }
 
-    func showPairing(signedOut: Bool = false, link: String? = nil) {
+    /// Scan the code again, from the page that says the Mac did not answer
+    /// (Board.swift pair.again): the pairing screen with a Back to the board,
+    /// the pairing kept until a new one is made.
+    func pairAgain() {
+        guard Store.shared.paired() != nil else { showPairing(); return }
+        showPairing(again: true)
+    }
+
+    func showPairing(signedOut: Bool = false, link: String? = nil, again: Bool = false) {
         guard let w = window else { return }
         board?.disappeared()
         board = nil
@@ -113,11 +121,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if signedOut { m.error = "This \(Device.word) was signed out. Scan the code on the Mac again."; m.step = .scan }
         m.onDone = { [weak self] in self?.showBoard(cold: false) }
         m.onDemo = { [weak self] in self?.showDemo() }
+        m.onBack = again ? { [weak self] in self?.showBoard(cold: false) } : nil
         if pairing == nil {
             pairing = m
             w.rootViewController = UIHostingController(rootView: PairRoot(m: m))
         }
         if let link { m.open(link: link) }
-        Log.say("pairing: shown\(link != nil ? " (a pairing link)" : signedOut ? " (signed out)" : "")")
+        Log.say("pairing: shown\(link != nil ? " (a pairing link)" : signedOut ? " (signed out)" : again ? " (again, from the page that says the Mac did not answer)" : "")")
     }
 }

@@ -35,7 +35,8 @@
 //   Mac answers again, by any path: an empty `reach` (any answer of the
 //   hub), the connection up (the shell's check, a network change, Reconnect)
 //   or the live stream up. The app's own page for a board that did not load
-//   (body[data-unreached]) loads the board then.
+//   (body[data-unreached]) loads the board then; it also has Scan the code
+//   again (pair.again: the pairing screen, with Back to this page).
 // - The demo (src/demo.ts; the shell's page says so on this script's tag,
 //   before the board's own script reads anything): the board's settings
 //   kept for the visit only, never in the real board's storage, the demo's
@@ -282,6 +283,19 @@ function showReach(sh: Shell, r: Reach | null): void {
   again.addEventListener('click', () => { reachBar!.hidden = true; void sh.call('reach.retry').catch(() => {}); });
   row.appendChild(again);
   reachBar.appendChild(row);
+  // The app's own page for a board that did not load: no board, so no menu
+  // to sign out from. Scan the code again opens the pairing screen, whose
+  // Back comes back here (the pairing kept until a new one is made).
+  if (document.body && document.body.dataset.unreached != null) {
+    const out = document.createElement('div');
+    out.className = 'rv-row';
+    const pair = document.createElement('button');
+    pair.className = 'q';
+    pair.textContent = 'Scan the code again';
+    pair.addEventListener('click', () => { void sh.call('pair.again').catch(() => {}); });
+    out.appendChild(pair);
+    reachBar.appendChild(out);
+  }
   reachBar.hidden = false;
 }
 

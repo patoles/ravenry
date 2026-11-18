@@ -391,6 +391,12 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
         case "socket.close":
             sockets.removeValue(forKey: o["sid"] as? Int ?? -1)?.cancel(with: .normalClosure, reason: nil)
             reply(id)
+        // The page that says the Mac did not answer: Scan the code again.
+        case "pair.again":
+            reply(id)
+            if demo { return }
+            events?.close(); events = nil
+            (view.window?.windowScene?.delegate as? SceneDelegate)?.pairAgain()
         case "pair.reset":
             if demo { reply(id); leaveDemo(); return }
             // The screen changes on the tap; the computer is told in the background, now and later until it answers.

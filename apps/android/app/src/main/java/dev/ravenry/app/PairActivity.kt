@@ -101,6 +101,8 @@ class PairActivity : ComponentActivity() {
     }
 
     private val step = mutableStateOf<Step>(Step.Scan)
+    /** Opened by Scan the code again (MainActivity.pairAgain): a Back to the board. */
+    private var again = false
     private val error = mutableStateOf<String?>(null)
     /** Why the computer did not answer, when Tailscale is the reason: its button under the words. */
     private val reach = mutableStateOf<Reach.Why?>(null)
@@ -117,7 +119,10 @@ class PairActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        InkLaunch.markWarm()
+        // From the board's page that says the Mac did not answer: the
+        // pairing stays until a new one is made, and Back goes back there.
+        again = intent.getBooleanExtra(AGAIN, false) && Store.get(this).paired() != null
+        if (!again) InkLaunch.markWarm()
         enableEdgeToEdge()
         if (intent.getBooleanExtra(SIGNED_OUT, false)) error.value = getString(R.string.signed_out)
         cameraOn.value = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -202,6 +207,9 @@ class PairActivity : ComponentActivity() {
             val hub = o!!.optJSONObject("hub") ?: JSONObject()
             val dev = o.optJSONObject("device") ?: JSONObject()
             val hosts = (listOf(c.host) + link.hosts).distinct()
+            // Paired again over a pairing: the old token is let go on the
+            // computer that holds it, now and later until it hears (Revokes).
+            Store.get(this).paired()?.let { old -> if (old.token != o.getString("token")) { Store.get(this).addRevoke(old); Revokes.flush(this) } }
             Store.get(this).save(Paired(
                 hubName = hub.str("name") ?: link.name, hosts = hosts, port = hub.optInt("port", link.port), pin = pin,
                 token = o.getString("token"), deviceId = dev.str("id", ""), deviceName = dev.str("name") ?: DeviceName.of(this@PairActivity), lastHost = c.host,
@@ -227,6 +235,7 @@ class PairActivity : ComponentActivity() {
     }
 
     private fun toBoard() {
+        if (again) InkLaunch.markWarm()
         startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         finish()
     }
@@ -264,6 +273,8 @@ class PairActivity : ComponentActivity() {
                 Spacer(Modifier.height(12.dp))
                 Quiet(if (w.reason == "tailscale-off") stringResource(R.string.open_tailscale) else stringResource(R.string.get_tailscale)) { Reach.openTailscale(this@PairActivity) }
             }
+            // Scan the code again from the board: Back to it, the pairing as it was.
+            if (again && step.value is Step.Scan) Quiet(stringResource(R.string.pair_back)) { finish() }
             Spacer(Modifier.weight(1f).height(24.dp))
             // The demo (C, picked 2026-11-18): a line at the foot, beside the
             // no-account line, on the camera's screen and only while no Mac
@@ -482,6 +493,8 @@ class PairActivity : ComponentActivity() {
 
     companion object {
         const val SIGNED_OUT = "signedOut"
+        /** Opened by Scan the code again on the board: Back goes back to it. */
+        const val AGAIN = "again"
         private const val ON_ALERTS = "onAlerts"
     }
 }

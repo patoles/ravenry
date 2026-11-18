@@ -160,7 +160,7 @@ class MainActivity : FragmentActivity() {
         web = WebView(this)
         box.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(box)
-        ink = if (demo) null else InkLaunch.begin(this, box, web, retry = { conn.reconnect() }, why = { Hub.get(this)?.let { reachOf(it.allHosts, null).words } ?: getString(R.string.mac_no_answer) })
+        ink = if (demo) null else InkLaunch.begin(this, box, web, retry = { conn.reconnect() }, why = { Hub.get(this)?.let { reachOf(it.allHosts, null).words } ?: getString(R.string.mac_no_answer) }, pairAgain = { pairAgain() })
         ViewCompat.setOnApplyWindowInsetsListener(box) { v, ins ->
             val b = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.displayCutout())
             v.setPadding(b.left, b.top, b.right, b.bottom)
@@ -576,6 +576,8 @@ class MainActivity : FragmentActivity() {
                 val a = o.optJSONObject("alert")
                 reply(id, true, JSONObject().put("posted", demo && a != null && Demo.post(this, a.toString())))
             }
+            // The page that says the Mac did not answer: Scan the code again.
+            "pair.again" -> { reply(id, true); if (!demo) main.post { pairAgain() } }
             "pair.reset" -> {
                 if (demo) { reply(id, true); main.post { leaveDemo() }; return }
                 // The screen changes on the tap; the computer is told in the
@@ -940,6 +942,16 @@ class MainActivity : FragmentActivity() {
         if (lastReach == null) return
         lastReach = null
         event(JSONObject().put("event", "reach").put("reason", JSONObject.NULL).put("words", JSONObject.NULL))
+    }
+
+    /**
+     * Scan the code again, from the page that says the Mac did not answer:
+     * the pairing screen over the board, the pairing kept until a new one
+     * is made; its Back (and Android's) comes back here.
+     */
+    private fun pairAgain() {
+        Log.i("Ravenry", "pairing: again, from the page that says the Mac did not answer")
+        startActivity(Intent(this, PairActivity::class.java).putExtra(PairActivity.AGAIN, true))
     }
 
     private fun reachOf(hosts: List<String>, e: Throwable?): Reach.Why {

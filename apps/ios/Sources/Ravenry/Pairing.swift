@@ -42,6 +42,8 @@ final class PairModel: ObservableObject {
     var onDone: () -> Void = {}
     /// "Try the demo" (Board.swift's demo): the board on sample projects, only while no Mac is paired.
     var onDemo: () -> Void = {}
+    /// Scan the code again from the board (SceneDelegate.pairAgain): Back to it, the pairing as it was.
+    var onBack: (() -> Void)?
     private var scanned = false
 
     init(signedOut: Bool = false) {
@@ -135,7 +137,11 @@ final class PairModel: ObservableObject {
             for h in link.hosts where !hosts.contains(h) { hosts.append(h) }
             let p = Paired(hubName: hub["name"] as? String ?? link.name, hosts: hosts, port: hub["port"] as? Int ?? link.port, pin: pin,
                            token: o?["token"] as? String ?? "", deviceId: dev["id"] as? String ?? "", deviceName: dev["name"] as? String ?? UIDevice.current.name, lastHost: c.host)
+            // Paired again over a pairing: the old token is let go on the
+            // computer that holds it, now and later until it hears (Revokes).
+            if let old = Store.shared.paired(), old.token != p.token { Store.shared.addRevoke(old) }
             Store.shared.save(p)
+            Revokes.run()
             Log.say("pairing: paired with \(MacName.say(p.hubName)) as \(p.deviceId); the token is in the Keychain")
             connected = "Connected to \(MacName.say(p.hubName))"
             let list = (o?["iphones"] as? [[String: Any]] ?? []).compactMap { x -> Iphone? in
@@ -300,6 +306,8 @@ struct PairScan: View { @ObservedObject var m: PairModel; let t: T; let busy: Bo
             Button { m.error = nil; m.reach = nil; m.step = .typing(address: "", code: "") } label: {
                 (Text("Camera not working? ").foregroundStyle(t.tx2) + Text("Type the code instead").foregroundStyle(t.work).bold()).font(.system(size: 15))
             }.buttonStyle(.plain).padding(.top, 14).disabled(busy).accessibilityIdentifier("type-instead")
+            // Scan the code again from the board: Back to it.
+            if let back = m.onBack, !busy { Secondary(t: t, title: "Back") { back() }.padding(.top, 18).accessibilityIdentifier("pair-back") }
             Spacer()
             // The demo (C, picked 2026-11-18): a line at the foot, beside the no-account line, only while no Mac is paired.
             if !busy && Store.shared.paired() == nil {

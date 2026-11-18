@@ -23,6 +23,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.PathParser
 import org.json.JSONObject
 import kotlin.math.exp
@@ -54,6 +55,8 @@ class InkLaunch private constructor(
     private val web: WebView,
     private val retry: () -> Unit,
     private val why: () -> String,
+    /** Scan the code again: the pairing screen over the board, Back to here. */
+    private val pairAgain: () -> Unit,
     /** The launch's start: the process's on a cold start (the system shows the splash as it starts it), the activity's on a warm one. */
     private val start: Long,
     /** A warm start: the board was there a moment ago, so it comes back with a short fade, not the mark's flight. */
@@ -99,7 +102,7 @@ class InkLaunch private constructor(
     private fun attach(cx: Float, cy: Float, iconPx: Float) {
         if (hold != null) return
         val decor = activity.window.decorView as ViewGroup
-        val h = HoldView(activity, cx, cy, iconPx, start) { gaveUp = false; retry(); web.reload() }
+        val h = HoldView(activity, cx, cy, iconPx, start, pairAgain) { gaveUp = false; retry(); web.reload() }
         decor.addView(h, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         hold = h
         // A Mac that does not answer in 12 s: why, and Try again (the hold stays until the board is there).
@@ -209,7 +212,7 @@ class InkLaunch private constructor(
          * Before the activity's first frame. Returns the launch on a cold start,
          * null otherwise (the splash then goes at the first frame).
          */
-        fun begin(activity: Activity, content: View, web: WebView, retry: () -> Unit, why: () -> String): InkLaunch? {
+        fun begin(activity: Activity, content: View, web: WebView, retry: () -> Unit, why: () -> String, pairAgain: () -> Unit = {}): InkLaunch? {
             val cold = !coldDone
             coldDone = true
             if (!cold) {
@@ -222,13 +225,13 @@ class InkLaunch private constructor(
                 }
                 // A warm start: the board loads afresh. The still mark (where the
                 // window's own background and the system's splash draw it) until it has drawn.
-                val ink = InkLaunch(activity, web, retry, why, SystemClock.uptimeMillis(), warm = true)
+                val ink = InkLaunch(activity, web, retry, why, pairAgain, SystemClock.uptimeMillis(), warm = true)
                 Log.i(TAG, "warm start: the still mark until the board has drawn")
                 ink.attach(-1f, -1f, 288 * activity.resources.displayMetrics.density)
                 content.post { ink.splashEnded() }
                 return ink
             }
-            val ink = InkLaunch(activity, web, retry, why, android.os.Process.getStartUptimeMillis())
+            val ink = InkLaunch(activity, web, retry, why, pairAgain, android.os.Process.getStartUptimeMillis())
             Log.i(TAG, "cold start, api ${Build.VERSION.SDK_INT}, animations ${if (ink.animationsOff) "off" else "on"}")
             val density = activity.resources.displayMetrics.density
             // The hold is there from the app's first frame, under the splash
@@ -280,7 +283,7 @@ class InkLaunch private constructor(
 }
 
 /** The splash's last frame held, the hold's words, and the exit (drawn in this view, over the board). */
-private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: Float, private val start: Long, private val retry: () -> Unit) : FrameLayout(context) {
+private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: Float, private val start: Long, private val pairAgain: () -> Unit, private val retry: () -> Unit) : FrameLayout(context) {
     private val win = ContextCompat.getColor(context, R.color.win)
     private val ink = ContextCompat.getColor(context, R.color.tx)
     private val eye = ContextCompat.getColor(context, R.color.work)
@@ -401,9 +404,25 @@ private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: F
                 background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 22 * d; setColor(eye) }
                 isClickable = true; isFocusable = true
                 contentDescription = context.getString(R.string.try_again)
-                setOnClickListener { words.text = context.getString(R.string.reaching); column.removeView(this); retry() }
+                setOnClickListener { words.text = context.getString(R.string.reaching); while (column.childCount > 1) column.removeViewAt(1); retry() }
             }
             column.addView(b, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = (22 * resources.displayMetrics.density).toInt() })
+            // The way out when the Mac is not where this phone knows it: the
+            // pairing screen (its Back comes back here). The same pill,
+            // quiet: the pairing screen's Back outline, not a new look.
+            val again = TextView(context).apply {
+                setText(R.string.pair_again)
+                setTextColor(ContextCompat.getColor(context, R.color.tx))
+                textSize = 15f
+                gravity = Gravity.CENTER
+                minHeight = (44 * d).toInt()
+                setPadding((22 * d).toInt(), 0, (22 * d).toInt(), 0)
+                background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 22 * d; setColor(Color.TRANSPARENT); setStroke((1 * d).toInt().coerceAtLeast(1), ColorUtils.setAlphaComponent(ContextCompat.getColor(context, R.color.tx3), 102)) }
+                isClickable = true; isFocusable = true
+                contentDescription = context.getString(R.string.pair_again)
+                setOnClickListener { pairAgain() }
+            }
+            column.addView(again, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = (12 * d).toInt() })
         }
     }
 
