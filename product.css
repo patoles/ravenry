@@ -133,3 +133,30 @@
 .rv-phone { width:360px; height:780px; border-radius:44px; padding:10px; background:#050506; box-shadow:0 0 0 1.5px #3a3a3f, 0 0 0 8px #0d0d0f, 0 0 0 9px rgba(255,255,255,.14); }
 .rv-screen { width:100%; height:100%; border-radius:35px; background:#000; overflow:hidden; }
 .rv-screen img { display:block; width:100%; height:100%; object-fit:cover; object-position:top; }
+
+/* The Sessions page */
+.rv-shead { display:flex; align-items:flex-start; gap:12px; padding:0 6px 12px; }
+.rv-shead > div { flex:1; min-width:0; }
+.rv-shead h4 { margin:0 0 3px; font-size:17px; font-weight:700; letter-spacing:-.01em; }
+.rv-shead p { margin:0; color:var(--tx2); font-size:12.5px; } .rv-shead p b { color:var(--tx); font-weight:600; }
+.rv-shead .rv-btn { padding:6px 12px; margin-top:2px; white-space:nowrap; }
+.rv-mbar { display:flex; gap:2px; height:6px; margin:0 6px 8px; } .rv-mbar i { border-radius:3px; }
+.rv-legend { display:flex; gap:14px; padding:0 6px 12px; color:var(--tx2); font-size:11.5px; }
+.rv-legend span { display:flex; align-items:center; gap:5px; } .rv-legend i { width:8px; height:8px; border-radius:2px; } .rv-legend b { color:var(--tx); font-weight:600; }
+.rv-scard { background:var(--sheet); border-radius:9px; box-shadow:0 0 0 1px var(--sheet-ring); margin:0 0 8px; overflow:hidden; }
+.rv-scard:last-child { margin-bottom:0; }
+.rv-sch { display:flex; justify-content:space-between; padding:8px 12px; font-weight:600; font-size:12.5px; border-bottom:1px solid var(--sep); }
+.rv-sch span { color:var(--tx2); font-weight:500; font-size:11.5px; }
+.rv-crow { display:flex; align-items:flex-start; gap:10px; padding:8px 12px; }
+.rv-crow + .rv-crow { border-top:1px solid var(--sep); }
+.rv-tick { width:15px; height:15px; border-radius:4px; flex:none; margin-top:1px; box-shadow:0 0 0 1.5px var(--tx3) inset; display:grid; place-items:center; }
+.rv-tick.on { background:var(--ok); box-shadow:none; }
+.rv-cm { flex:1; min-width:0; }
+.rv-c1 { display:flex; align-items:center; gap:8px; font-size:13px; white-space:nowrap; }
+.rv-c1 b { font-weight:700; }
+.rv-c1 em, .rv-c2 em { font-style:normal; color:var(--tx3); font-size:11.5px; }
+.rv-why { color:var(--you); background:var(--you-t); border-radius:5px; padding:0 6px; font-size:11.5px; font-weight:600; }
+.rv-mem { margin-left:auto; font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; }
+.rv-c2 { display:flex; gap:8px; margin-top:2px; font-size:12px; color:var(--tx2); white-space:nowrap; }
+.rv-c2 span { overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0; } .rv-c2 em { margin-left:auto; }
+.rv-closed { align-items:center; } .rv-closed .rv-btn { padding:4px 11px; }

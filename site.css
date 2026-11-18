@@ -9,6 +9,7 @@ a { color:inherit; text-decoration:none; }
 nav { position:sticky; top:0; z-index:5; background:rgba(0,0,0,.72); backdrop-filter:blur(20px); border-bottom:1px solid #1d1d1f; }
 nav .wrap { display:flex; align-items:center; gap:10px; height:52px; font-weight:600; font-size:17px; }
 nav .sp { flex:1; } nav .l { color:var(--tx2); font-weight:400; font-size:13px; margin-right:16px; }
+nav .gh { color:var(--tx2); display:flex; margin-right:16px; }
 .dl { background:var(--work); color:#fff; border-radius:980px; padding:7px 15px; font-size:13px; font-weight:500; }
 .hero { text-align:center; padding:76px 0 40px; overflow:hidden; }
 .eyebrow { font-size:19px; font-weight:600; color:var(--tx2); margin-bottom:14px; letter-spacing:.2px; }
@@ -46,6 +47,7 @@ section.big p.body b { color:var(--tx); font-weight:500; }
 .facts .y { color:var(--you); } .facts .w { color:var(--work); } .facts .i { color:#A1A1A6; }
 .phones { display:flex; gap:40px; justify-content:center; align-items:flex-start; margin-top:70px; }
 .phones > div { width:330px; }
+.clean { max-width:560px; margin:70px auto 0; box-shadow:0 40px 100px rgba(48,209,88,.12); border-radius:12px; }
 .term { max-width:1000px; margin:70px auto 0; box-shadow:0 40px 100px rgba(10,132,255,.18); border-radius:12px; }
 .stats { display:flex; justify-content:center; gap:70px; margin-top:56px; flex-wrap:wrap; }
 .stats div { font-size:15px; color:var(--tx2); } .stats b { display:block; font-size:44px; color:var(--tx); letter-spacing:-.03em; }
@@ -73,6 +75,7 @@ footer .wrap { display:flex; justify-content:space-between; gap:20px; flex-wrap:
   .pair { grid-template-columns:1fr; max-width:380px; margin-top:48px; }
   .board { grid-template-columns:1fr; gap:36px; max-width:380px; margin-top:48px; } .board > div:first-child { max-width:280px; margin:0 auto; width:100%; }
   .phones { flex-direction:column; align-items:center; gap:40px; margin-top:48px; } .phones > div { width:300px; }
+  .clean { max-width:380px; margin-top:48px; }
   .term { margin-top:48px; }
   .stats { gap:28px 44px; }
   .dls, .note { grid-template-columns:1fr; }

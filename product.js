@@ -121,6 +121,22 @@
   </div>`;
   const board = () => `<div class="rv-mac" style="width:260px;height:auto;padding:6px">${sidebar({ nav: false })}</div>`;
 
+  // The Sessions page (SESS-029): the memory by state, the idle ones ticked,
+  // the ones left for you unticked with the reason, Recently closed with Reopen.
+  const check = '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5.2l2 2L8 3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const crow = (on, name, mem, line, age, why = '') => `<div class="rv-crow"><span class="rv-tick${on ? ' on' : ''}">${on ? check : ''}</span><div class="rv-cm"><div class="rv-c1"><b>${name}</b>${why ? `<span class="rv-why">${why}</span>` : ''}<span class="rv-mem">${mem}</span></div><div class="rv-c2"><span>${line}</span><em>${age}</em></div></div></div>`;
+  const scard = (title, sub, body) => `<div class="rv-scard"><div class="rv-sch">${title}<span>${sub}</span></div>${body}</div>`;
+  const sessions = () => `<div class="rv-mac rv-sess" style="width:460px;height:auto;flex-direction:column;gap:0;padding:8px 8px 10px">
+    <div class="rv-lights" style="padding:6px 6px 12px"><i></i><i></i><i></i></div>
+    <div class="rv-shead"><div><h4>Sessions</h4><p>7 sessions hold <b>4.1 GB</b> of memory.</p></div><span class="rv-btn pri">Close 2 sessions, frees 1.1 GB</span></div>
+    <div class="rv-mbar"><i style="flex:1210;background:var(--you)"></i><i style="flex:1499;background:var(--work)"></i><i style="flex:1506;background:var(--idle)"></i></div>
+    <div class="rv-legend"><span><i style="background:var(--you)"></i>Needs you <b>1.2 GB</b></span><span><i style="background:var(--work)"></i>Working <b>1.5 GB</b></span><span><i style="background:var(--idle)"></i>Idle <b>1.5 GB</b></span></div>
+    ${scard('Handed off', '1 session, 803 MB', crow(true, 'trail-log', '803 MB', 'Map tiles cached for offline use.', 'handed off 2 d'))}
+    ${scard('No activity for 1 h or more', '1 session, 291 MB', crow(true, 'weather-widget', '291 MB', 'Done: whole degrees everywhere, tests pass.', '3 d'))}
+    ${scard('Left for you', '2 sessions, 1.0 GB', crow(false, 'garden-planner', '598 MB', 'Run npm test and commit the reminders?', '12 min', 'Asked you a question') + crow(false, 'pocket-scanner', '412 MB', 'Scan receipts into the monthly sheet', '5 h', 'Half-typed reply'))}
+    ${scard('Recently closed', '1 session, kept for 14 days', `<div class="rv-crow rv-closed"><div class="rv-cm"><div class="rv-c1"><b>lighthouse</b><em>closed 1 d ago</em><span class="rv-mem">402 MB</span></div><div class="rv-c2"><span>Audit scores up to 98 on every page.</span></div></div><span class="rv-btn">Reopen</span></div>`)}
+  </div>`;
+
   const termOnly = () => `<div class="rv-mac" style="width:900px;height:520px;padding:0;gap:0"><div class="rv-mid" style="border-radius:12px"><div class="rv-tabs"><span style="display:flex;gap:7px;margin:0 10px 0 4px" class="rv-lights"><i></i><i></i><i></i></span><span class="rv-tab">›_ zsh ~</span><span class="rv-tab on"><i class="rv-dot work"></i>Sync settings <span class="p">notes-app</span></span><span class="rv-tab">Old recipe import <span class="p">recipe-box</span></span><span class="rv-tab">+</span></div>
     <div style="display:flex;flex:1;min-height:0"><div class="rv-term mono" style="flex:1;border-right:1px solid #2A2A2E"><span class="g">~/Projects/notes-app ›</span> codex
 <span class="w">Codex</span> <span class="g">in ~/Projects/notes-app</span>
@@ -144,7 +160,7 @@
   // card: the alert tapped, the app open on the question; board: the same
   // question in place on the board; alerts: the notification shade.
   const phoneShot = (name, eager) => () => `<div class="rv-phone"><div class="rv-screen"><img src="assets/phone-${name}.webp" alt="" width="600" height="1334"${eager ? '' : ' loading="lazy"'}></div></div>`;
-  const SIZES = { mac: [1280, 800, mac], board: [260, 0, board], ask: [340, 0, askCard], approve: [340, 0, approveCard], secret: [340, 0, secretCard], pick: [340, 0, pickCard], decisions: [420, 0, decisions], handoff: [420, 0, handoff], phone: [380, 800, phoneShot('board')], shade: [380, 800, phoneShot('alerts')], term: [900, 520, termOnly], appQ: [380, 800, phoneShot('card', true)] };
+  const SIZES = { mac: [1280, 800, mac], board: [260, 0, board], ask: [340, 0, askCard], approve: [340, 0, approveCard], secret: [340, 0, secretCard], pick: [340, 0, pickCard], decisions: [420, 0, decisions], handoff: [420, 0, handoff], phone: [380, 800, phoneShot('board')], shade: [380, 800, phoneShot('alerts')], term: [900, 520, termOnly], sessions: [460, 0, sessions], appQ: [380, 800, phoneShot('card', true)] };
   function mount() {
     for (const el of document.querySelectorAll('[data-rv]')) {
       const [w, h, fn] = SIZES[el.dataset.rv];
@@ -153,7 +169,7 @@
       inner.className = 'rv rv-inner'; inner.dataset.theme = el.dataset.theme || 'dark';
       inner.style.width = w + 'px';
       inner.innerHTML = fn();
-      if (el.dataset.rv === 'mac' || el.dataset.rv === 'board' || el.dataset.rv === 'term') inner.firstElementChild.classList.add('rv'), inner.firstElementChild.dataset.theme = inner.dataset.theme;
+      if (el.dataset.rv === 'mac' || el.dataset.rv === 'board' || el.dataset.rv === 'term' || el.dataset.rv === 'sessions') inner.firstElementChild.classList.add('rv'), inner.firstElementChild.dataset.theme = inner.dataset.theme;
       if (el.dataset.rv === 'phone' || el.dataset.rv === 'shade' || el.dataset.rv === 'appQ') inner.style.padding = '10px';
       el.appendChild(inner);
       const fit = () => { const s = el.clientWidth / w; inner.style.transform = `scale(${s})`; el.style.height = (h || inner.offsetHeight) * s + 'px'; };
