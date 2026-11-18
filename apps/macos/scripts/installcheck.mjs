@@ -14,7 +14,12 @@
 //               (apps/desktop/release/mac-arm64/Ravenry.app)
 // OLD_RAVENRYD  a ravenryd of an older version (apps/desktop/scripts/
 //               build-ravenryd.sh OUT 0.1.22), standing for a daemon left
-//               from an update before
+//               from an update before. One with the render stream
+//               (pane.render, this tree's built as 0.1.22) is drawn: its
+//               shell is the window's fourth tab. One from before it (a
+//               real 0.1.22 release) is left alone (Daemons.swift): its
+//               shell runs on and is no tab. The update steps ask for what
+//               the given one should give, and say which.
 //
 // fresh   a Mac with no Ravenry: the app copies its ravenryd and hub to
 //         versions/<version>, links bin/, installs the hub service (run as
@@ -59,6 +64,7 @@ import crypto from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { testApp } from './testapp.mjs';
+import { connectSocket } from '../../../packages/node-client/index.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -277,6 +283,10 @@ try {
     const oldSock = path.join(a.rt, 'ravenryd-0.1.22.sock');
     await until(() => fs.existsSync(oldSock), 5000, 50);
     const oldPane = rvd(a, ['new', '--socket', oldSock, '--name', 'old', '--label', 'ravenry.kind=shell', '--', '/bin/zsh']).split(/\s+/)[0];
+    // Whether the window draws the older daemon (its hello lists pane.render): its shell a tab, or left alone.
+    const oldDrawn = await (async () => { const c = await connectSocket(oldSock, { name: 'installcheck', version: '1' }); try { return c.has('pane.render'); } finally { c.close(); } })();
+    const oldTabs = oldDrawn ? [oldPane] : [];
+    console.log(`installcheck: the 0.1.22 daemon ${oldDrawn ? 'has the render stream: its shell is the fourth tab' : 'is from before the render stream: its shell is no tab'}`);
     rvd(a, ['serve', '--detach'], path.join(a.data, 'versions', EBUILD.version, 'ravenryd'));
     const sock = path.join(a.rt, `ravenryd-${EBUILD.version}.sock`);
     await until(() => fs.existsSync(sock), 5000, 50);
@@ -297,7 +307,7 @@ try {
     const n = launchNative(a, 'update');
     // Every running shell of every daemon comes back as a tab (8b7c4a6): the
     // saved three first, in their order, then the older daemon's shell.
-    const r = await until(() => { const x = n.report(); return x && x.tabs.length === 4 && x.focused.draws > 0 && /in-pane-two/.test(x.focused.text) ? x : null; }, 30000);
+    const r = await until(() => { const x = n.report(); return x && x.tabs.length === 3 + oldTabs.length && x.focused.draws > 0 && /in-pane-two/.test(x.focused.text) ? x : null; }, 30000);
     // An Electron app of this version: the window opens on its daemon and
     // starts none. An older one (the person's last Electron release): the
     // packaged app starts this version's daemon beside it ("The daemon" in
@@ -305,7 +315,7 @@ try {
     const same = EBUILD.version === BUILD.version;
     step(same ? 'update: the window opens on the running daemon (no new one), its three shells as tabs in the saved order, the one in front drawn with what it showed'
       : `update: the window opens the older daemon's (${EBUILD.version}) three shells as tabs on it in the saved order, the one in front drawn with what it showed, on this version's daemon started beside it`,
-    !!r && r.daemon === BUILD.version && r.tabs.slice(0, 3).every((t) => t.daemon === EBUILD.version) && JSON.stringify(r.tabs.map((t) => t.host)) === JSON.stringify([panes[1], panes[2], panes[0], oldPane]) && r.tabs[3].daemon === '0.1.22' && r.front === panes[1], { report: r && { ...r, focused: { ...r.focused, text: r.focused.text.slice(0, 200) } }, panes, oldPane });
+    !!r && r.daemon === BUILD.version && r.tabs.slice(0, 3).every((t) => t.daemon === EBUILD.version) && JSON.stringify(r.tabs.map((t) => t.host)) === JSON.stringify([panes[1], panes[2], panes[0], ...oldTabs]) && (!oldDrawn || r.tabs[3].daemon === '0.1.22') && r.front === panes[1], { report: r && { ...r, focused: { ...r.focused, text: r.focused.text.slice(0, 200) } }, panes, oldPane, oldDrawn });
     const done = await until(async () => {
       const lis = listeners(a.port);
       const plist = read(path.join(a.home, 'Library', 'LaunchAgents', `${a.label}.plist`)) || '';
@@ -339,14 +349,14 @@ try {
     const split = { host: `s:${panes[1]}`, guest: `s:${panes[0]}`, side: 'right', size: 60, focus: 0, zoom: 0 };
     fs.writeFileSync(wf, JSON.stringify({ order: [`s:${panes[1]}`, `s:${panes[0]}`, `s:${panes[2]}`], splits: [split], active: `s:${panes[1]}`, pinned: [], electronOnly: 'kept' }, null, 2));
     const n2 = launchNative(a, 'update-split');
-    const r2 = await until(() => { const x = n2.report(); return x && x.tabs.length === 3 && x.tabs[0].guest ? x : null; }, 30000);
-    step('update: a split the Electron app saved opens as one tab of its two panes, beside the other tab (then the older daemon\'s shell)', !!r2 && r2.tabs[0].host === panes[1] && r2.tabs[0].guest === panes[0] && r2.tabs[1].host === panes[2] && r2.tabs[2].host === oldPane, { tabs: n2.report()?.tabs });
+    const r2 = await until(() => { const x = n2.report(); return x && x.tabs.length === 2 + oldTabs.length && x.tabs[0].guest ? x : null; }, 30000);
+    step(`update: a split the Electron app saved opens as one tab of its two panes, beside the other tab${oldDrawn ? ' (then the older daemon\'s shell)' : ''}`, !!r2 && r2.tabs[0].host === panes[1] && r2.tabs[0].guest === panes[0] && r2.tabs[1].host === panes[2] && JSON.stringify(r2.tabs.slice(2).map((t) => t.host)) === JSON.stringify(oldTabs), { tabs: n2.report()?.tabs, oldDrawn });
     n2.p.kill('SIGTERM');
     await until(() => n2.p.exitCode !== null, 10000);
     await sleep(500);
     const back = json(wf) || {};
     const sp = (back.splits || [])[0] || {};
-    step('update: quitting, the native app writes the split back as the Electron app reads it, and leaves the Electron app\'s own key', sp.host === split.host && sp.guest === split.guest && sp.side === 'right' && Math.round(sp.size) === 60 && back.electronOnly === 'kept' && (back.order || []).join(',') === [split.host, split.guest, `s:${panes[2]}`, `s:${oldPane}`].join(','), { back });
+    step('update: quitting, the native app writes the split back as the Electron app reads it, and leaves the Electron app\'s own key', sp.host === split.host && sp.guest === split.guest && sp.side === 'right' && Math.round(sp.size) === 60 && back.electronOnly === 'kept' && (back.order || []).join(',') === [split.host, split.guest, `s:${panes[2]}`, ...oldTabs.map((p) => `s:${p}`)].join(','), { back, oldDrawn });
     retire(a);
   }
 
