@@ -5,7 +5,7 @@
 window.RAVENRY_SITE = {
   // The Mac app's version on the latest GitHub release, shown under the download
   // (tools/publish-testers.mjs sets it in the copy it publishes).
-  macVersion: '0.1.67',
+  macVersion: '0.1.69',
   // The Mac app's DMG on every release (apps/macos/scripts/package.mjs writes it).
   macFile: 'Ravenry-mac.dmg',
   // The Android app's file on every release: upload the APK under this name.
@@ -44,7 +44,7 @@ window.RAVENRY_SITE = {
 <script src="product.js"></script>
 </head>
 <body>
-<nav><div class="wrap"><span id="m"></span>Ravenry<span class="sp"></span><a class="l" href="#ask">Ask</a><a class="l" href="#remember">Remember</a><a class="l" href="#phone">Phone</a><a class="dl" href="#get">Download</a></div></nav>
+<nav><div class="wrap"><span id="m"></span>Ravenry<span class="sp"></span><a class="l" href="#ask">Ask</a><a class="l" href="#remember">Remember</a><a class="l" href="#phone">Phone</a><a class="gh" data-link="source" href="https://github.com/patoles/ravenry" aria-label="Ravenry on GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a><a class="dl" href="#get">Download</a></div></nav>
 
 <header class="hero"><div class="wrap">
   <div class="eyebrow">Ravenry for Mac · <b>Early test</b></div>
@@ -81,6 +81,13 @@ window.RAVENRY_SITE = {
   <p class="body">The sessions waiting on you stay on top, whether they run on this Mac or on another one you reach over ssh.</p>
   <div class="board"><div data-rv="board" role="img" aria-label="The board: Needs you, Working and Idle"></div>
     <div class="facts"><div><b class="y">Needs you</b>A question, a command to approve, a finished task. Answer it and it moves on.</div><div><b class="w">Working</b>Busy agents, with how much room each one has left.</div><div><b class="i">Idle</b>Folded away until you want them.</div></div></div>
+</div></section>
+
+<section class="big" id="cleanup"><div class="wrap">
+  <div class="eyebrow" style="color:var(--ok)">Clean up</div>
+  <h2>Clean up idle sessions.<br>In one click.</h2>
+  <p class="body">Old sessions pile up and hold on to memory. Ravenry ticks the ones that are safe to close, shows what each one holds and closes them together. Changed your mind? Reopen it.</p>
+  <div class="clean"><div data-rv="sessions" role="img" aria-label="The Sessions page: the memory the sessions hold, two sessions ticked to close (one handed off, one idle), two left unticked with the reason, the Close 2 sessions button, and a session closed yesterday with Reopen"></div></div>
 </div></section>
 
 <section class="big" id="phone"><div class="wrap">
