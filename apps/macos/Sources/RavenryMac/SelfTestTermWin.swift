@@ -262,6 +262,6 @@ extension SelfTestBoard {
         check("win_cmd_n_after_last", none && opened && wait(5) { (app.windows.first?.ws.focusedView?.screen.frames ?? 0) > 0 }, "none \(none) windows \(app.windows.count)")
         for w in app.windows { w.window.performClose(nil); settle(0.3) }
         let learned = app.windows.isEmpty && pressMenu(help, t("learn.title")) && wait(5) { app.windows.count == 1 }
-        check("win_help_after_last", learned && wait(3) { app.windows.first?.board.front == .page("side.learn", t("learn.title")) }, "windows \(app.windows.count) front \(String(describing: app.windows.first?.board.front))")
+        check("win_help_after_last", learned && wait(3) { app.windows.first?.board.front == .page("side.learn", t("learn.title")) }, "windows \(app.windows.count) front \(String(describing: app.windows.first?.board.front)), log \(app.windows.first?.board.log.filter { $0.hasPrefix("open on") || $0.hasPrefix("hand-off") || $0.hasPrefix("session ") }.suffix(4) ?? [])")
     }
 }

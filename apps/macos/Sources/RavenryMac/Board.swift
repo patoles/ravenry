@@ -1005,7 +1005,13 @@ final class Board: NSObject {
         log.append("learn\(lit.map { " \($0)" } ?? "")")
         render()
     }
-    @objc func menuLearn(_ sender: Any?) { openLearn() }
+    /// Help, Learn Ravenry: asked for, so a window that has no state yet
+    /// stays on it when its first state comes (openOn), not the session the
+    /// person used last.
+    @objc func menuLearn(_ sender: Any?) {
+        openOnDone = true
+        openLearn()
+    }
 
     /// Machines: the computers the hub reaches over ssh.
     func openMachines() {

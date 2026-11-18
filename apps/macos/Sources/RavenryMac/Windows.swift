@@ -287,7 +287,7 @@ extension AppDelegate {
     @objc func menuSettings(_ sender: Any?) { (current?.board ?? Board.lastFront)?.openSettings() }
     @objc func menuLearn(_ sender: Any?) {
         guard let c = current ?? makeWindow(.restore) else { return }
-        c.board.openLearn()
+        c.board.menuLearn(sender)
     }
     /// Help, Privacy: the privacy page in the browser (recorded off every screen).
     @objc func menuPrivacy(_ sender: Any?) { Outside.open(t("privacy.url")) }
