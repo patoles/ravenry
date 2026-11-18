@@ -36,10 +36,35 @@
 //   hub), the connection up (the shell's check, a network change, Reconnect)
 //   or the live stream up. The app's own page for a board that did not load
 //   (body[data-unreached]) loads the board then.
+// - The demo (src/demo.ts; the shell's page says so on this script's tag,
+//   before the board's own script reads anything): the board's settings
+//   kept for the visit only, never in the real board's storage, the demo's
+//   bar on top, and the Mac's own controls left off.
 
-import { connect, b64 } from './shell.ts';
+import { connect, b64, demoPage } from './shell.ts';
 import type { Alert, Shell } from './shell.ts';
 import { deviceWord, t } from './strings.ts';
+import { STORE_KEY, demoBar } from './demo.ts';
+
+const DEMO = demoPage();
+if (DEMO) {
+  // The board keeps its theme and its last project in localStorage: in the
+  // demo, in this visit's sessionStorage instead, which leaving the demo
+  // clears (and the real board, once a Mac is paired, never sees).
+  let m: Record<string, string> = {};
+  try { m = JSON.parse(sessionStorage.getItem(STORE_KEY) || '{}') || {}; } catch { m = {}; }
+  const keep = (): void => { try { sessionStorage.setItem(STORE_KEY, JSON.stringify(m)); } catch { /* none */ } };
+  const store = {
+    get length() { return Object.keys(m).length; },
+    key: (i: number) => Object.keys(m)[i] ?? null,
+    getItem: (k: string) => (Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null),
+    setItem: (k: string, v: string) => { m[k] = String(v); keep(); },
+    removeItem: (k: string) => { delete m[k]; keep(); },
+    clear: () => { m = {}; keep(); },
+  };
+  try { Object.defineProperty(window, 'localStorage', { value: store, configurable: true }); } catch { /* the board keeps its own then */ }
+  document.documentElement.classList.add('rv-demo-on');
+}
 
 /** What the shell says about the connection to the Mac (MainActivity's ConnWatch). */
 export interface Conn { state: 'up' | 'reconnecting' | 'offline'; via: string; since: number | null; rtt: number | null; reason?: string | null; words?: string | null; mac?: string | null }
@@ -304,6 +329,10 @@ function reached(sh: Shell, now = false): void {
 
 function start(sh: Shell): void {
   document.documentElement.dataset.app = sh.hello.platform;
+  if (sh.hello.demo) {
+    // The bar on top: Pair your Mac leaves the demo for the pairing screen.
+    demoBar(() => { void sh.call('demo.leave').catch(() => {}); }, () => document.body.classList.contains('light'));
+  }
   // The board reads which app it is in (its words for Run's check, this phone's alerts).
   if (window.ravenryApp) window.ravenryApp.platform = sh.hello.platform;
   // Which device: "This phone" or "This iPad" in the board's menu and top bar.

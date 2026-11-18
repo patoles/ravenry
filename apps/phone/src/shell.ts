@@ -21,6 +21,8 @@ export interface Hello {
   pending?: Alert | null;
   /** The app's launch now: "warm" when the board reloads in a rebuilt activity (the still mark waits, briefly); "ink" for Android 13's shader, which lands on its own clock. */
   launch?: 'cold' | 'warm' | 'ink' | null;
+  /** The demo (src/demo.ts): no Mac, the board answered from the app's own files. */
+  demo?: boolean;
 }
 
 /** A push message's alert (docs/PHONE.md section 5), as far as the page reads it. */
@@ -31,6 +33,9 @@ export interface Alert {
   session?: { surfaceId: string } | null;
   checkpoint?: { id: string; kind: string } | null;
 }
+
+import { cannot, fileUrl, forget, loadDemo } from './demo.ts';
+import type { Demo } from './demo.ts';
 
 type Fn = (msg: Record<string, unknown>) => void;
 
@@ -125,6 +130,7 @@ class BrowserShell implements Shell {
   private es: EventSource | null = null;
 
   async start(): Promise<void> {
+    if (demoPage()) { this.hello.demo = true; return; }
     try {
       const r = await fetch('hub/api/phone/hello');
       if (r.ok) { const j = await r.json(); if (j && j.name) this.hello.hub = { name: j.name, port: j.port }; }
@@ -177,20 +183,108 @@ class BrowserShell implements Shell {
       }
       case 'socket.close': { this.sockets.get(Number(a.sid))?.close(1000); return undefined as T; }
       case 'alerts.clear': case 'open.settings': return undefined as T;
+      // The demo in a browser (tools/serve.mjs --demo): leaving it shows where it went.
+      case 'demo.leave': location.replace('/phone/left-demo'); return undefined as T;
+      case 'demo.alert': (window as unknown as { rvDemoAlert?: unknown }).rvDemoAlert = a.alert; return { posted: false } as T;
       case 'back.done': return undefined as T;
       default: throw new Error('This needs the Ravenry app.');
     }
   }
 }
 
+// ---------------------------------------------------------------- the demo
+
+/**
+ * The demo's shell (src/demo.ts): the native shell for what is the phone's
+ * own (the system bars, Back, a fingerprint, the alert's permission), and
+ * the demo for everything that would reach the Mac, so nothing does. What
+ * needs a Mac (the camera, a voice note, a secret, push, a terminal) says the
+ * demo cannot.
+ */
+const DEMO_NATIVE = new Set(['bars', 'back.done', 'biometric', 'alerts.state', 'alerts.settings', 'alerts.clear', 'ink.ready', 'open.settings', 'demo.alert', 'demo.leave']);
+class DemoShell implements Shell {
+  hello: Hello;
+  private inner: Shell;
+  private demo: Demo;
+  private wire = new Wire(() => {});
+  private off: (() => void) | null = null;
+  constructor(inner: Shell, demo: Demo) {
+    this.inner = inner;
+    this.demo = demo;
+    // Only what the phone can do without a Mac.
+    const keep = new Set(['biometric', 'alerts.state']);
+    this.hello = { ...inner.hello, demo: true, hub: { name: String(demo.sample.get['/api/phone/me']?.json?.hub?.name || 'Sample Mac') }, device: null, pending: inner.hello.pending ?? null, features: inner.hello.features.filter((f) => keep.has(f)) };
+    // For the demo check (tools/demo-check.mjs): what the recording did not answer.
+    (window as unknown as { ravenryDemo?: Demo }).ravenryDemo = demo;
+    // The alert's buttons, from the native shell (Notifier's demo alert).
+    inner.on('demo.action', (m) => { if (typeof m.checkpoint === 'string') this.demo.answer({ id: m.checkpoint, by: 'phone', ...(m.answer as Record<string, unknown>) }, true); });
+    // Answered on the board or a screen of the app: its alert leaves the shade, as a hub's close takes it off.
+    demo.onAnswered((id, fromAlert) => { if (!fromAlert) void inner.call('alerts.clear', { id: `demo:${id}` }).catch(() => {}); });
+    // The question arrives: the phone posts its alert itself, once a visit,
+    // when the phone shows Ravenry's alerts (it never asks for them here).
+    demo.onArrive(() => {
+      const alert = demo.takeAlert();
+      if (alert) void inner.call('demo.alert', { alert }).catch(() => {});
+    });
+  }
+  has(f: string): boolean { return this.hello.features.includes(f); }
+  on(event: string, fn: Fn): () => void {
+    if (event === 'hub' || event === 'link') return this.wire.on(event, fn);
+    return this.inner.on(event, fn);
+  }
+  async call<T>(op: string, a: Record<string, unknown> = {}): Promise<T> {
+    const d = this.demo;
+    switch (op) {
+      case 'hub.call': {
+        const r = d.request(String(a.method || 'GET'), String(a.path || '/'), a.body ?? null);
+        return { status: r.status, body: r.json ?? r.text ?? null } as T;
+      }
+      case 'http': {
+        const bytes = typeof a.b64 === 'string' && a.b64 ? b64.to(a.b64) : null;
+        let body: unknown = null;
+        if (bytes) { try { body = JSON.parse(new TextDecoder().decode(bytes)); } catch { body = null; } }
+        const r = d.request(String(a.method || 'GET').toUpperCase(), String(a.path || '/'), body);
+        if (r.file) { const f = await fetch(fileUrl(r.file)); return { status: r.status, type: r.type, b64: b64.from(new Uint8Array(await f.arrayBuffer())) } as T; }
+        const text = r.json !== undefined ? JSON.stringify(r.json) : r.text ?? '';
+        return { status: r.status, type: r.type, b64: b64.from(new TextEncoder().encode(text)) } as T;
+      }
+      case 'http.part': return undefined as T;
+      case 'hub.events': {
+        if (a.on && !this.off) {
+          this.off = d.on((name, data) => this.wire.emit('hub', { event: 'hub', name, data }));
+          setTimeout(() => { this.wire.emit('link', { event: 'link', state: 'up' }); d.emitState(); }, 0);
+        } else if (!a.on && this.off) { this.off(); this.off = null; }
+        return undefined as T;
+      }
+      // No chip, no reach bar: the bar on top says it is a demo.
+      case 'conn.now': case 'reach.now': return null as T;
+      case 'conn.reconnect': case 'reach.retry': return undefined as T;
+      case 'push.status': return { distributors: [], current: null, off: true } as T;
+      case 'connection.get': return { on: false } as T;
+      // Sign out leaves the demo.
+      case 'pair.reset': forget(); return this.inner.call<T>('demo.leave');
+      case 'demo.leave': forget(); return this.inner.call<T>('demo.leave');
+      default:
+        if (DEMO_NATIVE.has(op)) return this.inner.call<T>(op, a);
+        throw new Error(cannot());
+    }
+  }
+}
+
 let shell: Shell | null = null;
+
+/** Whether this page is the demo's, said by the shell's page before any script asked (the demo board's script tag, the browser stand-in). */
+export const demoPage = (): boolean => document.documentElement.hasAttribute('data-demo') || !!document.querySelector('script[data-demo]');
 
 /** The shell this page runs in, once it said hello. */
 export async function connect(): Promise<Shell> {
   if (shell) return shell;
   const ch = (globalThis as unknown as { ravenryShell?: Channel }).ravenryShell;
-  if (ch) { const s = new NativeShell(ch); await s.start(); shell = s; }
-  else { const s = new BrowserShell(); await s.start(); shell = s; }
+  let s: Shell;
+  if (ch) { const n = new NativeShell(ch); await n.start(); s = n; }
+  else { const b = new BrowserShell(); await b.start(); s = b; }
+  if (s.hello.demo || (!ch && demoPage())) s = new DemoShell(s, await loadDemo());
+  shell = s;
   return shell;
 }
 

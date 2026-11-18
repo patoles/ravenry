@@ -32,6 +32,12 @@
 // Code 2.1.323 draws it. A board that judged the prompt by its history
 // alone took that suggestion for a half-typed reply and turned Send off.
 //
+// --sample: the board the phone apps' demo is recorded from
+// (tools/demo-sample.mjs): the computer is "Sample Mac", paper-boat waits on
+// a `ravenry pick` of three pictures of its boat, and nothing asks for a
+// secret (the demo answers on the phone alone, and a secret is never typed
+// there).
+//
 // --phone turns phone access on, so the hub listens with TLS on the phone
 // port (docs/PHONE.md section 2) for an emulator (10.0.2.2; --phone-hosts
 // 127.0.0.1 for the iPhone simulator, which shares this Mac's network), and prints the
@@ -56,6 +62,7 @@ const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] :
 const PHONE = args.includes('--phone');
 const E2E = args.includes('--e2e');
 const SUGGEST = args.includes('--suggest');
+const SAMPLE = args.includes('--sample');
 const WORK = path.resolve(opt('--dir', path.join(APP, '.tmp', 'demo')));
 const BIN = path.resolve(process.env.RAVENRYD || path.join(REPO, 'daemon', 'ravenryd'));
 if (!fs.existsSync(BIN)) { console.error(`no ravenryd at ${BIN}; build it (daemon/README.md) or set RAVENRYD`); process.exit(1); }
@@ -144,7 +151,7 @@ function preparePages({ HOME, MC }) {
 
 execFileSync(BIN, ['serve', '--detach'], { env: localEnv(WORK) });
 const extraEnv = { MC_NO_EVENTS: '0', RAVENRY_SSH: path.join(FAKE, 'ssh'), RAVENRY_DAEMON_BIN: BIN, RAVENRY_STATE_DIR: path.join(WORK, 'hub-state'), RAVENRY_MACHINE_RETRY_MS: '300' };
-Object.assign(extraEnv, { RAVENRY_HUB_NAME: 'MacBook Pro' });
+Object.assign(extraEnv, { RAVENRY_HUB_NAME: SAMPLE ? 'Sample Mac' : 'MacBook Pro' });
 if (E2E) Object.assign(extraEnv, { RAVENRY_TERMINAL: 'ravenry', PATH: `${STAND}:${process.env.PATH}` });
 // MC_NO_STYLED_READ=1: the board without its styled read (the history alone).
 if (process.env.MC_NO_STYLED_READ === '1') extraEnv.MC_NO_STYLED_READ = '1';
@@ -189,10 +196,15 @@ const liveS = sessionScript(S['weather-widget'], {
     `${C.dim}  17   export async function getForecast(city) {${C.r}`, `${C.del}  18 -   return fetchJson(\`\${BASE}/forecast?q=\${city}\`);${C.r}`,
     `${C.add}  18 +   const hit = cache.get(city);${C.r}`, '',
     `${C.g}⏺${C.r} ${C.w}Bash${C.r}(npm test -- forecast)`, `${C.dim}  ⎿  ${C.g}PASS${C.dim}  test/forecast.test.ts (5 tests, 1.1 s)${C.r}`, '',
-    `${C.w}⏺${C.r} Done. Forecasts are now cached for 10 minutes per city, and the tests pass.`, '',
-    '─'.repeat(54), ` ${C.w}Cache length${C.r}`, '', 'Which do you want: 10 minutes or 30?', '',
-    `${C.b}❯ 1. 10 minutes${C.r}`, '     Fresh enough for a widget', '  2. 30 minutes', '     A third of the calls', '  3. Type something.', '',
-    `${C.dim}Enter to select · ↑/↓ to navigate · Esc to cancel${C.r}`, '',
+    ...(SAMPLE ? [
+      // The sample's sessions at work: the same screen, still going.
+      `${C.o}✻${C.r} Checking the cache at three city sizes… ${C.dim}(1m 12s · esc to interrupt)${C.r}`, '',
+    ] : [
+      `${C.w}⏺${C.r} Done. Forecasts are now cached for 10 minutes per city, and the tests pass.`, '',
+      '─'.repeat(54), ` ${C.w}Cache length${C.r}`, '', 'Which do you want: 10 minutes or 30?', '',
+      `${C.b}❯ 1. 10 minutes${C.r}`, '     Fresh enough for a widget', '  2. 30 minutes', '     A third of the calls', '  3. Type something.', '',
+      `${C.dim}Enter to select · ↑/↓ to navigate · Esc to cancel${C.r}`, '',
+    ]),
   ].join('\\n'),
   wait: 'sleep 100000',
   title: 'Cache forecasts',
@@ -211,13 +223,30 @@ const DEVBOX_FOLDER = path.join(DEVBOX_HOME, 'code', 'recipe-box');
 fs.mkdirSync(DEVBOX_FOLDER, { recursive: true });
 const newPane = (env, s, file, name, cwd = s.folder) => execFileSync(BIN, ['new', '--cwd', cwd, '--name', name, '--size', '56x40', '--label', 'ravenry.session=claude', '--', '/bin/sh', file], { env, encoding: 'utf8' }).trim();
 newPane(localEnv(WORK), S['weather-widget'], liveS, 'Cache forecasts');
-newPane(localEnv(WORK), S['paper-boat'], glyphS, 'Glyph check');
+if (SAMPLE) {
+  // The pick of the demo: three renders of one moment of the boat (boat-scene.mjs).
+  const { boatPictures, BOAT } = await import('./boat-scene.mjs');
+  const pics = await boatPictures(path.join(WORK, 'renders'));
+  const variants = BOAT.map((v, i) => `--variant ${q(`${v.label}=${pics[i]}`)} --describe ${q(`${v.label}=${v.describe}`)}`).join(' ');
+  const pickS = sessionScript(S['paper-boat'], {
+    title: 'Boat tilt',
+    screen: `${C.box} > Make the hull tilt with the waves, then let me pick on my phone ${C.r}\\n\\n${C.g}⏺${C.r} ${C.w}Bash${C.r}(npm run render -- --frame 412 --variants tilt)\\n${C.dim}  ⎿  3 renders in shots/tilt/${C.r}\\n\\n${C.y}⏺${C.r} ${C.w}Bash${C.r}(ravenry pick "Which tilt reads best?" ...)\\n${C.dim}  ⎿  Waiting for your pick in Ravenry.${C.r}\\n`,
+    wait: `'${BIN}' pick "$(printf 'Which tilt reads best on the big wave?\\nRendered from the game at the same moment, frame 412 of the storm level.')" ${variants} --timeout 30m`,
+    after: `\\n${C.g}⏺${C.r} Got your pick.\\n`,
+  });
+  newPane(localEnv(WORK), S['paper-boat'], pickS, 'Boat tilt');
+} else newPane(localEnv(WORK), S['paper-boat'], glyphS, 'Glyph check');
 // --hold: the three checkpoints open only once <dir>/go exists, so a phone
 // paired first gets their alerts as they open.
 const openCheckpoints = () => {
   newPane(localEnv(WORK), S['notes-app'], askS, 'Sync settings');
   newPane(DEVBOX_ENV, S['recipe-box'], approveS, 'Old recipe import', DEVBOX_FOLDER);
-  newPane(localEnv(WORK), S['garden-planner'], secretS, 'Reminder emails');
+  if (!SAMPLE) newPane(localEnv(WORK), S['garden-planner'], secretS, 'Reminder emails');
+  else newPane(localEnv(WORK), S['garden-planner'], sessionScript(S['garden-planner'], {
+    screen: `${C.box} > Send the first reminder when a sowing window opens ${C.r}\\n\\n${C.g}⏺${C.r} ${C.w}Update${C.r}(src/reminders.ts)\\n${C.dim}  ⎿  Updated src/reminders.ts with 22 additions${C.r}\\n\\n${C.o}✻${C.r} Writing the reminder text… ${C.dim}(48s · esc to interrupt)${C.r}\\n`,
+    wait: 'sleep 100000',
+    title: 'Reminder emails',
+  }), 'Reminder emails');
 };
 if (args.includes('--hold')) {
   const t = setInterval(() => { if (fs.existsSync(path.join(WORK, 'go'))) { clearInterval(t); openCheckpoints(); console.log('checkpoints opened'); } }, 300);

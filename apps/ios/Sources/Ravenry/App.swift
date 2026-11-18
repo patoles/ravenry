@@ -6,6 +6,7 @@
 
 import UIKit
 import SwiftUI
+import UserNotifications
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -16,6 +17,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = Device.pad
         #if DEBUG
         if ProcessInfo.processInfo.environment["RAVENRY_RESET"] == "1" { Store.shared.wipe(); Log.say("start: wiped for a check") }
+        // The demo's check (Tests/RavenryUITests): iOS's ask for alerts at the start, as the alerts' ask after pairing would have it.
+        if ProcessInfo.processInfo.environment["RAVENRY_TEST_ASK_ALERTS"] == "1" { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in AlertCenter.shared.refresh() } }
         #endif
         Log.say("start: Ravenry \(PairModel.appVersion), \(Store.shared.paired() == nil ? "not paired" : "paired")")
         AlertCenter.shared.setUp()
@@ -86,6 +89,21 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         Log.say("board: shown (\(cold ? "cold start" : "after pairing"))")
     }
 
+    /// The demo (Board.swift): the board on sample projects, in a web view that keeps nothing; never once a Mac is paired.
+    func showDemo() {
+        guard let w = window, Store.shared.paired() == nil else { return }
+        w.endEditing(true)
+        let b = BoardController()
+        b.demo = true
+        board = b
+        pairing = nil
+        AlertCenter.shared.board = b
+        w.rootViewController = b
+        b.loadViewIfNeeded()
+        if UIApplication.shared.applicationState == .active { b.appeared() }
+        Log.say("demo: shown (no Mac, no connection)")
+    }
+
     func showPairing(signedOut: Bool = false, link: String? = nil) {
         guard let w = window else { return }
         board?.disappeared()
@@ -94,6 +112,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let m = pairing ?? PairModel(signedOut: signedOut)
         if signedOut { m.error = "This \(Device.word) was signed out. Scan the code on the Mac again."; m.step = .scan }
         m.onDone = { [weak self] in self?.showBoard(cold: false) }
+        m.onDemo = { [weak self] in self?.showDemo() }
         if pairing == nil {
             pairing = m
             w.rootViewController = UIHostingController(rootView: PairRoot(m: m))

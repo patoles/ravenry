@@ -24,6 +24,9 @@
   <string name="pair_tailscale">Set up Tailscale</string>
   <string name="pair_camera_q">Camera not working?</string>
   <string name="pair_type">Type the code instead</string>
+  <!-- The demo's line at the foot of the pairing screen (shared/strings demo.entry.*). -->
+  <string name="demo_q">No Mac yet?</string>
+  <string name="demo_try">Try the demo</string>
   <string name="pair_foot">No account. Your sessions stay on your machines.</string>
   <string name="pair_no_camera">The camera is off. Allow it, or type the code instead.</string>
   <string name="pair_type_sub">Type the address and the code the Mac shows under its QR code.</string>

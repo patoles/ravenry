@@ -1626,5 +1626,16 @@
   "licences.title": "Open Source Licences",
   "licences.phone": "Open source licences",
   "licences.sub": "The projects Ravenry is built with, and their licences.",
-  "licences.missing": "The licences file is not in this build."
+  "licences.missing": "The licences file is not in this build.",
+  "demo.entry.ask": "No Mac yet?",
+  "demo.entry.try": "Try the demo",
+  "demo.bar.lead": "Demo.",
+  "demo.bar.text": "Sample projects, nothing leaves this phone.",
+  "demo.bar.pair": "Pair your Mac",
+  "demo.cannot": "The demo can’t do that. Pair your Mac to do it for real.",
+  "demo.alert.title": "Demo: {project} needs you",
+  "demo.alert.detail": "Sample question. Your answer stays on this phone.",
+  "demo.settings.mac": "A sample Mac, for the demo",
+  "demo.settings.leave": "Leave the demo",
+  "demo.settings.note": "Pair your own Mac to see your sessions here."
 }

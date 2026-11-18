@@ -69,10 +69,12 @@ export function settingsScreen(): Screen {
       : !st.push.distributors.length ? 'No UnifiedPush app on this phone (ntfy, for one): alerts come while Ravenry is connected'
         : st.push.off ? `Off: ${dist} sends nothing. Alerts come while Ravenry is connected`
           : `Through ${dist} (UnifiedPush), encrypted for this phone`;
+    // The demo (src/demo.ts): a sample Mac, nothing paired, no push to set; leaving it is the way out.
+    const demo = !!sh.hello.demo;
     replace(el,
       h('header.sh.pgtop', h('button.icon-btn.fg', { 'aria-label': 'Back', on: { click: back } }, svg(I.BACK)), h('span.pgt', 'Settings')),
       h('div.scroll', h('div.setgs',
-        h('div.setg',
+        demo ? h('div.setg', h('div.setr', h('div.tx', h('div', name), h('div.s', t('demo.settings.mac'))), h('span.r', t('demo.bar.lead').replace(/\.$/, '')))) : h('div.setg',
           h('div.setr', h('div.tx', h('div', name), h('div.s', `Paired as ${device}`)), h(`span.r${up ? '.ok' : ''}`, up ? 'Connected' : 'Not connected')),
           ...(ios ? [h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', 'While Ravenry is open, as iOS allows them')), h('span.r', st.alerts ? 'On' : 'Off'))] : [
             h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', pushSub)), toggle(pushOn, !!st.push && st.push.distributors.length > 0, () => void setPush(!pushOn), 'Alerts by push')),
@@ -83,8 +85,9 @@ export function settingsScreen(): Screen {
         h('div.setg', h('a.setr.link', { href: t('privacy.url'), target: '_blank', rel: 'noopener', 'data-k': 'privacy' }, h('div.tx', h('div', t('privacy.title')), h('div.s', t('privacy.sub'))), h('span.r', '\u2197')),
           // The projects the app is built with and their licences, in the app (src/licences.ts).
           h('button.setr', { 'data-k': 'licences', on: { click: () => go('/licences') } }, h('div.tx', h('div', t('licences.phone')), h('div.s', t('licences.sub'))), h('span.r', '\u203a'))),
-        h('div.setg', h('button.setr.red', { on: { click: () => void signOut(name) } }, `Sign out of ${name}`)),
-        h('p.setn', `${name} can sign this ${me} out too, from its phone button.`))));
+        demo ? h('div.setg', h('button.setr', { on: { click: () => void sh.call('demo.leave').catch(() => {}) } }, t('demo.settings.leave')))
+          : h('div.setg', h('button.setr.red', { on: { click: () => void signOut(name) } }, `Sign out of ${name}`)),
+        h('p.setn', demo ? t('demo.settings.note') : `${name} can sign this ${me} out too, from its phone button.`))));
   }
 
   paint();

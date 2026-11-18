@@ -79,6 +79,8 @@ class MainActivity : FragmentActivity() {
     private val nextSid = AtomicInteger(1)
     private var backWaiting = false
     private lateinit var back: OnBackPressedCallback
+    /** The demo (Demo.kt): sample projects, no Mac, no connection; only while no Mac is paired. */
+    private var demo = false
 
     private var photoReply: Int? = null
     private var photoProject: String? = null
@@ -147,7 +149,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Store.get(this).paired() == null) {
+        demo = intent?.getBooleanExtra(EXTRA_DEMO, false) == true && Store.get(this).paired() == null
+        if (demo) { Demo.attach(this); Log.i("Ravenry", "demo: open (no Mac, no connection)") }
+        if (!demo && Store.get(this).paired() == null) {
             startActivity(Intent(this, PairActivity::class.java))
             finish(); return
         }
@@ -156,7 +160,7 @@ class MainActivity : FragmentActivity() {
         web = WebView(this)
         box.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(box)
-        ink = InkLaunch.begin(this, box, web, retry = { conn.reconnect() }, why = { Hub.get(this)?.let { reachOf(it.allHosts, null).words } ?: getString(R.string.mac_no_answer) })
+        ink = if (demo) null else InkLaunch.begin(this, box, web, retry = { conn.reconnect() }, why = { Hub.get(this)?.let { reachOf(it.allHosts, null).words } ?: getString(R.string.mac_no_answer) })
         ViewCompat.setOnApplyWindowInsetsListener(box) { v, ins ->
             val b = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.displayCutout())
             v.setPadding(b.left, b.top, b.right, b.bottom)
@@ -226,6 +230,8 @@ class MainActivity : FragmentActivity() {
                 val u = request.url
                 if (u.host != HOST) return null
                 val path = u.path ?: "/"
+                // The demo: the app's own files only (Demo.kt), never the hub.
+                if (demo && !(path.startsWith("/phone/") && !path.startsWith("/phone/hub/"))) return Demo.resource(this@MainActivity, u, request.method)
                 if (path.startsWith("/phone/hub/")) {
                     // Only the page itself: a frame of another origin (an MCP
                     // App's sandbox) never reads the hub through this door.
@@ -277,6 +283,7 @@ class MainActivity : FragmentActivity() {
         web.loadUrl(was ?: "$ORIGIN/")
         // The alerts are asked once, on their own screen right after pairing
         // (PairActivity's Alerts step); Settings has the way back to them.
+        if (demo) return
         Push.register(this)
         // Paired now (the first open after pairing too): hold the connection,
         // unless Settings turned that off.
@@ -289,12 +296,31 @@ class MainActivity : FragmentActivity() {
      * The launch: a warm start has none).
      */
     private fun leave() {
+        // Back at the demo's home: out of the demo, to the pairing screen.
+        if (demo) { leaveDemo(); return }
         if (!moveTaskToBack(true)) {
             back.isEnabled = false
             onBackPressedDispatcher.onBackPressed()
             back.isEnabled = true
         }
     }
+
+    /**
+     * Out of the demo (its bar's Pair your Mac, Back at its home, Leave the
+     * demo): the pairing screen, and nothing of the demo kept. Its page's
+     * visit lived in this WebView's sessionStorage, which goes with it (the
+     * page cleared it first); its alert leaves the shade.
+     */
+    private fun leaveDemo() {
+        Demo.clearAlerts(this)
+        Demo.attach(null)
+        Log.i("Ravenry", "demo: left, ${Demo.served} of the app's own files served, no connection made")
+        startActivity(Intent(this, PairActivity::class.java))
+        finish()
+    }
+
+    /** The demo alert's button (Demo.action): the page answers its card. */
+    fun demoAnswer(checkpoint: String, answer: JSONObject) = event(JSONObject().put("event", "demo.action").put("checkpoint", checkpoint).put("answer", answer))
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -304,7 +330,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (::web.isInitialized) conn.start()
+        if (::web.isInitialized && !demo) conn.start()
     }
 
     // Back in front (from Android's notification settings too): the board's
@@ -325,6 +351,7 @@ class MainActivity : FragmentActivity() {
         if (::secret.isInitialized) secret.close()
         recorder?.let { runCatching { it.stop() }; it.release() }; recorder = null
         if (::web.isInitialized) web.destroy()
+        if (demo && isFinishing) Demo.attach(null)
         super.onDestroy()
     }
 
@@ -349,6 +376,8 @@ class MainActivity : FragmentActivity() {
         val op = o.str("op", "")
         if (o.optInt("v", 1) != 1) { reply(id, false, error = "This app speaks bridge version 1."); return }
         try {
+            // The demo answers the board in its page: nothing here reaches a hub.
+            if (demo && op in Demo.HUB_OPS) { reply(id, false, error = "Not in the demo."); return }
             handle(id, op, o)
         } catch (e: Exception) {
             reply(id, false, error = e.message ?: e.javaClass.simpleName)
@@ -367,6 +396,7 @@ class MainActivity : FragmentActivity() {
                     .put("features", JSONArray(features()))
                     .put("pending", pending?.let { parse(it) } ?: JSONObject.NULL)
                     .put("launch", ink?.kind ?: JSONObject.NULL)
+                if (demo) r.put("demo", true).put("hub", JSONObject.NULL).put("device", JSONObject.NULL)
                 pending = null
                 reply(id, true, r)
             }
@@ -417,7 +447,7 @@ class MainActivity : FragmentActivity() {
                     } catch (e: Exception) { f.delete(); reply(id, false, error = "It could not be read.") }
                 }
             }
-            "reach.now" -> reply(id, true, lastReach ?: JSONObject.NULL)
+            "reach.now" -> reply(id, true, if (demo) JSONObject.NULL else lastReach ?: JSONObject.NULL)
             "reach.retry" -> { lastReach = null; Hub.io.execute { runCatching { hub().call("GET", "/api/phone/hello") }.onSuccess { answered(); main.post { web.reload() } }.onFailure { unreachable(it) } }; reply(id, true) }
             // The board's background and theme for the system bars (src/board.ts).
             "bars" -> {
@@ -460,7 +490,7 @@ class MainActivity : FragmentActivity() {
                 startEvents()
                 reply(id, true)
             }
-            "conn.now" -> reply(id, true, conn.json())
+            "conn.now" -> reply(id, true, if (demo) JSONObject.NULL else conn.json())
             "conn.reconnect" -> { conn.reconnect(); reply(id, true) }
             "ink.ready" -> { ink?.ready(o); reply(id, true) }
             "socket.open" -> {
@@ -540,7 +570,14 @@ class MainActivity : FragmentActivity() {
                 speech.launch(i)
             }
             "alerts.clear" -> { o.str("id")?.let { Notifier.cancel(this, it) }; reply(id, true) }
+            // The demo: out of it (its bar, its settings), and its alert when its question arrives.
+            "demo.leave" -> { reply(id, true); if (demo) main.post { leaveDemo() } }
+            "demo.alert" -> {
+                val a = o.optJSONObject("alert")
+                reply(id, true, JSONObject().put("posted", demo && a != null && Demo.post(this, a.toString())))
+            }
             "pair.reset" -> {
+                if (demo) { reply(id, true); main.post { leaveDemo() }; return }
                 // The screen changes on the tap; the computer is told in the
                 // background, now and later until it answers (Revokes).
                 reply(id, true)
@@ -742,7 +779,8 @@ class MainActivity : FragmentActivity() {
         val f = mutableListOf("secret", "alerts.state", "http.parts")
         if (runCatching { UnifiedPush.getDistributors(this).isNotEmpty() }.getOrDefault(false)) f += "push"
         val bio = BiometricManager.from(this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-        if (bio != BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE && bio != BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE) f += "biometric"
+        // The demo asks for a fingerprint before Run only when one is set up: a phone with none still sees the command run.
+        if (if (demo) bio == BiometricManager.BIOMETRIC_SUCCESS else bio != BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE && bio != BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE) f += "biometric"
         if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) f += "photo"
         if (packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)) f += "voice"
         if (canSpeech()) f += "speech"
@@ -933,6 +971,8 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         const val HOST = "appassets.androidplatform.net"
+        /** Opens the demo (PairActivity's "Try the demo"); ignored once a Mac is paired. */
+        const val EXTRA_DEMO = "dev.ravenry.app.DEMO"
         const val ORIGIN = "https://$HOST"
     }
 }

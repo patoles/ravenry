@@ -280,6 +280,35 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// The demo's question (Board.swift's demo), posted by the phone itself when the
+    /// question arrives and iOS shows Ravenry's alerts (never asked for here). Its
+    /// buttons answer the demo's card on the board; nothing leaves the phone.
+    func demoAlert(_ m: [String: Any]) -> Bool {
+        guard allowed, let id = m["id"] as? String, id.hasPrefix("demo:") else { return false }
+        let acts = (m["actions"] as? [[String: Any]] ?? []).compactMap { a -> UNNotificationAction? in
+            guard let i = a["id"] as? String, let l = a["label"] as? String, i.hasPrefix("choice:") else { return nil }
+            return UNNotificationAction(identifier: i, title: l, options: [])
+        }
+        let c = UNUserNotificationCenter.current()
+        c.getNotificationCategories { cats in
+            c.setNotificationCategories(Set(cats.filter { $0.identifier != "demo" }).union([UNNotificationCategory(identifier: "demo", actions: acts, intentIdentifiers: [])]))
+            let n = UNMutableNotificationContent()
+            n.title = m["title"] as? String ?? "Ravenry"
+            n.body = [m["body"] as? String, m["detail"] as? String].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+            n.sound = .default
+            n.categoryIdentifier = "demo"
+            if let d = try? JSONSerialization.data(withJSONObject: m) { n.userInfo = ["alert": String(decoding: d, as: UTF8.self)] }
+            c.add(UNNotificationRequest(identifier: id, content: n, trigger: nil)) { e in Log.say("demo: alert \(e == nil ? "shown" : "not shown")") }
+        }
+        return true
+    }
+
+    /// Every alert of the demo's off the list (leaving the demo).
+    func clearDemo() {
+        let c = UNUserNotificationCenter.current()
+        c.getDeliveredNotifications { ns in c.removeDeliveredNotifications(withIdentifiers: ns.map { $0.request.identifier }.filter { $0.hasPrefix("demo:") }) }
+    }
+
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification, withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
         done([.banner, .list, .sound])
     }
@@ -300,6 +329,14 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
               let a = (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any] else { return }
         let cp = (a["checkpoint"] as? [String: Any])?["id"] as? String
         Log.say("alert: tapped (\(r.actionIdentifier == UNNotificationDefaultActionIdentifier ? "open" : r.actionIdentifier))")
+        // The demo's alert: its buttons answer the demo's card, on its board only.
+        if (a["id"] as? String)?.hasPrefix("demo:") == true {
+            guard let b = board, b.demo else { return }
+            if r.actionIdentifier.hasPrefix("choice:"), let cp, let n = Int(r.actionIdentifier.dropFirst("choice:".count)) {
+                b.event(["event": "demo.action", "checkpoint": cp, "answer": ["choice": n]])
+            } else { b.event(["event": "open", "alert": a]) }
+            return
+        }
         switch r.actionIdentifier {
         case "run":
             guard let cp else { return }

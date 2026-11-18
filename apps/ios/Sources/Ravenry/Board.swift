@@ -56,6 +56,11 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     private var unackedSince: Date?
     private var pageWatch: Timer?
     private var lastDeliveryLog = Date.distantPast
+    /// The demo (src/demo.ts): sample projects, no Mac, no connection; its web view keeps nothing (a store of its own, in memory).
+    var demo = false
+    /// The ops that would reach a hub: refused in the demo (its page never sends them).
+    static let hubOps: Set<String> = ["http", "http.part", "hub.call", "hub.events", "socket.open", "socket.send", "socket.close", "reach.retry", "conn.reconnect",
+        "secret.open", "secret.move", "secret.send", "secret.close", "open.tailscale", "speech", "photo", "voice.start", "voice.stop", "voice.cancel", "push.set", "connection.set"]
 
     /// The board says its own colours (`bars`); the app's own pages (/phone/: a
     /// checkpoint's screen, settings) follow the phone's dark or light, so the
@@ -71,8 +76,10 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
         light = traitCollection.userInterfaceStyle == .light
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (c: BoardController, _: UITraitCollection) in c.setNeedsStatusBarAppearanceUpdate() }
         let c = WKWebViewConfiguration()
+        scheme.demo = demo
         c.setURLSchemeHandler(scheme, forURLScheme: "ravenry-app")
-        c.websiteDataStore = .default()
+        // The demo leaves no trace: its storage lives in memory and goes with this web view.
+        c.websiteDataStore = demo ? .nonPersistent() : .default()
         c.preferences.javaScriptCanOpenWindowsAutomatically = true
         c.allowsInlineMediaPlayback = true
         // The channel the page's shell.ts looks for: posts go to the shell, replies and events come back through __rvRecv.
@@ -151,6 +158,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     func appeared() {
         let back = wasAway
         wasAway = false
+        if demo { event(["event": "alerts", "on": AlertCenter.shared.allowed]); return }
         if back {
             Hub.client()?.networkChanged()
             restartEventsIfWanted()
@@ -256,12 +264,32 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     var features: [String] {
         var f = ["secret", "alerts.state", "http.parts"]
         let ctx = LAContext()
-        _ = ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-        if ctx.biometryType != .none { f.append("biometric") }
+        let can = ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        // The demo asks for Face ID before Run only when it is set up: a phone with none still sees the command run.
+        if demo ? can : ctx.biometryType != .none { f.append("biometric") }
         return f
     }
 
+    /// Out of the demo (its bar's Pair your Mac, Leave the demo): the pairing screen; the demo's alert leaves the list.
+    private func leaveDemo() {
+        AlertCenter.shared.clearDemo()
+        Log.say("demo: left, \(scheme.served) of the app's own files served, no connection made")
+        (view.window?.windowScene?.delegate as? SceneDelegate)?.showPairing()
+    }
+
     private func handle(_ id: Int, _ op: String, _ o: [String: Any]) {
+        if demo && Self.hubOps.contains(op) { fail(id, "Not in the demo."); return }
+        switch op {
+        case "demo.leave":
+            reply(id)
+            if demo { DispatchQueue.main.async { self.leaveDemo() } }
+            return
+        case "demo.alert":
+            guard demo, let a = o["alert"] as? [String: Any] else { reply(id, ["posted": false]); return }
+            reply(id, ["posted": AlertCenter.shared.demoAlert(a)])
+            return
+        default: break
+        }
         switch op {
         case "hello":
             let p = Store.shared.paired()
@@ -271,6 +299,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
             var hello: [String: Any] = ["v": 1, "platform": "ios", "form": Device.form, "app": PairModel.appVersion, "hub": hubInfo, "device": device, "features": features]
             hello["pending"] = pending.map { $0 as Any } ?? NSNull()
             hello["launch"] = ink != nil ? "ink" : "warm"
+            if demo { hello["demo"] = true; hello["hub"] = NSNull(); hello["device"] = NSNull() }
             reply(id, hello)
             pending = nil
         case "http":
@@ -317,7 +346,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
             eventsWanted = o["on"] as? Bool ?? true
             startEvents()
             reply(id)
-        case "reach.now": reply(id, lastReach)
+        case "reach.now": reply(id, demo ? nil : lastReach)
         case "reach.retry":
             lastReach = nil
             reply(id)
@@ -337,7 +366,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
         case "alerts.clear":
             if let a = o["id"] as? String { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [a]) }
             reply(id)
-        case "conn.now": reply(id, conn.json())
+        case "conn.now": reply(id, demo ? nil : conn.json())
         case "conn.reconnect": conn.reconnect(); reply(id)
         case "ink.ready": ink?.ready(o, board: self); reply(id)
         case "biometric":
@@ -363,6 +392,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
             sockets.removeValue(forKey: o["sid"] as? Int ?? -1)?.cancel(with: .normalClosure, reason: nil)
             reply(id)
         case "pair.reset":
+            if demo { reply(id); leaveDemo(); return }
             // The screen changes on the tap; the computer is told in the background, now and later until it answers.
             reply(id)
             events?.close(); events = nil
@@ -511,6 +541,44 @@ final class Once: @unchecked Sendable {
 final class SchemeHandler: NSObject, WKURLSchemeHandler {
     private var live = Set<ObjectIdentifier>()
     static let bundle = Bundle.main.url(forResource: "phone", withExtension: nil)
+    /// The demo: the app's own files only, never the hub (`demoResource`).
+    var demo = false
+    /// How many of the app's own files the demo served (the log's line when it is left).
+    private(set) var served = 0
+    private lazy var demoFiles: [String: [String: String]] = {
+        guard let base = Self.bundle, let d = try? Data(contentsOf: base.appendingPathComponent("demo/files.json")),
+              let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: [String: String]] else { return [:] }
+        return o
+    }()
+    /// The policy of the demo's board page: its own files only, never another origin.
+    static let demoCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' data: blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+
+    /// A recorded hub path's key, as the recording has it: the cache-busting `v` left out (apps/phone/src/demo.ts keyOf).
+    static func demoKey(_ path: String, _ query: String?) -> String {
+        let q = (query ?? "").split(separator: "&").filter { !$0.isEmpty && !$0.hasPrefix("v=") }.joined(separator: "&")
+        return q.isEmpty ? path : "\(path)?\(q)"
+    }
+
+    /// The demo's side of the origin: the board's page as the hub has it (built into the app from hub/public), with the
+    /// app's layer first marked as the demo's; its files; the recording's pictures. Anything else is not there.
+    private func demoResource(_ task: WKURLSchemeTask, _ req: URLRequest, _ path: String, _ query: String?) {
+        guard req.httpMethod ?? "GET" == "GET", let base = Self.bundle else { return finish(task, 404, Data(), "text/plain") }
+        served += 1
+        if path == "/" || path == "/index.html" {
+            guard var html = (try? Data(contentsOf: base.appendingPathComponent("board/index.html"))).map({ String(decoding: $0, as: UTF8.self) }) else { return finish(task, 404, Data(), "text/plain") }
+            if let i = html.range(of: "<head>") { html.replaceSubrange(i, with: "<head>\n<script src=\"/phone/board.js\" data-demo></script>") }
+            html = html.replacingOccurrences(of: "width=device-width", with: "width=device-width, viewport-fit=cover")
+            return finish(task, 200, Data(html.utf8), "text/html; charset=utf-8", ["Cache-Control": "no-store", "Content-Security-Policy": Self.demoCSP])
+        }
+        if path.hasPrefix("/api/") {
+            guard let f = demoFiles[Self.demoKey(path, query)], let name = f["file"], !name.contains(".."),
+                  let d = try? Data(contentsOf: base.appendingPathComponent("demo/\(name)")) else { return finish(task, 404, Data(), "text/plain") }
+            return finish(task, 200, d, f["type"] ?? Self.type(name), ["Cache-Control": "no-store"])
+        }
+        let rel = String(path.dropFirst())
+        guard !rel.contains(".."), let d = try? Data(contentsOf: base.appendingPathComponent("board/\(rel)")) else { return finish(task, 404, Data(), "text/plain") }
+        finish(task, 200, d, Self.type(rel), ["Cache-Control": "no-store"])
+    }
 
     func webView(_ w: WKWebView, start task: WKURLSchemeTask) {
         live.insert(ObjectIdentifier(task))
@@ -518,6 +586,10 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         guard let url = req.url else { return finish(task, 400, Data(), "text/plain") }
         let path = url.path.isEmpty ? "/" : url.path
         let query = url.query.map { "?\($0)" } ?? ""
+        // The demo: the app's own files only (the hub's side of the origin from the recording), never the hub.
+        if demo && (path.hasPrefix("/phone/hub/") || !path.hasPrefix("/phone/")) {
+            return demoResource(task, req, path.hasPrefix("/phone/hub/") ? String(path.dropFirst("/phone/hub".count)) : path, url.query)
+        }
         if path.hasPrefix("/phone/hub/") {
             // Only the page itself: a frame of another origin never reads the hub through this door.
             guard req.httpMethod ?? "GET" == "GET", Self.allowed(req) else { return refuse(task, req) }

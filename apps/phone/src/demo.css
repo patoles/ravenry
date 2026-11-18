@@ -1,0 +1,20 @@
+/* The demo's bar (src/demo.ts; A, picked 2026-11-18): a thin bar fixed on
+   top of every screen of the demo, the board's and the app's own, that says
+   it is a demo and nothing leaves the phone, with Pair your Mac. Built into
+   board.css and app.css; drawn only in the demo (html.rv-demo-on). */
+.rv-demo { --d-bg: #1E1E21; --d-sep: #36363B; --d-tx2: #A1A1A8; --d-work: #0A84FF; position: fixed; left: 0; right: 0; top: 0; z-index: 2147483000; display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px 14px; background: var(--d-bg); border-bottom: 1px solid var(--d-sep); box-sizing: border-box; font: 13px/1.3 -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif; }
+.rv-demo.light { --d-bg: #FFFFFF; --d-sep: #E4E2DD; --d-tx2: #5F5F66; --d-work: #2F6FEB; }
+.rv-demo .t { flex: 1; min-width: 0; color: var(--d-tx2); }
+.rv-demo .t b { color: var(--d-work); font-weight: 700; }
+.rv-demo button { flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 16px; background: var(--d-work); color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer; }
+/* Everything under it moves down by its height (--rv-demo-h, measured by
+   src/demo.ts): the page, and the layers that cover the whole screen. */
+html.rv-demo-on body { padding-top: var(--rv-demo-h, 50px); box-sizing: border-box; }
+html.rv-demo-on .mc { min-height: calc(100vh - var(--rv-demo-h, 50px)); }
+html.rv-demo-on .lv-fs, html.rv-demo-on .gl-fs, html.rv-demo-on .pzv, html.rv-demo-on .sheet-bg, html.rv-demo-on .iph, html.rv-demo-on .modal-back, html.rv-demo-on .hs-pop, html.rv-demo-on .scrim, html.rv-demo-on .pn-scrim { top: var(--rv-demo-h, 50px) !important; }
+html.rv-demo-on .pn-menu { top: calc(var(--rv-demo-h, 50px) + 56px); }
+html.rv-demo-on .bsheet { max-height: calc(100dvh - 58px - var(--rv-demo-h, 50px)); }
+/* The Mac's own controls: Open in Ravenry brings a tab forward on the Mac's
+   screen. And no connection chip: there is no connection, the bar says why. */
+html.rv-demo-on .mc [data-act="open"], html.rv-demo-on .mc .cx-chip { display: none !important; }
+html.rv-demo-on #pbar .pn-ttl { flex: 1 1 auto; }

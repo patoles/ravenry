@@ -32,6 +32,16 @@ stream go through the shell (`src/shell.ts`, the bridge
 of docs/PHONE.md section 7), which makes them over TLS with the pinned key
 and the device token.
 
+## The demo
+
+For a phone with no Mac (docs/PHONE.md, The demo): `src/demo.ts` answers
+the board from the recording in `src/demo/` (made by
+`node tools/demo-sample.mjs`, again when the board's API changes), and
+`build.mjs` copies the board's own page (`hub/public`) into `dist/board/`
+at each build. `node tools/serve.mjs --demo` serves it as the shells do (no
+hub); `node tools/demo-check.mjs` walks it in headless Chromium and
+`node tools/demo-android.mjs` on a headless emulator.
+
 ## Build and look
 
 ```sh

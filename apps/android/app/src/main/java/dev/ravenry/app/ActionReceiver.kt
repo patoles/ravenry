@@ -11,6 +11,8 @@ class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val a = Alert.parse(intent.getStringExtra(Notifier.EXTRA_ALERT) ?: return) ?: return
         val id = intent.getStringExtra(Notifier.EXTRA_ACTION) ?: return
+        // The demo's alert: its card answered on the demo's screen, nothing sent (Demo.kt).
+        if (a.id.startsWith(Demo.PREFIX)) { Demo.action(context, a, id); return }
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(Notifier.REPLY_KEY)?.toString()
         val made = Actions.call(a, id, text)
         if (made is ActionCall.Later) { Notifier.cancel(context, a.id); return }

@@ -20,6 +20,7 @@ import { parentOf } from './logic.ts';
 import { checkpointScreen, feedbackScreen } from './checkpoint.ts';
 import { settingsScreen } from './settings.ts';
 import { licencesScreen } from './licences.ts';
+import { demoBar } from './demo.ts';
 
 export interface Screen { el: HTMLElement; update(): void; dispose(): void }
 
@@ -102,6 +103,8 @@ export function sheet(title: string | null, choices: { label: string; danger?: b
 async function main(): Promise<void> {
   const sh = await connect();
   document.documentElement.dataset.platform = sh.hello.platform;
+  // The demo's bar (src/demo.ts) on the app's own screens too: a pick, the settings.
+  if (sh.hello.demo) demoBar(() => { void sh.call('demo.leave').catch(() => {}); }, () => matchMedia('(prefers-color-scheme: light)').matches);
   hub.onSignedOutDo(() => { void sh.call('pair.reset').catch(() => toast('Signed out. Scan the code on the computer again.')); });
   hub.watch(() => screen?.update());
   sh.on('open', (m) => openAlert(m.alert as Alert));

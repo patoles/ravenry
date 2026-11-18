@@ -115,6 +115,146 @@ final class FlowTests: XCTestCase {
 
     // ------------------------------------------------------------ the steps, in order
 
+    /// The demo (apps/phone/src/demo.ts, Board.swift's demo), on a phone with no Mac: "No Mac yet? Try the demo"
+    /// on the pairing screen; never an ask for alerts of its own; the board on sample projects with the demo's bar
+    /// on every screen; the question's alert ("Demo: notes-app needs you") and its Ship it answering the card; the
+    /// command run; the pick, B with a circle; the settings; Pair your Mac back to the pairing screen.
+    func test0_TheDemoBeforeAnyPairing() throws {
+        executionTimeAllowance = 300
+        // Alerts not allowed yet (a fresh install): the demo never asks for them.
+        var a = launch(reset: true)
+        XCTAssertTrue(a.buttons["try-demo"].waitForExistence(timeout: 10), "the pairing screen's demo line")
+        a.buttons["try-demo"].tap()
+        XCTAssertTrue(shows("paper-boat", timeout: 20), "the demo's board")
+        let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        Thread.sleep(forTimeInterval: 9)
+        XCTAssertFalse(sb.buttons["Allow"].exists, "the demo never asks for alerts")
+        _ = js("document.querySelector('.rv-demo button').click(); return true;")
+        XCTAssertTrue(a.buttons["try-demo"].waitForExistence(timeout: 10), "Pair your Mac: the pairing screen")
+        a.terminate()
+
+        // Alerts allowed (as the alerts' ask after pairing would have it), then the demo, step by step.
+        a = launch(reset: true, ["RAVENRY_TEST_ASK_ALERTS": "1"])
+        if sb.buttons["Allow"].waitForExistence(timeout: 8) { sb.buttons["Allow"].tap() }
+        XCTAssertTrue(a.buttons["try-demo"].waitForExistence(timeout: 10))
+        shot("demo-01-pairing")
+        a.buttons["try-demo"].tap()
+        XCTAssertTrue(shows("paper-boat", timeout: 20), "the demo's board")
+        Thread.sleep(forTimeInterval: 1)
+        let bar = "const b = document.querySelector('.rv-demo'); if (!b) return false; const r = b.getBoundingClientRect(); return r.top === 0 && document.elementFromPoint(20, r.top + r.height / 2).closest('.rv-demo') === b && /^Demo\\. Sample projects, nothing leaves this phone\\.Pair your Mac$/.test(b.textContent);"
+        XCTAssertEqual(js(bar), "true", "the bar on the board")
+        shot("demo-02-board")
+        // The question arrives, with its alert; its Ship it answers the card.
+        // It comes 6 s in, as a banner over the board for a few seconds: looked for at once.
+        XCTAssertTrue(until(15) { js("return window.ravenryDemo.asked();") == "true" }, "the question arrives")
+        let banner = sb.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Demo: notes-app needs you'")).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), "the alert: Demo: notes-app needs you")
+        mark("demo alert: \(banner.label)")
+        XCTAssertTrue(banner.label.contains("Sample question. Your answer stays on this phone.") || sb.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Sample question. Your answer stays on this phone.'")).firstMatch.exists, "its text")
+        shot("demo-06-alert")
+        banner.press(forDuration: 1.2)
+        let ship = sb.buttons["Ship it"]
+        if ship.waitForExistence(timeout: 6) {
+            shot("demo-07-alert-open")
+            ship.tap()
+            XCTAssertTrue(until(8) { js("return !(window.ravenryDemo.openCheckpoints().some((c) => c.kind === 'ask'));") == "true" }, "the alert's Ship it answers the card")
+        } else {
+            XCTFail("the alert's buttons did not show")
+        }
+        _ = js("document.querySelector('#pchips .pchip[data-id=\"notes-app\"]').click(); return true;")
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(js("return !document.querySelector('[data-act=cp-choice]');"), "true", "the question's card is closed")
+        shot("demo-08-question-answered")
+
+        for (k, more) in [("ideas", "#sheet [data-idea]"), ("rules", "#sheet [data-rtab=\"sug\"]"), ("ship", "#sheet [data-goto]"), ("pages", "#sheet button")] {
+            _ = js("document.querySelector('#bnav [data-pnav=\"\(k)\"]').click(); return true;")
+            Thread.sleep(forTimeInterval: 1.2)
+            XCTAssertEqual(js(bar), "true", "the bar on \(k)")
+            shot("demo-03-\(k)")
+            let was = js("return document.querySelector('#sheet').innerText.slice(0, 300);")
+            _ = js("const e = document.querySelector('\(more.replacingOccurrences(of: "'", with: "\\'"))'); if (!e) return false; e.click(); return true;")
+            Thread.sleep(forTimeInterval: 1.2)
+            XCTAssertNotEqual(js("return document.querySelector('#sheet').innerText.slice(0, 300);"), was, "one more screen behind \(k)")
+            shot("demo-04-\(k)-more")
+        }
+        _ = js("document.querySelector('#bnav [data-pnav=\"projects\"]').click(); return true;")
+        Thread.sleep(forTimeInterval: 1)
+        _ = js("document.querySelector('#pchips .pchip[data-id=\"paper-boat\"]').click(); return true;")
+        Thread.sleep(forTimeInterval: 1)
+        _ = js("document.querySelector('#lv-scroll').click(); return true;")
+        XCTAssertTrue(until(5) { js("return !document.querySelector('#lv-fs').hidden;") == "true" }, "the live screen full")
+        XCTAssertEqual(js(bar), "true", "the bar on the live screen")
+        shot("demo-05-live")
+        _ = js("window.ravenryBack(); return true;")
+
+        // The command: Run (Face ID when it is set up), then done.
+        _ = js("document.querySelector('#pchips .pchip[data-id=\"recipe-box\"]').click(); return true;")
+        Thread.sleep(forTimeInterval: 1)
+        _ = js("document.querySelector('[data-act=cp-run]').scrollIntoView({ block: 'center' }); return true;")
+        shot("demo-09-approval")
+        _ = js("document.querySelector('[data-act=cp-run]').click(); return true;")
+        if js("return !!document.querySelector('[data-act=cp-run]');") == "true" { faceID("match") }
+        XCTAssertTrue(until(12) { js("return !document.querySelector('[data-act=cp-run]') && /Published recipe-box 2\\.3\\.0/.test(document.querySelector('#lv-lines').innerText);") == "true" }, "Run: the command runs")
+        shot("demo-10-approval-ran")
+
+        // The pick: B, circled, sent.
+        _ = js("document.querySelector('#pchips .pchip[data-id=\"paper-boat\"]').click(); return true;")
+        Thread.sleep(forTimeInterval: 1)
+        _ = js("document.querySelector('[data-act=cp-open]').click(); return true;")
+        XCTAssertTrue(until(10) { js("return location.pathname.startsWith('/phone/') && document.querySelectorAll('.ptrack img').length === 3 && [...document.querySelectorAll('.ptrack img')].every((i) => i.complete && i.naturalWidth > 0);") == "true" }, "the pick's screen and its pictures")
+        XCTAssertEqual(js(bar), "true", "the bar on the pick")
+        shot("demo-11-pick")
+        _ = js("const t = document.querySelector('.ptrack'); t.scrollLeft = t.clientWidth; return true;")
+        XCTAssertTrue(until(5) { js("return /B, 2 of 3/.test(document.body.innerText);") == "true" }, "B")
+        _ = js("[...document.querySelectorAll('button')].find((x) => /Circle a part/.test(x.textContent)).click(); return true;")
+        Thread.sleep(forTimeInterval: 1.2)
+        let w = a.webViews.firstMatch
+        let from = w.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.35)), to = w.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: 0.47))
+        from.press(forDuration: 0.2, thenDragTo: to)
+        Thread.sleep(forTimeInterval: 1)
+        shot("demo-12-pick-circled")
+        let sent = js("const b = [...document.querySelectorAll('.pzv button.pri')].find((x) => /^Send B|^Pick B/.test(x.textContent)); if (!b) return null; b.click(); return b.textContent;") ?? ""
+        XCTAssertTrue(sent.contains("B"), "B sent: \(sent)")
+        XCTAssertTrue(until(10) { js("return location.pathname === '/' && !!document.querySelector('#pchips .pchip') && window.ravenryDemo.openCheckpoints().length === 0;") == "true" }, "every card answered and closed")
+        shot("demo-13-answered")
+
+        // The settings, then Pair your Mac.
+        _ = js("document.querySelector('#pb-more').click(); return true;")
+        Thread.sleep(forTimeInterval: 0.6)
+        _ = js("document.querySelector('#pmenu [data-act=pn-app]').click(); return true;")
+        XCTAssertTrue(until(8) { js("return location.hash === '#/settings' && /A sample Mac, for the demo/.test(document.body.innerText) && /Leave the demo/.test(document.body.innerText);") == "true" }, "the settings say it is the demo")
+        shot("demo-14-settings")
+        XCTAssertEqual(js("return JSON.stringify(window.ravenryDemo.misses);"), "\"[]\"", "every request answered from the recording")
+        _ = js("document.querySelector('.rv-demo button').click(); return true;")
+        XCTAssertTrue(a.buttons["try-demo"].waitForExistence(timeout: 10), "Pair your Mac: the pairing screen")
+        shot("demo-15-left")
+        a.terminate()
+    }
+
+    /// Paired, there is no demo: the board itself, no demo line, no demo's bar.
+    func test0b_APairedPhoneHasNoDemo() throws {
+        let (_, card) = hub("GET", "/api/phone?code=new")
+        let link = (card["app"] as? [String: Any])?["link"] as? String ?? ""
+        let a = launch(reset: true)
+        XCTAssertTrue(a.buttons["try-demo"].waitForExistence(timeout: 10))
+        a.open(URL(string: link)!)
+        XCTAssertTrue(a.buttons["pair-confirm"].waitForExistence(timeout: 10), "the link asks first")
+        XCTAssertFalse(a.buttons["try-demo"].exists, "no demo line on the Pair question")
+        a.buttons["pair-confirm"].tap()
+        let next = a.buttons["which-continue"], later = a.buttons["alerts-not-now"]
+        _ = until(20) { next.exists || later.exists }
+        if next.exists { next.tap(); _ = later.waitForExistence(timeout: 10) }
+        if later.exists { later.tap() }
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board after pairing")
+        a.terminate()
+        let b = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "paired: the board")
+        XCTAssertEqual(js("return !document.querySelector('.rv-demo') && !window.ravenryDemo;"), "true", "paired: no demo")
+        XCTAssertFalse(b.buttons["try-demo"].exists, "paired: no demo line")
+        shot("demo-16-paired")
+        b.terminate()
+    }
+
     func test1_PairByTheTypedCode() throws {
         let a = launch(reset: true)
         XCTAssertTrue(a.buttons["type-instead"].waitForExistence(timeout: 10))

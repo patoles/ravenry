@@ -142,11 +142,17 @@ connected turned off and the notification going. Upload it unlisted
 Choose "All or some functionality is restricted" and add these
 instructions (no username or password: there is no account):
 
+> Tap "Try the demo" at the bottom of the first screen ("No Mac yet? Try
+> the demo"). The app opens on sample projects, with a bar on top that
+> says it is a demo: browse Projects, Ideas, Rules, Ship and Pages, open a
+> live screen, answer the question that arrives a few seconds in (with
+> notifications allowed, it also comes as an alert titled "Demo: notes-app
+> needs you"), run or refuse the command, and pick a picture. Everything
+> stays on the phone; "Pair your Mac" in the bar leaves the demo.
+>
 > Ravenry is the phone companion of Ravenry for Mac, a free Mac app
 > (https://patoles.github.io/ravenry/). It has no account and no server.
-> Without a paired Mac the app opens on its pairing screen, "Pair with
-> your Mac", which can scan a QR code or take a typed address and code.
-> To see it work: on a Mac with Apple silicon (macOS 13 or later),
+> To pair a real Mac: on a Mac with Apple silicon (macOS 13 or later),
 > install Ravenry for Mac from the page above and open it; click the
 > phone button in Ravenry; scan the QR code it shows with the phone (or
 > tap "Type the code instead" and type the address and code under the QR

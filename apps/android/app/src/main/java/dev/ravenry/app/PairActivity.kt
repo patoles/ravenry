@@ -220,6 +220,12 @@ class PairActivity : ComponentActivity() {
         }
     }
 
+    /** The demo: the board on sample projects, over this screen; leaving it comes back here. Never once a Mac is paired. */
+    private fun openDemo() {
+        if (Store.get(this).paired() != null) return
+        startActivity(Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_DEMO, true))
+    }
+
     private fun toBoard() {
         startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         finish()
@@ -259,7 +265,15 @@ class PairActivity : ComponentActivity() {
                 Quiet(if (w.reason == "tailscale-off") stringResource(R.string.open_tailscale) else stringResource(R.string.get_tailscale)) { Reach.openTailscale(this@PairActivity) }
             }
             Spacer(Modifier.weight(1f).height(24.dp))
-            Text(stringResource(R.string.pair_foot), color = tx2, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 40.dp, bottom = 20.dp))
+            // The demo (C, picked 2026-11-18): a line at the foot, beside the
+            // no-account line, on the camera's screen and only while no Mac
+            // is paired; it opens the board on sample projects (MainActivity's demo).
+            val demo = step.value is Step.Scan && Store.get(this@PairActivity).paired() == null
+            if (demo) Text(buildAnnotatedString {
+                append(stringResource(R.string.demo_q)); append(" ")
+                withStyle(SpanStyle(color = colorResource(R.color.work), fontWeight = FontWeight.SemiBold)) { append(stringResource(R.string.demo_try)) }
+            }, color = tx2, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 40.dp).clickable { openDemo() }.padding(vertical = 6.dp))
+            Text(stringResource(R.string.pair_foot), color = tx2, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = if (demo) 4.dp else 40.dp, bottom = 20.dp))
         }
     }
 

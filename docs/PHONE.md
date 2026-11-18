@@ -271,6 +271,60 @@ emulator with 150 ms of network latency: Don't keep activities, 0.1.43 had
 500 ms of empty window, now the mark for 350 ms and the board at 415 ms;
 density and size changes keep the board (no reload).
 
+### The demo
+
+For a phone with no Mac yet, a store's reviewer first (2026-11-18: Apple's
+guideline 2.1 wants the app's full features without the Mac it pairs
+with). The pairing screen says "No Mac yet? Try the demo" at its foot,
+centred above "No account. Your sessions stay on your machines." (C),
+only while no Mac is paired: paired, the line is gone and the shells never
+open the demo (Android ignores its intent, iOS its call).
+
+- **What it shows.** The board itself (`hub/public`, which the app carries:
+  `apps/phone/build.mjs` copies it into `board/` at each build from the same
+  files the hub serves, never a copy kept by hand, so the demo's board is
+  the board of the hub of the same release) on a recording of a sample
+  board (`apps/phone/src/demo/sample.json` and its pictures, made by
+  `apps/phone/tools/demo-sample.mjs` from `tools/demo.mjs --sample`: Sample
+  Mac and devbox, notes-app, recipe-box, paper-boat, garden-planner,
+  weather-widget and three idle projects). Sessions at work with their live
+  screens, a pick (paper-boat) and a command (recipe-box) waiting, a
+  question (notes-app) that arrives 6 s in; each bottom bar item with what
+  is behind it; This phone's settings say it is a sample Mac, with Leave
+  the demo.
+- **The bar** (A): fixed on top of every screen, the board's and the app's
+  own (a pick, the settings): "Demo. Sample projects, nothing leaves this
+  phone." with Pair your Mac. The Mac's own controls are left off (Open in
+  Ravenry, the connection chip) and every session takes a message, kept on
+  the phone. The words are `demo.*` in `shared/strings/en.json`.
+- **Answers** are taken as the hub takes them (`apps/phone/src/demo.ts`):
+  the card closes, the session's live screen goes on as the recording
+  shows (the command runs, then is done), the board's toast says what was
+  sent. What needs a Mac says "The demo can't do that. Pair your Mac to do
+  it for real."
+- **Nothing is sent.** The page answers the board's requests itself (the
+  shell's `hub.call`, `http`, `hub.events` and `conn.now` never reach the
+  native shell in the demo); the shells serve only the app's own files for
+  it (Android `Demo.kt`, iOS `SchemeHandler.demoResource`) with a policy of
+  its own files only, refuse every op that would reach a hub, and start no
+  connection watch, push or held connection. What the board keeps (its
+  theme, its last project) lives in the visit's sessionStorage, cleared
+  when the demo is left; the iOS web view's store is in memory only.
+- **The alert.** When the question arrives, once a visit, the phone posts it
+  itself, only when the phone shows Ravenry's alerts (the demo never asks
+  for them): "Demo: notes-app needs you", "Ship the beta to the testers?
+  Sample question. Your answer stays on this phone.", with Ship it, Not yet
+  and Open. Its buttons answer the demo's card; answered on the board, it
+  leaves the shade.
+- **Leaving.** Pair your Mac, Back at the board's home (Android) and Leave
+  the demo go to the pairing screen; nothing of the visit stays.
+- **Checks.** `apps/phone/tools/demo-check.mjs` (headless Chromium),
+  `apps/phone/tools/demo-android.mjs` (a headless emulator in airplane
+  mode, the app's sockets counted), `apps/ios/tools/ios-e2e.mjs --only
+  test0_TheDemoBeforeAnyPairing,test0b_APairedPhoneHasNoDemo`. Record the
+  sample again when the board's API changes: the checks fail on a request
+  the recording does not answer.
+
 ## 2. Reaching the hub
 
 **Phone access** is a switch on the computer, off until the person turns

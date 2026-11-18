@@ -40,6 +40,8 @@ final class PairModel: ObservableObject {
     @Published var connected: String?
     @Published var choice: String?
     var onDone: () -> Void = {}
+    /// "Try the demo" (Board.swift's demo): the board on sample projects, only while no Mac is paired.
+    var onDemo: () -> Void = {}
     private var scanned = false
 
     init(signedOut: Bool = false) {
@@ -299,6 +301,12 @@ struct PairScan: View { @ObservedObject var m: PairModel; let t: T; let busy: Bo
                 (Text("Camera not working? ").foregroundStyle(t.tx2) + Text("Type the code instead").foregroundStyle(t.work).bold()).font(.system(size: 15))
             }.buttonStyle(.plain).padding(.top, 14).disabled(busy).accessibilityIdentifier("type-instead")
             Spacer()
+            // The demo (C, picked 2026-11-18): a line at the foot, beside the no-account line, only while no Mac is paired.
+            if !busy && Store.shared.paired() == nil {
+                Button { m.onDemo() } label: {
+                    (Text(Shared.t("demo.entry.ask") + " ").foregroundStyle(t.tx2) + Text(Shared.t("demo.entry.try")).foregroundStyle(t.work).bold()).font(.system(size: 14))
+                }.buttonStyle(.plain).frame(maxWidth: .infinity).padding(.bottom, 6).accessibilityIdentifier("try-demo")
+            }
             Foot(t: t)
         }
         .onAppear {
