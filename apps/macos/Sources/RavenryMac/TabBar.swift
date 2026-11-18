@@ -257,7 +257,13 @@ final class TabBar: NSView {
         if e.clickCount == 2 { TabBar.titleBarDoubleClick(window) }
     }
 
-    override func scrollWheel(with e: NSEvent) { clip.scrollWheel(with: e) }
+    // The clip scrolls only crowded tabs; otherwise the wheel goes on up
+    // past the strip. (The clip hands an uncrowded wheel to its next
+    // responder, this bar: sending it back to the clip recursed until the
+    // stack ran out, the 0.1.68 crash of 2026-11-18.)
+    override func scrollWheel(with e: NSEvent) {
+        if clip.overflow && clip.bar != nil { clip.scrollWheel(with: e) } else { super.scrollWheel(with: e) }
+    }
 
     /// The title bar's double click, as the system's setting says (Desktop
     /// & Dock, "Double-click a window's title bar to": AppleActionOnDoubleClick

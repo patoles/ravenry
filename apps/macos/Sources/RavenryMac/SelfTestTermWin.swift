@@ -163,6 +163,17 @@ extension SelfTestBoard {
     private func termWheelOnStrip() {
         let ws = board.ws, bar = ws.bar
         size(900, 760)
+        // Uncrowded first: a wheel over a strip whose tabs fit goes on up, and the app lives (0.1.68 recursed and crashed here).
+        if !bar.overflows {
+            let p = bar.clip.convert(NSPoint(x: bar.clip.bounds.midX, y: bar.clip.bounds.midY), to: nil)
+            let top0 = NSScreen.screens.first?.frame.maxY ?? 0
+            if let cg0 = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: 3, wheel2: 0, wheel3: 0) {
+                cg0.location = CGPoint(x: p.x, y: top0 - p.y)
+                if let e0 = NSEvent(cgEvent: cg0) { window.sendEvent(e0); bar.scrollWheel(with: e0); bar.clip.scrollWheel(with: e0) }
+            }
+            settle(0.2)
+            check("strip_wheel_uncrowded_no_loop", !bar.overflows && bar.offset == 0, "offset \(bar.offset)")
+        }
         let had = ws.tabs.count
         for k in 0..<max(0, 12 - had) { _ = paneNew("strip-\(k)", ["/bin/zsh", "-f", "-i"]) }
         _ = wait(10) { ws.tabs.count >= 12 }
