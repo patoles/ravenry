@@ -130,6 +130,9 @@ class BrowserShell implements Shell {
   private es: EventSource | null = null;
 
   async start(): Promise<void> {
+    // ?form=ipad: the iPad's words, for a look at the board as the iPad app has it.
+    const form = new URLSearchParams(location.search).get('form');
+    if (form) this.hello.form = form;
     if (demoPage()) { this.hello.demo = true; return; }
     try {
       const r = await fetch('hub/api/phone/hello');
@@ -211,6 +214,7 @@ class DemoShell implements Shell {
   constructor(inner: Shell, demo: Demo) {
     this.inner = inner;
     this.demo = demo;
+    demo.form = inner.hello.form ?? null;
     // Only what the phone can do without a Mac.
     const keep = new Set(['biometric', 'alerts.state']);
     this.hello = { ...inner.hello, demo: true, hub: { name: String(demo.sample.get['/api/phone/me']?.json?.hub?.name || 'Sample Mac') }, device: null, pending: inner.hello.pending ?? null, features: inner.hello.features.filter((f) => keep.has(f)) };

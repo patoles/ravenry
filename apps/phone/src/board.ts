@@ -345,7 +345,7 @@ function start(sh: Shell): void {
   document.documentElement.dataset.app = sh.hello.platform;
   if (sh.hello.demo) {
     // The bar on top: Pair your Mac leaves the demo for the pairing screen.
-    demoBar(() => { void sh.call('demo.leave').catch(() => {}); }, () => document.body.classList.contains('light'));
+    demoBar(() => { void sh.call('demo.leave').catch(() => {}); }, () => document.body.classList.contains('light'), sh.hello.form);
   }
   // The board reads which app it is in (its words for Run's check, this phone's alerts).
   if (window.ravenryApp) window.ravenryApp.platform = sh.hello.platform;

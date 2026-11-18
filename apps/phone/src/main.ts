@@ -104,7 +104,7 @@ async function main(): Promise<void> {
   const sh = await connect();
   document.documentElement.dataset.platform = sh.hello.platform;
   // The demo's bar (src/demo.ts) on the app's own screens too: a pick, the settings.
-  if (sh.hello.demo) demoBar(() => { void sh.call('demo.leave').catch(() => {}); }, () => matchMedia('(prefers-color-scheme: light)').matches);
+  if (sh.hello.demo) demoBar(() => { void sh.call('demo.leave').catch(() => {}); }, () => matchMedia('(prefers-color-scheme: light)').matches, sh.hello.form);
   hub.onSignedOutDo(() => { void sh.call('pair.reset').catch(() => toast('Signed out. Scan the code on the computer again.')); });
   hub.watch(() => screen?.update());
   sh.on('open', (m) => openAlert(m.alert as Alert));

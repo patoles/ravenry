@@ -41,6 +41,13 @@ test('the question arrives a few seconds into the visit; the pick and the comman
   assert.equal(d.takeAlert(), null, 'once a visit');
 });
 
+test('on an iPad the alert says iPad, not phone', () => {
+  const { d, c } = make();
+  d.form = 'ipad';
+  c.go(ASK_AFTER_MS);
+  assert.match(d.takeAlert().detail, /Sample question\. Your answer stays on this iPad\.$/);
+});
+
 test('an answer closes its card as the hub does; a command runs, then is done; nothing else is taken', () => {
   const { d, c } = make();
   c.go(ASK_AFTER_MS);

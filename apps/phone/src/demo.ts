@@ -17,7 +17,7 @@
 // pick, the settings) see the same answers; leaving the demo clears it, and
 // the WebView that held it goes with the screen.
 
-import { t } from './strings.ts';
+import { deviceWord, t } from './strings.ts';
 
 type Json = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -100,6 +100,8 @@ export class Demo {
   private save: (v: Visit) => void;
   private clock: () => number;
   private arrived: (() => void) | null = null;
+  /** Which device the demo runs on (the shell's hello `form`): "phone", or "ipad" for its words. */
+  form: string | null = null;
 
   constructor(raw: Sample, visit: Visit | null, save: (v: Visit) => void, clock: () => number = Date.now) {
     this.clock = clock;
@@ -136,7 +138,7 @@ export class Demo {
     const head = String(cp.title || '').split('\n')[0];
     return {
       v: 1, type: 'alert', id: `demo:${cp.id}`, kind: 'ask', at: new Date(this.clock()).toISOString(),
-      title: t('demo.alert.title', { project: name }), body: head, detail: t('demo.alert.detail'),
+      title: t('demo.alert.title', { project: name }), body: head, detail: t('demo.alert.detail', { device: deviceWord(this.form) }),
       project: { id: cp.projectId, name }, checkpoint: { id: cp.id, kind: 'ask' }, demo: true,
       actions: [...(cp.options || []).slice(0, 2).map((o: string, i: number) => ({ id: `choice:${i}`, label: o })), { id: 'open', label: 'Open' }],
     };
@@ -277,9 +279,10 @@ export const fileUrl = (file: string): string => `/phone/demo/${file}`;
 
 /**
  * The bar on top of every screen of the demo (A, picked 2026-11-18): it
- * says it is a demo and nothing leaves the phone, with Pair your Mac.
+ * says it is a demo and nothing leaves the phone (the iPad, on an iPad:
+ * `form`, the shell's hello), with Pair your Mac.
  */
-export function demoBar(onPair: () => void, light: () => boolean): HTMLElement {
+export function demoBar(onPair: () => void, light: () => boolean, form?: string | null): HTMLElement {
   const el = document.createElement('div');
   el.className = 'rv-demo';
   el.setAttribute('role', 'note');
@@ -287,7 +290,7 @@ export function demoBar(onPair: () => void, light: () => boolean): HTMLElement {
   tx.className = 't';
   const b = document.createElement('b');
   b.textContent = t('demo.bar.lead');
-  tx.append(b, ' ', t('demo.bar.text'));
+  tx.append(b, ' ', t('demo.bar.text', { device: deviceWord(form) }));
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.textContent = t('demo.bar.pair');

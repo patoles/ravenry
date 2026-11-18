@@ -325,7 +325,7 @@ open the demo (Android ignores its intent, iOS its call).
   the demo.
 - **The bar** (A): fixed on top of every screen, the board's and the app's
   own (a pick, the settings): "Demo. Sample projects, nothing leaves this
-  phone." with Pair your Mac. The Mac's own controls are left off (Open in
+  phone." ("this iPad" on an iPad) with Pair your Mac. The Mac's own controls are left off (Open in
   Ravenry, the connection chip) and every session takes a message, kept on
   the phone. The words are `demo.*` in `shared/strings/en.json`.
 - **Answers** are taken as the hub takes them (`apps/phone/src/demo.ts`):
@@ -344,7 +344,7 @@ open the demo (Android ignores its intent, iOS its call).
 - **The alert.** When the question arrives, once a visit, the phone posts it
   itself, only when the phone shows Ravenry's alerts (the demo never asks
   for them): "Demo: notes-app needs you", "Ship the beta to the testers?
-  Sample question. Your answer stays on this phone.", with Ship it, Not yet
+  Sample question. Your answer stays on this phone." ("this iPad" on an iPad), with Ship it, Not yet
   and Open. Its buttons answer the demo's card; answered on the board, it
   leaves the shade.
 - **Leaving.** Pair your Mac, Back at the board's home (Android) and Leave

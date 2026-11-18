@@ -1630,11 +1630,11 @@
   "demo.entry.ask": "No Mac yet?",
   "demo.entry.try": "Try the demo",
   "demo.bar.lead": "Demo.",
-  "demo.bar.text": "Sample projects, nothing leaves this phone.",
+  "demo.bar.text": "Sample projects, nothing leaves this {device}.",
   "demo.bar.pair": "Pair your Mac",
   "demo.cannot": "The demo can’t do that. Pair your Mac to do it for real.",
   "demo.alert.title": "Demo: {project} needs you",
-  "demo.alert.detail": "Sample question. Your answer stays on this phone.",
+  "demo.alert.detail": "Sample question. Your answer stays on this {device}.",
   "demo.settings.mac": "A sample Mac, for the demo",
   "demo.settings.leave": "Leave the demo",
   "demo.settings.note": "Pair your own Mac to see your sessions here."
