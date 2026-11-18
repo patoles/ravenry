@@ -58,7 +58,15 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 /* The Perch mark beside the name (docs/design/Logo.dc.html, round 1 B, "Board top-left, 14 px bold"). */
 .mc-mark{flex:none;display:block}
 .mc-views{display:flex;gap:2px;background:var(--card);border-radius:9px;padding:3px}
-.mc-tools{flex:1 1 0;min-width:140px;display:flex;justify-content:flex-end;align-items:center;gap:4px}
+/* The tools never narrower than they are: shrunk to their share of the row,
+   they ran left over the tabs (an iPad upright, a narrow window). */
+.mc-tools{flex:1 1 0;min-width:max-content;display:flex;justify-content:flex-end;align-items:center;gap:4px}
+/* When the three do not fit on one row (fitTop in app.js): the name and the
+   tools on the first, the tabs under them. */
+.mc-top.views-row{row-gap:0}
+.mc-top.views-row .mc-tools{order:1;flex:1 0 auto}
+.mc-top.views-row::after{content:'';order:2;flex:0 0 100%}
+.mc-top.views-row .mc-views{order:3;margin-top:10px}
 .icon-btn{all:unset;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:7px;color:var(--tx2)}
 .icon-btn[aria-pressed="true"]{color:var(--you)}
 #alerts:not(.bell-off) .bell-slash{display:none}

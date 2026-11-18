@@ -4389,6 +4389,21 @@ function fmtMem(kb) {
 }
 function plural(n, one, many) { return `${n} ${n === 1 ? one : many || one + 's'}`; }
 
+// The top bar above a phone's width: the name, the tabs and the tools on one
+// row when they fit; else the tabs take a row of their own under the name and
+// the tools, as at phone width (an iPad upright, a narrow window), not the
+// tools wrapped alone under the tabs.
+function fitTop() {
+  const top = document.querySelector('.mc-top');
+  if (!top) return;
+  top.classList.remove('views-row');
+  if (matchMedia('(max-width: 700px)').matches || !top.getClientRects().length) return;
+  const row = top.querySelector('.mc-title').getBoundingClientRect();
+  const off = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && (r.top >= row.bottom - 1 || r.bottom <= row.top + 1); };
+  if (off(top.querySelector('.mc-tools')) || off($('#views'))) top.classList.add('views-row');
+}
+window.addEventListener('resize', fitTop);
+
 function renderMemchip() {
   const v = ui.snap && ui.snap.sessions;
   const on = ui.view === 'sessions';
@@ -4590,6 +4605,7 @@ function render() {
   renderViews();
   renderPhoneNav();
   renderMemchip();
+  fitTop();
   paintBell();
   followNew();
   if (ui.openPending) { ui.openPending = false; applyOpenOn(); }
