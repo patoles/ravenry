@@ -40,7 +40,10 @@ object Hub {
     @Volatile private var client: HubClient? = null
     @Volatile private var forToken: String? = null
 
-    fun get(context: Context): HubClient? {
+    // One client at a time: the board, the connection service and the shade
+    // ask at once at a start, and two clients would each look for the Mac
+    // on the Wi-Fi (Nearby) and keep their own idea of where it answers.
+    @Synchronized fun get(context: Context): HubClient? {
         val store = Store.get(context)
         val p = store.paired() ?: return null
         client?.let { if (forToken == p.token) return it }
