@@ -451,6 +451,9 @@ extension SelfTestBoard {
         let rec = standIns().dropFirst(n0).first ?? [:]
         let pane = rec["pane"] as? String ?? ""
         freshRec = rec
+        // The old session was in front (its view: it ran in cmux): the window lands on the fresh one by itself, its
+        // tab in front, its row lit, the panel on it (2026-11-18: "after a handoff the old session stays focused").
+        sbLandsOnFresh(from: key, sid: rec["sid"] as? String ?? "", pane: pane, check: "sb_handoff_lands_on_fresh", picture: "sessb-handoff-lands")
         openRow(of: rec["sid"] as? String ?? "")
         check("sb_fresh_resumes", started && (rec["cwd"] as? String).map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path == URL(fileURLWithPath: folder).resolvingSymlinksInPath().path } == true
               && wait(10) { self.board.ws.tabs.contains { $0.host == pane || $0.guest == pane } } && wait(15) { self.board.hub.state?.find(key)?.session.handoff?["state"] as? String == "resumed" || self.board.hub.state?.projects.flatMap(\.sessions).contains { $0.sessionId == sid && $0.handoff?["state"] as? String == "resumed" } == true },
@@ -464,13 +467,59 @@ extension SelfTestBoard {
               let sid2 = g.1.sessionId else { check("sb_auto_fresh", false, "no second session"); return }
         let n1 = standIns().count
         _ = ask(["do": "marker", "sid": sid2, "cwd": g.0.folder!, "surfaceId": g.1.surfaceId])
+        let front0 = board.frontKey
         let auto = wait(30) { self.standIns().count > n1 }
         let r2 = standIns().dropFirst(n1).first ?? [:]
         let p2 = r2["pane"] as? String ?? ""
         autoRec = r2
+        // Not the session in front (another project's fresh session is): the front stays where the person is.
+        let listed2 = wait(20) { self.board.hub.state?.projects.contains { $0.sessions.contains { $0.sessionId == r2["sid"] as? String } } ?? false }
+        settle(1.5)
+        check("sb_handoff_front_stays", listed2 && front0 != nil && board.frontKey == front0, "front before \(front0 ?? "-"), after \(board.frontKey ?? "-"); listed \(listed2)")
         openRow(of: r2["sid"] as? String ?? "")
         check("sb_auto_fresh", auto && wait(10) { self.board.ws.tabs.contains { $0.host == p2 || $0.guest == p2 } } && ((r2["args"] as? [String]) ?? []).joined(separator: " ").contains("BRIEF.md"), "\(r2); tabs \(board.ws.tabs.map { "\($0.host)\($0.guest.map { "+" + $0 } ?? "")" })")
+        sbHandOffFromTab()
         board.hub.post("/api/settings/handoff", ["handoffAutoStart": false]) { _, _ in }
+    }
+
+    /// The window lands on a hand-off's fresh session: in front as its tab (`pane`), the board's key on it, its row lit
+    /// (or its project's, folded) and the panel on it, the old session (`from`) left.
+    private func sbLandsOnFresh(from: String, sid: String, pane: String, check name: String, picture: String, beside old: String? = nil) {
+        func freshKey() -> String? {
+            guard let st = board.hub.state, let p = st.projects.first(where: { $0.sessions.contains { $0.sessionId == sid } }),
+                  let s = p.sessions.first(where: { $0.sessionId == sid }) else { return nil }
+            return "\(p.id)/\(s.surfaceId)"
+        }
+        let landed = wait(25) {
+            guard let k = freshKey() else { return false }
+            return self.board.front == .tab && self.board.ws.active?.has(pane) == true && self.board.frontKey == k
+        }
+        board.render(force: true)
+        settle(0.5)
+        let k = freshKey() ?? "-"
+        let sb = board.sidebar
+        let lit = sb.rows[k]?.selected == true || (sb.rows[k] == nil && sb.rows["project:\(k.split(separator: "/").first ?? "")"]?.selected == true)
+        let panelOn = !board.panelVisible || board.panel.key == k
+        var placed = true
+        if let old, let oi = board.ws.tabs.firstIndex(where: { $0.has(old) }), let ni = board.ws.tabs.firstIndex(where: { $0.has(pane) }) { placed = ni == oi + 1 } else if old != nil { placed = false }
+        check(name, landed && lit && panelOn && placed && board.frontKey != from,
+              "front \(board.front) key \(board.frontKey ?? "-") want \(k) (was \(from)); active has fresh pane \(board.ws.active?.has(pane) ?? false); row lit \(lit); panel \(board.panel.key); tabs \(board.ws.tabs.map { $0.host })\(old.map { "; beside \($0): \(placed)" } ?? "")")
+        pictures(picture)
+    }
+
+    /// A session in a pane here, its tab in front, hands off: the fresh session's tab opens right after it and comes
+    /// in front (the hub starts it in a new pane next to the old one, as Hand off now, the hook or the phone would).
+    private func sbHandOffFromTab() {
+        guard let key = reviveKey, let pane = revivePane, let f = board.hub.state?.find(key), let sid = f.session.sessionId, let folder = f.project.folder,
+              board.ws.tabs.contains(where: { $0.has(pane) }) else { check("sb_handoff_tab_beside", false, "no session in a pane here: \(reviveKey ?? "-")"); return }
+        board.pickSession(key, why: "test")
+        guard wait(5, { self.board.front == .tab && self.board.ws.active?.has(pane) == true }) else { check("sb_handoff_tab_beside", false, "its tab did not come in front: \(board.front)"); return }
+        let n0 = standIns().count
+        _ = ask(["do": "marker", "sid": sid, "cwd": folder, "surfaceId": f.session.surfaceId])
+        let started = wait(30) { self.standIns().count > n0 }
+        let rec = standIns().dropFirst(n0).first ?? [:]
+        guard started, let fresh = rec["pane"] as? String, let fsid = rec["sid"] as? String else { check("sb_handoff_tab_beside", false, "no fresh session started: \(rec)"); return }
+        sbLandsOnFresh(from: key, sid: fsid, pane: fresh, check: "sb_handoff_tab_beside", picture: "sessb-handoff-tab", beside: pane)
     }
 
     // MARK: SESS-016: a session in a pane here that went on in another terminal: Move here resumes the latest in a new pane

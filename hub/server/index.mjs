@@ -1105,7 +1105,11 @@ function buildProject(project, wsById, hooks, settings, now) {
       // Done after its hand-off (handedState): a session that wrote one and
       // works on is listed like any other.
       handed: s.st.state === 'handed',
+      // Its fresh session after a hand-off: the tab it started in, and its
+      // session id once seen. Every client moves what it shows from this
+      // session to that one (hub/docs/HANDOFF.md, Where the hand-off lands).
       freshSurface: (s.marker && s.marker.resumeSurfaceId) || null,
+      freshSession: (s.marker && s.marker.resumeSessionId) || null,
       doneWhen: s.screen.done ? s.screen.done.when : null,
       // In a terminal outside Ravenry: whether its process still runs
       // there (Move here ends it first).

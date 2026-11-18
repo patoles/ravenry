@@ -690,6 +690,22 @@ final class Workspace: NSObject {
         return t
     }
 
+    /// The tab that shows a pane, a tab of its own right after `after`
+    /// when no tab shows it yet: a hand-off's fresh session beside the
+    /// session it follows (Board.followHandOffs), as a terminal opens a
+    /// new tab next to the one in use. The tab in front stays.
+    func tab(showing pane: String, after: Tab) -> Tab? {
+        if let t = tabs.first(where: { $0.has(pane) }) { return t }
+        guard let t = tab(showing: pane) else { return nil }
+        if let i = tabs.firstIndex(where: { $0 === t }), let j = tabs.firstIndex(where: { $0 === after }), i != j + 1 {
+            tabs.remove(at: i)
+            tabs.insert(t, at: (tabs.firstIndex(where: { $0 === after }) ?? tabs.count - 1) + 1)
+        }
+        refresh()
+        save()
+        return t
+    }
+
     /// A running pane of any daemon the window draws (the newest first),
     /// known here from now on: its daemon and what pane.list says of it.
     private func adopt(_ pane: String, exited: Bool = false) -> Bool {

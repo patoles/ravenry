@@ -526,6 +526,8 @@ final class Board: NSObject {
             frontRestored = true
             openOn(st)
         }
+        // A session in front that handed off: its fresh session in front instead, before the arrivals below.
+        followHandOffs(st)
         // A checkpoint or a session that came to need you: the panel opens
         // on it when it is in front, else a toast says so, with Show.
         let open = Set(st.checkpoints.filter { ["open", "running"].contains($0["state"] as? String ?? "") }.compactMap { $0["id"] as? String })
@@ -562,6 +564,58 @@ final class Board: NSObject {
             if let c = unheld { cpArrived(c) }
         }
         render()
+    }
+
+    // MARK: where a hand-off lands (2026-11-18: "after a handoff the old session stays focused")
+
+    /// Hand-offs this window has dealt with, by the old session's id and the fresh one's tab: followed, or found
+    /// finished at the window's first state (one from before this window never moves it).
+    private var handOffsSeen: Set<String> = []
+    private var handOffsSeeded = false
+
+    /// A session's fresh session after its hand-off, once the board lists it
+    /// (hub/docs/HANDOFF.md, Where the hand-off lands): by its session id,
+    /// else by the tab the hub started it in.
+    static func freshOf(_ s: HubSession, in st: HubState) -> (project: HubProject, session: HubSession)? {
+        guard ["written", "resumed"].contains(s.handoff?["state"] as? String ?? "") else { return nil }
+        let sid = s.raw["freshSession"] as? String, surface = s.raw["freshSurface"] as? String
+        guard sid != nil || surface != nil else { return nil }
+        for p in st.projects { for x in p.sessions where x !== s && x.sessionId != s.sessionId {
+            if let sid, x.sessionId == sid { return (p, x) }
+            if let surface, x.surfaceId.caseInsensitiveCompare(surface) == .orderedSame { return (p, x) }
+        } }
+        return nil
+    }
+
+    /// A session that handed off, whose fresh session the board lists now:
+    /// the fresh session's tab opens right after the old one's when this
+    /// window has that (as the hub opens it next to the old one), and when
+    /// the old session is what the window shows (its tab or its view in
+    /// front) the window moves to the fresh one: its tab in front, its row
+    /// and its panel. A window showing anything else (another session,
+    /// another project, a shell, a page) keeps it: a hand-off never takes
+    /// the front from what the person is on. Once a hand-off: the old
+    /// session picked again afterwards stays in front.
+    private func followHandOffs(_ st: HubState) {
+        let seeding = !handOffsSeeded
+        handOffsSeeded = true
+        for p in st.projects { for s in p.sessions {
+            guard let sid = s.sessionId, let f = Board.freshOf(s, in: st), handOffsSeen.insert("\(sid) \(f.session.surfaceId)").inserted else { continue }
+            if seeding { continue }
+            let oldKey = "\(p.id)/\(s.surfaceId)", newKey = "\(f.project.id)/\(f.session.surfaceId)"
+            let mine = { (q: HubProject, x: HubSession) in x.machine == nil && q.machine == nil ? x.pane : nil }
+            let oldTab = mine(p, s).flatMap { pane in ws.tabs.first { $0.has(pane) } }
+            var beside: Tab? = nil
+            if let oldTab, let pane = mine(f.project, f.session) { beside = ws.tab(showing: pane, after: oldTab) }
+            if frontKey == oldKey {
+                note("hand-off \(oldKey): its fresh session \(newKey) in front\(beside.map { b in ", tab \((ws.tabs.firstIndex { $0 === b } ?? -1) + 1) beside the old one" } ?? "")")
+                pickSession(newKey, why: "followed")
+            } else if let beside {
+                note("hand-off \(oldKey): its fresh session \(newKey) in tab \((ws.tabs.firstIndex { $0 === beside } ?? -1) + 1), beside the old one; the front stays")
+            } else {
+                note("hand-off \(oldKey): its fresh session \(newKey) on the board; the front stays")
+            }
+        } }
     }
 
     /// A checkpoint no session holds (app.ts arrive, targetOf): the shell

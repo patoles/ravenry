@@ -317,10 +317,28 @@ function asTag(kind, cls = '', s = null) {
 const UN_ICON = '<span class="un-ic"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.6h5.6a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"></path></svg></span>';
 // The session a project's row speaks for: its primary, else its first.
 function mainSession(p) { return (p.sessions || []).find((x) => x.surfaceId === p.primary) || (p.sessions || [])[0] || null; }
-// A chosen session that hands off gives the choice to its fresh session
-// (or back to the primary when the fresh one is not on the board yet),
-// once: chosen again afterwards, it stays chosen.
+// A chosen session that hands off gives the choice to its fresh session,
+// once: chosen again afterwards, it stays chosen. While the fresh one is
+// starting (its tab or its session named, not on the board yet) the sheet
+// shows the primary and the move waits for it (2026-11-18: the choice went
+// back to the primary for good, which could be the old session itself);
+// a hand-off with no fresh session gives the choice back to the primary.
 const handedMoved = new Set(); // surfaceIds whose hand-off already moved the choice
+const handedOff = (s) => !!s && (s.handed || (!!s.handoff && (s.handoff.state === 'written' || s.handoff.state === 'resumed')));
+// A session's fresh session after its hand-off, once the board lists it: by its session id, else by its tab.
+function freshOf(p, s) {
+  if (!s || !(s.freshSession || s.freshSurface)) return null;
+  return p.sessions.find((x) => x !== s && s.freshSession && x.sessionId === s.freshSession)
+    || p.sessions.find((x) => x !== s && s.freshSurface && sameTab(x.surfaceId, s.freshSurface)) || null;
+}
+// Its fresh session is on its way: named, not failed, for at most FOLLOW_MS from the first look.
+const handedWait = new Map(); // surfaceId -> when the board first waited for its fresh session
+const lastShown = new Map(); // projectId -> the surfaceId selectedSession gave last
+function freshStarting(s) {
+  if (!(s.freshSurface || s.freshSession) || (s.handoff && s.handoff.resumeError)) return false;
+  if (!handedWait.has(s.surfaceId)) handedWait.set(s.surfaceId, Date.now());
+  return Date.now() - handedWait.get(s.surfaceId) < FOLLOW_MS;
+}
 function selectedSession(p) {
   if (!p) return null;
   // A link to one of its sessions (an alert's #<project>/<session>): chosen once it is on the board.
@@ -330,14 +348,19 @@ function selectedSession(p) {
     if (x) { ui.selSession[p.id] = x.surfaceId; ui.wantSession = null; }
   }
   let want = ui.selSession[p.id];
-  const cur = want && p.sessions.find((s) => s.surfaceId === want);
-  if (cur && cur.handed && !handedMoved.has(cur.surfaceId)) {
-    handedMoved.add(cur.surfaceId);
-    const fresh = cur.freshSurface && p.sessions.find((s) => s.surfaceId === cur.freshSurface);
-    if (fresh) ui.selSession[p.id] = want = fresh.surfaceId;
-    else { delete ui.selSession[p.id]; want = null; }
+  // The session the sheet showed last, chosen or not (the primary it
+  // followed): a hand-off moves the sheet from it to its fresh session too.
+  const was = want || lastShown.get(p.id);
+  const cur = was && p.sessions.find((s) => s.surfaceId === was);
+  if (cur && handedOff(cur) && !handedMoved.has(cur.surfaceId)) {
+    const fresh = freshOf(p, cur);
+    if (fresh) { handedMoved.add(cur.surfaceId); ui.selSession[p.id] = want = fresh.surfaceId; }
+    else if (freshStarting(cur)) { if (want === cur.surfaceId) want = null; }
+    else if (cur.handed) { handedMoved.add(cur.surfaceId); if (want === cur.surfaceId) { delete ui.selSession[p.id]; want = null; } }
   }
-  return p.sessions.find((s) => s.surfaceId === want) || p.sessions.find((s) => s.surfaceId === p.primary) || p.sessions.find((s) => s.live) || p.sessions[0] || null;
+  const s = p.sessions.find((x) => x.surfaceId === want) || p.sessions.find((x) => x.surfaceId === p.primary) || p.sessions.find((x) => x.live) || p.sessions[0] || null;
+  if (s) lastShown.set(p.id, s.surfaceId);
+  return s;
 }
 // A session the board just opened (New session, Revive, a plan's start, or
 // a plan's words when no session was running): the sheet moves to it as

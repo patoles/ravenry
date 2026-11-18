@@ -78,6 +78,33 @@ context, and whether or not hand-off is on: it writes a request marker the hook 
 stop, with the same clean-point rule, even inside a deferral's 10 minutes. A session sitting idle at its prompt
 has no next stop until it gets a message, so the sheet says to send one.
 
+## Where the hand-off lands
+
+The hub never moves anyone's screen: it opens the fresh session's tab next
+to the old one (a cmux tab is not focused, a Ravenry pane is shown by no
+window yet) and records it in the marker (`resumeSurfaceId`, then
+`resumeSessionId` once seen). The board's state gives every session that
+handed off `freshSurface` and `freshSession`, and each client moves what it
+shows from the old session to its fresh one as soon as the fresh one is on
+the board, however the hand-off started (Hand off now, the hook, the
+phone, the command line):
+
+- **The Mac app** (`Board.followHandOffs`): the fresh session's tab opens
+  right after the old one's when the window has that. When the old session
+  is what the window shows (its tab or its view in front), the window
+  moves to the fresh one: its tab in front, its row lit, the panel on it.
+  A window showing anything else (another session, another project, a
+  shell, a page) keeps it: a hand-off never takes the front from what the
+  person is on. Once per hand-off: the old session picked again stays.
+  Hand-offs already done when the window opened never move it.
+- **The board** (`hub/public/app.js selectedSession`, also the phone apps'
+  home): the sheet that showed the old session, chosen or as the
+  project's primary, moves to the fresh one; while the fresh one starts
+  (named, not failed, up to 30 s) it shows the project's primary.
+
+The Electron app (`apps/desktop`, frozen) has its own renderer and does not
+follow a hand-off.
+
 ## Plans and hand-offs
 
 A plan (docs/BRIEF-FORMAT.md, Plans) lives in the brief, so it survives a

@@ -152,6 +152,17 @@ try {
   await page.waitForTimeout(300);
   check('the user chooses the old session on the Sessions card', (await chosen()) === OLD);
   await page.screenshot({ path: path.join(SHOTS, 'before-old-chosen.png') });
+  // The board at phone width (the phone apps' home), the old session chosen there too (2026-11-18: after a
+  // hand-off the old session stayed in front, so the person looked for the new one or thought it had not happened).
+  const phoneSel = await (await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, colorScheme: 'light', isMobile: true, hasTouch: true })).newPage();
+  phoneSel.on('pageerror', (e) => { console.error('pageerror (phone)', e.message); fails++; });
+  await phoneSel.goto(`${BASE}/?theme=light#queued-test`);
+  await phoneSel.waitForSelector('#d-sessions .sess');
+  await phoneSel.$eval(`#d-sessions .sess[data-surface="${OLD}"]`, (e) => e.scrollIntoView({ block: 'center' }));
+  await phoneSel.click(`#d-sessions .sess[data-surface="${OLD}"]`);
+  await phoneSel.waitForTimeout(300);
+  const phoneChosen = async () => phoneSel.$eval('#d-sessions .sess.sel', (e) => e.dataset.surface).catch(() => null);
+  check('phone width: the old session chosen before the hand-off', (await phoneChosen()) === OLD, await phoneChosen());
 
   // The old session writes its hand-off by a Bash call, as the real one did.
   const now = new Date();
@@ -172,6 +183,11 @@ try {
   check('old session reads "handed"; the fresh one is the primary', !!p1 && p1.primary === NEW, p1 ? `primary ${p1.primary}` : '');
   await page.waitForFunction((sf) => document.querySelector('#d-sessions .sess.sel')?.dataset.surface === sf, NEW, { timeout: 8000 }).catch(() => null);
   check('the choice moved from the old session to the fresh one', (await chosen()) === NEW, await chosen());
+  await phoneSel.waitForFunction((sf) => document.querySelector('#d-sessions .sess.sel')?.dataset.surface === sf, NEW, { timeout: 8000 }).catch(() => null);
+  check('phone width: the sheet moved from the old session to the fresh one by itself', (await phoneChosen()) === NEW, await phoneChosen());
+  await phoneSel.$eval('#d-sessions', (e) => e.scrollIntoView({ block: 'center' }));
+  await phoneSel.waitForTimeout(300);
+  await phoneSel.screenshot({ path: path.join(SHOTS, 'after-handoff-phone-moved.png') });
   check('card order after: fresh on top, the handed-off one below every open one (fresh, side, old)', JSON.stringify(await order()) === JSON.stringify([NEW, SIDE, OLD]), JSON.stringify(await order()));
   await page.screenshot({ path: path.join(SHOTS, 'after-handoff.png') });
   await page.$eval('#d-sessions', (e) => e.scrollIntoView({ block: 'center' }));
