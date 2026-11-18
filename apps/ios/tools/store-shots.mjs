@@ -85,7 +85,8 @@ await sleep(1500);
 
 // The pictures, numbered as the Play ones (docs/store/play/README.md): 1 the
 // question, 2 the board, 3 the pick, 4 the command, 5 the alert; 6 a live
-// screen full. Taken in the order the demo allows (its alert comes once,
+// screen full. The store shows them board first: 2, 1, 3, 4, 5, 6
+// (docs/store/apple/UPLOAD.md). Taken in the order the demo allows (its alert comes once,
 // 6 s in; the pick last, since it is answered on its own screen).
 
 // 5. The question (notes-app) as its alert shows it, with its answers.

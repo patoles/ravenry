@@ -108,19 +108,19 @@ Collected") and the privacy policy URL were set by hand. Through the API:
 - **App Review Information**: Sign-in required off, the notes from
   REVIEW.md as they are. The contact's name, phone and email are left
   empty: the owner fills them in by hand.
+- **Screenshots**: the twelve below, uploaded for en-US and fr-FR in the
+  store's order (The screenshots, below).
 - **TestFlight**: the build is in an internal group, "Internal", with
   every build, and the account holder as its tester. Internal testing
   needs no review.
 
 ## What is left before review
 
-1. The screenshots: pick from `screenshots/` (below) and upload them on
-   the version's page (iPhone 6.9" and iPad 13").
-2. App Review Information: the contact's first and last name, phone and
+1. App Review Information: the contact's first and last name, phone and
    email.
-3. Install the build from TestFlight on an iPhone and an iPad and try it
+2. Install the build from TestFlight on an iPhone and an iPad and try it
    with a Mac.
-4. Add for Review, then Submit to App Review: the owner's own go.
+3. Add for Review, then Submit to App Review: the owner's own go.
 
 ## The screenshots
 
@@ -131,6 +131,11 @@ added text, no alpha channel; made by `apps/ios/tools/store-shots.mjs`
 the Play pictures (docs/store/play/README.md). The demo's bar ("Demo.
 Sample projects, nothing leaves this phone.", "this iPad" on the iPad) is
 on each, as the app draws it.
+
+On the store, in this order (B, board first, picked 2026-11-19), for
+en-US and fr-FR, the iPhone 6.9" set (APP_IPHONE_67) and the iPad 13"
+set (APP_IPAD_PRO_3GEN_129) alike: 2-board, 1-question, 3-pick,
+4-approve, 5-alert, 6-live. The files keep the Play pictures' numbers.
 
 | File | Size | What it shows |
 | --- | --- | --- |
