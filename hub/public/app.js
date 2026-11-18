@@ -2717,7 +2717,7 @@ function renderRules() {
   const R = ui.rules;
   const more = R && !R.error ? R.pending : 0;
   setHtml('r-body', `<p class="sec-sub">Things you corrected more than once, from your last ${P.sessions} sessions in ${esc(P.scope)}.</p>
-${rows ? `<div class="card" style="overflow: hidden">${rows}</div>` : P.auto === false && !P.lastRun ? '<div class="card"><div class="card-r t2" style="border-top: 0">Suggestions are off. To turn them on, run <span class="mono">ravenry setup</span> in a terminal: once a day the board then sends the messages you typed to ${printWho()}, on your own ${printWho()} login, to find what you keep correcting.</div></div>' : '<div class="card"><div class="card-r t2" style="border-top: 0">Nothing you keep saying is waiting. The board keeps counting.</div></div>'}
+${rows ? `<div class="card" style="overflow: hidden">${rows}</div>` : P.auto === false && !P.lastRun ? `<div class="card"><div class="card-r t2" style="border-top: 0"><span style="line-height: 1.45">Suggestions are off. To turn them on, run <span class="mono">ravenry setup</span> in a terminal: once a day the board then sends the messages you typed to ${printWho()}, on your own ${printWho()} login, to find what you keep correcting.</span></div></div>` : '<div class="card"><div class="card-r t2" style="border-top: 0">Nothing you keep saying is waiting. The board keeps counting.</div></div>'}
 <div class="quiet-line"><span>${more} more from project memory</span><button class="linkish" style="color: var(--work)" data-act="rules-more" aria-expanded="${ui.rulesMore ? 'true' : 'false'}">${ui.rulesMore ? 'Hide' : 'Show'}</button></div>
 ${ui.rulesMore ? '<div id="r-rows"></div>' : ''}`);
   if (ui.rulesMore) renderMemoryRules();
