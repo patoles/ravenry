@@ -36,6 +36,8 @@ command line.
 ```sh
 scripts/build.sh                   # the app, for the simulator
 scripts/build.sh test <udid>       # the unit tests on a booted simulator
+scripts/archive.sh [upload]        # the App Store build, signed, uploaded when asked
+node tools/store-shots.mjs --udid <udid> --out <dir>   # the App Store's pictures, from the demo
 node tools/ios-e2e.mjs --udid <udid> --out <dir> [--theme light] [--shots-only]
 ```
 
@@ -66,4 +68,5 @@ boot`, never Simulator.app.
 
 Not built yet: push through APNs (the relay, the Notification Service
 Extension) and alert buttons from push, which need an Apple account; a
-photo or a voice note, voice typing; the App Store build.
+voice note, voice typing. The App Store build: `scripts/archive.sh`,
+`../../docs/store/apple/UPLOAD.md`.

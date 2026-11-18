@@ -12,6 +12,8 @@
 	<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key><true/>
+	<!-- Only the encryption in Apple's own frameworks (URLSession's TLS, CryptoKit's SHA-256): exempt, docs/store/apple/UPLOAD.md. -->
+	<key>ITSAppUsesNonExemptEncryption</key><false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

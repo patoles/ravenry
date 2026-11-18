@@ -39,10 +39,16 @@ targets:
         INFOPLIST_FILE: Sources/Ravenry/Info.plist
         # The iPhone and the iPad (full screen there, Split View and Slide Over: every iPad orientation in Info.plist).
         TARGETED_DEVICE_FAMILY: "1,2"
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        # The Mac app's version (apps/desktop/package.json) and Android's
+        # versionCode scheme (major * 1000000 + minor * 1000 + patch);
+        # scripts/archive.sh sets both from package.json for the App Store.
+        MARKETING_VERSION: "0.1.69"
+        CURRENT_PROJECT_VERSION: "1069"
+        # Sources/Ravenry/Assets.xcassets/AppIcon.appiconset: the brand's
+        # 1024 tile (hub/brand/ravenry/icon-1024.png), copied as it is.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The simulator only, signed ad hoc: no Apple account, no team.
+        # scripts/archive.sh signs for the App Store in their place.
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: ""
