@@ -32,10 +32,15 @@ class HubOrderTest {
     private val seen = CopyOnWriteArrayList<String>()
     /** Where each name goes now: 127.0.0.1 (answers), a black hole (never answers), or nowhere. */
     private val where = ConcurrentHashMap<String, String>()
+    /** Every name looked up, in order: the addresses tried. */
+    private val asked = CopyOnWriteArrayList<String>()
     private val dns = object : okhttp3.Dns {
-        override fun lookup(hostname: String): List<InetAddress> = when (val a = where[hostname]) {
-            null, "" -> throw UnknownHostException(hostname)
-            else -> listOf(InetAddress.getByName(a))
+        override fun lookup(hostname: String): List<InetAddress> {
+            asked.add(hostname)
+            return when (val a = where[hostname]) {
+                null, "" -> throw UnknownHostException(hostname)
+                else -> listOf(InetAddress.getByName(a))
+            }
         }
     }
 
@@ -142,5 +147,97 @@ class HubOrderTest {
         latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
         ev.close()
         assertEquals(home, seen.first())
+    }
+
+    // ------------------------------------------------------------ the Mac at a new address (Nearby)
+
+    private val found = "mac-now.home.arpa"
+
+    @Test fun savedFails_theMacFoundOnTheWifiAnswers_beforeTailscale_andIsKept() {
+        var remembered: String? = null
+        var looks = 0
+        // The saved Wi-Fi address is gone (the Mac got a new one); Tailscale answers too.
+        where[home] = ""
+        where[found] = "127.0.0.1"
+        val c = HubClient(listOf(home, tail), s.port, Pins.of(hub.certificate), "tok", onHost = { remembered = it }, dns = dns, homeConnectMs = 300,
+            finder = { looks++; listOf(found) })
+        assertEquals(200, c.call("GET", "/api/phone/me").status)
+        // Saved first, then the found address; Tailscale never asked.
+        assertEquals(listOf(home, found), asked)
+        assertEquals(listOf(found), seen)
+        assertEquals(found, c.host)
+        assertEquals(found, remembered)
+        assertEquals("wifi", Reach.via(c.host, c.allHosts))
+        assertTrue(found in c.allHosts)
+        // The next requests go straight there, with no look.
+        asked.clear(); seen.clear()
+        c.call("GET", "/api/phone/me"); c.probe()
+        assertEquals(listOf(found, found), seen)
+        assertEquals(1, looks)
+        // The next start: the remembered address first (HubClient.of puts lastHost first).
+        val p = Paired("Mac", listOf(home, tail), s.port, Pins.of(hub.certificate), "tok", "d1", "phone", lastHost = remembered)
+        assertEquals(found, HubClient.of(p).order().first())
+    }
+
+    @Test fun savedAnswers_noLook() {
+        var looks = 0
+        val c = HubClient(listOf(home, tail), s.port, Pins.of(hub.certificate), "tok", dns = dns, finder = { looks++; listOf(found) })
+        c.call("GET", "/api/phone/me"); c.probe()
+        assertEquals(0, looks)
+        assertEquals(listOf(home, home), seen)
+    }
+
+    @Test fun tailscaleOff_theMacFoundOnTheWifi_noTailscaleWords() {
+        // As on a tester's phone: the saved address gone, Tailscale off (its hosts skipped).
+        where[home] = ""
+        where[found] = "127.0.0.1"
+        val c = HubClient(listOf(home, tail), s.port, Pins.of(hub.certificate), "tok", dns = dns, skip = { Reach.tailnetHost(it) }, homeConnectMs = 300, finder = { listOf(found) })
+        assertEquals(found, c.probe().first)
+        assertEquals("wifi", Reach.via(c.host, c.allHosts))
+    }
+
+    @Test fun nothingFound_tailscale_andTheLookWaitsAMinute() {
+        var looks = 0
+        where[home] = ""
+        val c = HubClient(listOf(home, tail), s.port, Pins.of(hub.certificate), "tok", dns = dns, homeConnectMs = 300, finder = { looks++; emptyList() })
+        c.call("GET", "/api/phone/me"); c.call("GET", "/api/phone/me"); c.probe()
+        assertEquals(1, looks)
+        assertEquals(tail, c.host)
+        // A network change: looked for again at once.
+        c.networkChanged()
+        c.call("GET", "/api/phone/me")
+        assertEquals(2, looks)
+    }
+
+    @Test fun onlyTheMacWithThePairedId_ipv4_wifiAddresses() {
+        val id = Pins.hubId(Pins.of(hub.certificate))
+        val list = listOf(
+            Nearby.Service("someone-elses-mac", listOf("192.168.1.50")),
+            Nearby.Service(null, listOf("192.168.1.51")),
+            Nearby.Service(id, listOf("192.168.1.22", "fe80::1", "100.64.0.9", "192.168.1.22")),
+        )
+        assertEquals(listOf("192.168.1.22"), Nearby.matching(list, id))
+        assertEquals(emptyList<String>(), Nearby.matching(list.take(2), id))
+    }
+
+    @Test fun aFoundAddressWithAnotherKeyIsRefused_tailscale() {
+        // Another device answers at the found address (same port, IPv6 loopback), with its own key.
+        val other = HeldCertificate.Builder().commonName("Not the Mac").ecdsa256().build()
+        val impostor = MockWebServer()
+        impostor.useHttps(HandshakeCertificates.Builder().heldCertificate(other).build().sslSocketFactory(), false)
+        impostor.protocols = listOf(okhttp3.Protocol.HTTP_1_1)
+        impostor.start(InetAddress.getByName("::1"), s.port)
+        try {
+            var remembered: String? = null
+            where[home] = ""
+            where[found] = "::1"
+            val c = HubClient(listOf(home, tail), s.port, Pins.of(hub.certificate), "tok", onHost = { remembered = it }, dns = dns, homeConnectMs = 300, finder = { listOf(found) })
+            assertEquals(200, c.call("GET", "/api/phone/me").status)
+            assertEquals(listOf(home, found, tail), asked)
+            assertEquals(tail, c.host)
+            assertEquals(tail, remembered)
+            assertEquals(0, impostor.requestCount)
+            assertTrue(found !in c.allHosts)
+        } finally { impostor.shutdown() }
     }
 }

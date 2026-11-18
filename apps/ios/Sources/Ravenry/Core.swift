@@ -98,6 +98,15 @@ enum Pins {
         return b64u(Data(SHA256.hash(data: spki)))
     }
 
+    /// The id the Mac says on the Wi-Fi (hub/server/nearby.mjs hubId): the
+    /// first 12 bytes of the SHA-256 of the pin's bytes, base64url, 16
+    /// characters. Only a service with this id is taken (Nearby); the pin is
+    /// still what proves it is the paired Mac.
+    static func hubId(_ pin: String) -> String {
+        guard let b = bytes(pin) else { return "" }
+        return b64u(Data(SHA256.hash(data: b)).prefix(12))
+    }
+
     /// The check number of a typed pairing: the first five bytes of the pin
     /// read as one big-endian number, modulo 10^12, as two groups of six digits.
     static func checkNumber(_ pin: String) -> String {
@@ -222,7 +231,9 @@ enum Reach {
 /// until it answers again or the network changes, except in the connection
 /// watch's check, which tries every Wi-Fi address first every time.
 final class Route {
-    let hosts: [String]
+    /// The computer's addresses: the saved ones, and any found on the Wi-Fi that answered.
+    var hosts: [String] { lock.lock(); defer { lock.unlock() }; return list }
+    private var list: [String]
     private(set) var host: String
     private var homeDown = Set<String>()
     private let lock = NSLock()
@@ -232,8 +243,8 @@ final class Route {
 
     init(_ hosts: [String], isTailnet: @escaping (String) -> Bool = Reach.tailnetHost, skip: @escaping (String) -> Bool = { _ in false }, onHost: @escaping (String) -> Void = { _ in }) {
         var seen = Set<String>()
-        self.hosts = hosts.filter { seen.insert($0).inserted }
-        self.host = self.hosts.first ?? ""
+        list = hosts.filter { seen.insert($0).inserted }
+        host = list.first ?? ""
         self.isTailnet = isTailnet
         self.skip = skip
         self.onHost = onHost
@@ -241,7 +252,7 @@ final class Route {
 
     func order(check: Bool = false) -> [String] {
         lock.lock(); defer { lock.unlock() }
-        let home = hosts.filter { !isTailnet($0) }, tail = hosts.filter { isTailnet($0) }
+        let home = list.filter { !isTailnet($0) }, tail = list.filter { isTailnet($0) }
         let last = { (l: [String]) -> [String] in l.contains(self.host) ? [self.host] + l.filter { $0 != self.host } : l }
         let h = last(home)
         let first = check ? h : h.filter { !homeDown.contains($0) }
@@ -252,6 +263,8 @@ final class Route {
     func answered(_ h: String) {
         lock.lock()
         homeDown.remove(h)
+        // Found on the Wi-Fi (Nearby): one of the computer's addresses from now on.
+        if !list.contains(h) { list.insert(h, at: 0) }
         let changed = h != host
         if changed { host = h }
         lock.unlock()
@@ -265,6 +278,67 @@ final class Route {
 
     /// The phone joined or left a Wi-Fi: every Wi-Fi address gets a first try again.
     func networkChanged() { lock.lock(); homeDown.removeAll(); lock.unlock() }
+
+    /// A round over `order` (HubClient.execute; Android HubClient.tries): each
+    /// host tried in turn until `attempt` gives an answer, with the Mac's
+    /// addresses found on the Wi-Fi (`find`, given what was tried) put just
+    /// before the first tailnet host, or at the end: looked for only when the
+    /// round gets there, so only when no saved Wi-Fi address answered.
+    /// Order: the saved Wi-Fi addresses, the found ones, then Tailscale.
+    static func round<T>(_ order: [String], isTailnet: (String) -> Bool, find: (([String]) async -> [String])?,
+                         attempt: (String) async -> T?) async -> T? {
+        var tried: [String] = []
+        var looked = find == nil
+        var i = 0
+        while i <= order.count {
+            let h: String? = i < order.count ? order[i] : nil
+            if !looked && (h == nil || isTailnet(h!)) {
+                looked = true
+                var found: [String] = []
+                for n in await find?(tried) ?? [] where !tried.contains(n) && !found.contains(n) && !isTailnet(n) { found.append(n) }
+                for n in found { tried.append(n); if let r = await attempt(n) { return r } }
+            }
+            guard let h else { break }
+            tried.append(h)
+            if let r = await attempt(h) { return r }
+            i += 1
+        }
+        return nil
+    }
+}
+
+/// When the Mac is looked for on the Wi-Fi (HubClient's finder; Android
+/// HubClient.nearby): at most once a minute while no saved address answers,
+/// the wait doubling to 15 minutes while nothing is found; a network change
+/// (and finding the Mac) start it again at a minute. A request that comes
+/// during a look waits for it and gets its answer.
+actor Looks {
+    static let every: TimeInterval = 60
+    static let most: TimeInterval = 15 * 60
+    private let look: () async -> [String]
+    private var next: Date?
+    private var gap = Looks.every
+    private var found: [String] = []
+    private var running: Task<[String], Never>?
+    private(set) var count = 0
+
+    init(_ look: @escaping () async -> [String]) { self.look = look }
+
+    func get() async -> [String] {
+        if let r = running { return await r.value }
+        if let n = next, Date() < n { return found }
+        let t = Task { await look() }
+        running = t
+        count += 1
+        let f = await t.value
+        running = nil
+        found = f
+        next = Date().addingTimeInterval(gap)
+        gap = f.isEmpty ? min(gap * 2, Looks.most) : Looks.every
+        return f
+    }
+
+    func reset() { next = nil; gap = Looks.every }
 }
 
 /// JSON the hub wrote, read here (an alert, a reply). JavaScript writes half of

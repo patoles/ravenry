@@ -45,7 +45,10 @@ object Hub {
         val p = store.paired() ?: return null
         client?.let { if (forToken == p.token) return it }
         val app = context.applicationContext
-        return HubClient.of(p, onHost = { store.rememberHost(it) }, onSignedOut = { signedOut(app) }, skip = Reach.skip(app), dns = DebugNet.dns(app), cache = boardCache(app)).also { client = it; forToken = p.token }
+        // A host that answers is remembered, so the next start goes straight
+        // there (one the Mac was found at on the Wi-Fi too: Nearby).
+        val onHost = { h: String -> store.rememberHost(h); android.util.Log.i("Ravenry", "connection: the Mac answers at $h (${Reach.via(h, store.paired()?.hosts ?: emptyList())})"); Unit }
+        return HubClient.of(p, onHost = onHost, onSignedOut = { signedOut(app) }, skip = Reach.skip(app), dns = DebugNet.dns(app), cache = boardCache(app), finder = Nearby.finder(app, p.pin)).also { client = it; forToken = p.token }
     }
 
     /** The board's files between reloads (HubClient `cache`): one per folder, as OkHttp wants. */
@@ -119,7 +122,7 @@ object Revokes {
         Hub.io.execute {
             val store = Store.get(app)
             for (p in store.revokes()) {
-                val r = runCatching { HubClient.of(p, skip = Reach.skip(app)).call("POST", "/api/phone/unpair", "{}") }.getOrNull()
+                val r = runCatching { HubClient.of(p, skip = Reach.skip(app), finder = Nearby.finder(app, p.pin)).call("POST", "/api/phone/unpair", "{}") }.getOrNull()
                 if (r != null && (r.status == 200 || r.status == 401 || r.status == 404)) store.dropRevoke(p.token)
             }
             running = false

@@ -44,6 +44,7 @@ import * as events from './events.mjs';
 import * as sess from './sessions.mjs';
 import * as phone from './phone.mjs';
 import * as phonetls from './phonetls.mjs';
+import * as nearby from './nearby.mjs';
 import * as staticFiles from './static.mjs';
 import { boardListeners } from './boardlisten.mjs';
 import * as push from './push.mjs';
@@ -3937,6 +3938,10 @@ function dropPhoneStreams(device = null) {
 function syncPhonePort() {
   if (phone.access()) phonetls.start(PHONE_PORT, handleRequest, handleUpgrade);
   else phonetls.stop();
+  // The Mac on the Wi-Fi by Bonjour while phone access is on, so a phone
+  // finds it after its address changes (server/nearby.mjs).
+  if (phone.access()) nearby.start({ pin: phonetls.identity().pin, port: PHONE_PORT, bind: hubBind() });
+  else nearby.stop();
   if (boardPort) boardPort.sync(phone.access());
   // Away from home: Ravenry's device on the person's Tailscale runs only while phone access is on too.
   tailnet.sync();

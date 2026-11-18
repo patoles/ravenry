@@ -9,6 +9,12 @@
 // on with a bare TCP connection (Network.framework) that has that limit;
 // the same knock is where iOS says it keeps the app off the local network
 // (Settings, Privacy, Local Network), which Reach turns into its words.
+//
+// When no saved Wi-Fi address answers (the Mac got a new address from the
+// router, another network), the Mac is looked for on the Wi-Fi (Nearby:
+// Bonjour, only the paired Mac's id) before Tailscale; an address it finds
+// gets the same knock and the same pinned key, and the one that answers is
+// kept (onHost, so the next start goes straight there).
 
 import Foundation
 import Network
@@ -91,11 +97,14 @@ final class HubClient {
 
     /// The connect target for a host: itself, except in tests (a stand-in name).
     var resolve: (String) -> String = { $0 }
+    /// Looks for the paired Mac on the Wi-Fi (Nearby), at most once a minute; nil: never.
+    let looks: Looks?
 
     init(hosts: [String], port: Int, pin: String?, token: String?, homeConnect: TimeInterval = HubClient.homeConnect,
          isTailnet: @escaping (String) -> Bool = Reach.tailnetHost, skip: @escaping (String) -> Bool = { _ in false },
-         onHost: @escaping (String) -> Void = { _ in }, cache: URLCache? = nil) {
+         onHost: @escaping (String) -> Void = { _ in }, cache: URLCache? = nil, finder: (() async -> [String])? = nil) {
         route = Route(hosts, isTailnet: isTailnet, skip: skip, onHost: onHost)
+        looks = finder.map { Looks($0) }
         self.port = port
         self.token = token
         self.homeConnect = homeConnect
@@ -126,7 +135,7 @@ final class HubClient {
 
     static func of(_ p: Paired, cache: URLCache? = nil, onHost: @escaping (String) -> Void = { _ in }) -> HubClient {
         let order = (p.lastHost.map { [$0] } ?? []) + p.hosts
-        return HubClient(hosts: order, port: p.port, pin: p.pin, token: p.token, skip: Net.skip, onHost: onHost, cache: cache)
+        return HubClient(hosts: order, port: p.port, pin: p.pin, token: p.token, skip: Net.skip, onHost: onHost, cache: cache, finder: Nearby.finder(pin: p.pin))
     }
 
     var host: String { route.host }
@@ -168,7 +177,10 @@ final class HubClient {
         route.failed(h)
     }
 
-    func networkChanged() { lock.lock(); warm.removeAll(); lock.unlock(); route.networkChanged() }
+    func networkChanged() {
+        lock.lock(); warm.removeAll(); lock.unlock(); route.networkChanged()
+        if let l = looks { Task { await l.reset() } }
+    }
 
     private func failure(_ hosts: [String], _ errors: [(String, Error)]) -> HubFailure {
         var f = HubFailure(hosts: allHosts)
@@ -185,8 +197,9 @@ final class HubClient {
     func execute(_ method: String, _ path: String, body: Data? = nil, headers: [String: String] = [:], timeout: TimeInterval = 30, check: Bool = false) async throws -> HubReply {
         let order = route.order(check: check)
         var errors: [(String, Error)] = []
-        for h in order {
-            guard await knock(h) else { failed(h); errors.append((h, URLError(.cannotConnectToHost))); continue }
+        let find: (([String]) async -> [String])? = looks.map { l in { _ in await l.get() } }
+        let got: HubReply? = await Route.round(order, isTailnet: route.isTailnet, find: find) { h in
+            guard await knock(h) else { failed(h); errors.append((h, URLError(.cannotConnectToHost))); return nil }
             do {
                 let (data, resp) = try await session.data(for: request(h, method, path, body: body, headers: headers, timeout: timeout))
                 guard let r = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -199,8 +212,10 @@ final class HubClient {
             } catch {
                 failed(h)
                 errors.append((h, error))
+                return nil
             }
         }
+        if let got { return got }
         throw failure(order, errors)
     }
 

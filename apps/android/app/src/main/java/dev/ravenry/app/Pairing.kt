@@ -89,4 +89,12 @@ object Pins {
     }
 
     fun sha256(b: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(b)
+
+    /**
+     * The id the Mac says on the Wi-Fi (hub/server/nearby.mjs hubId): the
+     * first 12 bytes of the SHA-256 of the pin's bytes, base64url, 16
+     * characters. Only a service with this id is taken (Nearby), and the
+     * pin is still what proves it is the paired Mac.
+     */
+    fun hubId(pin: String): String = b64u.encodeToString(sha256(bytes(pin)).copyOfRange(0, 12))
 }

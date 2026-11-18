@@ -108,4 +108,81 @@ final class ReachTests: XCTestCase {
         r.failed(tail)
         XCTAssertEqual(r.order(), ["192.168.1.36", tail])
     }
+
+    // ------------------------------------------------------------ the Mac at a new address (Nearby; Android HubOrderTest)
+
+    let saved = "192.168.1.36", now = "192.168.1.22"
+    let id = Pins.hubId("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+
+    /// What Bonjour finds on a home Wi-Fi: another Mac, one with no id, and his, with addresses Nearby must not take.
+    var onTheWifi: [Nearby.Service] {
+        [Nearby.Service(id: "someone-elses-mac", addresses: ["192.168.1.50"]),
+         Nearby.Service(id: nil, addresses: ["192.168.1.51"]),
+         Nearby.Service(id: id, addresses: [now, "fe80::1", "100.64.0.9", now])]
+    }
+
+    func testOnlyTheMacWithThePairedIdIsTaken() {
+        XCTAssertEqual(Nearby.matching(onTheWifi, id: id), [now])
+        XCTAssertEqual(Nearby.matching(Array(onTheWifi.prefix(2)), id: id), [])
+    }
+
+    func testSavedFails_theFoundAddressBeforeTailscale_andItIsKept() async {
+        var told: [String] = []
+        let r = Route([saved, tail], onHost: { told.append($0) })
+        var tried: [String] = [], looks = 0
+        let got: String? = await Route.round(r.order(), isTailnet: r.isTailnet, find: { _ in looks += 1; return Nearby.matching(self.onTheWifi, id: self.id) }) { h in
+            tried.append(h)
+            if h == self.now { r.answered(h); return h }
+            r.failed(h); return nil
+        }
+        XCTAssertEqual(got, now)
+        // Saved first, then the found address; Tailscale never tried.
+        XCTAssertEqual(tried, [saved, now])
+        XCTAssertEqual(looks, 1)
+        XCTAssertEqual(r.host, now)
+        XCTAssertEqual(told, [now])
+        XCTAssertEqual(Reach.via(r.host, r.hosts), "wifi")
+        // The next round goes straight there.
+        XCTAssertEqual(r.order().first, now)
+        // The next start too: lastHost first (HubClient.of).
+        let p = Paired(hubName: "Mac", hosts: [saved, tail], port: 4601, pin: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", token: "t", deviceId: "d", deviceName: "phone", lastHost: told.last)
+        XCTAssertEqual(HubClient.of(p).route.order().first, now)
+    }
+
+    func testSavedAnswers_noLook() async {
+        let r = Route([saved, tail])
+        var looks = 0
+        let got: String? = await Route.round(r.order(), isTailnet: r.isTailnet, find: { _ in looks += 1; return [self.now] }) { $0 == self.saved ? $0 : nil }
+        XCTAssertEqual(got, saved)
+        XCTAssertEqual(looks, 0)
+    }
+
+    /// A tester's phone: Tailscale off, so the tailnet hosts are left out; the look comes at the end.
+    func testTailscaleOff_theFoundAddressStill() async {
+        let r = Route([saved, tail], skip: { Reach.tailnetHost($0) })
+        var tried: [String] = []
+        let got: String? = await Route.round(r.order(), isTailnet: r.isTailnet, find: { _ in Nearby.matching(self.onTheWifi, id: self.id) }) { h in tried.append(h); return h == self.now ? h : nil }
+        XCTAssertEqual(got, now)
+        XCTAssertEqual(tried, [saved, now])
+    }
+
+    /// A found address that answers with another key (the pin refused): not the Mac, Tailscale next.
+    func testAFoundAddressWithAnotherKeyIsRefused() async {
+        let r = Route([saved, tail])
+        var tried: [String] = []
+        let got: String? = await Route.round(r.order(), isTailnet: r.isTailnet, find: { _ in [self.now] }) { h in tried.append(h); return h == self.tail ? h : nil }
+        XCTAssertEqual(got, tail)
+        XCTAssertEqual(tried, [saved, now, tail])
+        XCTAssertFalse(r.hosts.contains(now))
+    }
+
+    func testTheLookWaitsAMinuteWhenNothingIsFound_andANetworkChangeLooksAgain() async {
+        var n = 0
+        let l = Looks { n += 1; return [] }
+        _ = await l.get(); _ = await l.get(); _ = await l.get()
+        XCTAssertEqual(n, 1)
+        await l.reset()
+        _ = await l.get()
+        XCTAssertEqual(n, 2)
+    }
 }

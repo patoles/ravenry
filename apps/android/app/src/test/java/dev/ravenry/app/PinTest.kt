@@ -85,4 +85,10 @@ class PinTest {
         assertTrue(out)
         s.shutdown()
     }
+
+    /** The id the Mac says on the Wi-Fi: the same vector as hub/tools/nearby-test.mjs and iOS's PinTests. */
+    @Test fun theHubIdIsTheHubsOwn() {
+        assertEquals("Yw3NKWbEM2aRElRI", Pins.hubId("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"))
+        assertEquals(16, Pins.hubId(Pins.of(hub.certificate)).length)
+    }
 }

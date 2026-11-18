@@ -57,6 +57,13 @@ class HubReply(val status: Int, val text: String)
  * ([networkChanged]), so away from home it costs requests nothing; the
  * connection watch's check ([probe], every 30 s) tries the home addresses
  * first every time, so coming home switches back within one check.
+ *
+ * When no saved Wi-Fi address answers (the Mac got a new address from the
+ * router, another network), the Mac is looked for on the Wi-Fi ([finder]:
+ * Bonjour, Nearby) before Tailscale: an address it finds is tried with the
+ * same short time and the same pinned key, and the one that answers is kept
+ * (onHost, so the next start goes straight there). Order: the saved Wi-Fi
+ * addresses, then the found ones, then Tailscale.
  */
 class HubClient(
     hosts: List<String>,
@@ -81,11 +88,18 @@ class HubClient(
      * pictures): never the API's answers.
      */
     private val cache: okhttp3.Cache? = null,
+    /**
+     * Looks for the paired Mac on the Wi-Fi (Nearby: Bonjour, only a
+     * service with the Mac's id): its addresses there, or none. Blocks for
+     * at most a few seconds; null: never looked for.
+     */
+    private val finder: (() -> List<String>)? = null,
 ) {
     val trust = PinnedTrust(pin)
-    private val hosts = hosts.distinct()
+    /** The computer's addresses: the saved ones, and any the finder found that answered. */
+    private val hosts = java.util.concurrent.CopyOnWriteArrayList(hosts.distinct())
     /** Every address of the computer, for the words when none answers (Reach). */
-    val allHosts: List<String> get() = hosts
+    val allHosts: List<String> get() = hosts.toList()
     @Volatile var host: String = this.hosts.first()
         private set
 
@@ -124,12 +138,62 @@ class HubClient(
     /** Home addresses that did not answer, tried after Tailscale until they answer or the network changes. */
     private val homeDown: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
-    /** The phone's network changed (joined or left a Wi-Fi): every home address is worth a first try again. */
-    fun networkChanged() = homeDown.clear()
+    /** The phone's network changed (joined or left a Wi-Fi): every home address is worth a first try again, and a look on the Wi-Fi too. */
+    fun networkChanged() {
+        homeDown.clear()
+        findGap = FIND_EVERY_MS; nextFind = -1L
+    }
 
     private fun answered(h: String) {
         homeDown.remove(h)
+        // Found on the Wi-Fi: one of the computer's addresses from now on.
+        if (h !in hosts) hosts.add(0, h)
         if (h != host) { host = h; onHost(h) }
+    }
+
+    private val findLock = Any()
+    /** When the finder may look again (ms on the monotonic clock; -1: now), the wait after that, and what it found last. */
+    @Volatile private var nextFind = -1L
+    @Volatile private var findGap = FIND_EVERY_MS
+    private var found: List<String> = emptyList()
+
+    /**
+     * The Mac's addresses on the Wi-Fi not tried yet in this round. The
+     * finder looks at most once a minute (the wait doubling to 15 minutes
+     * while it finds nothing; a network change, and finding the Mac, start
+     * it again at a minute); a request meanwhile waits for a look in
+     * progress and gets its answer.
+     */
+    private fun nearby(tried: Set<String>): List<String> {
+        val f = finder ?: return emptyList()
+        val list = synchronized(findLock) {
+            if (nextFind < 0 || now() >= nextFind) {
+                found = runCatching { f() }.getOrDefault(emptyList())
+                nextFind = now() + findGap
+                findGap = if (found.isEmpty()) (findGap * 2).coerceAtMost(FIND_EVERY_MAX_MS) else FIND_EVERY_MS
+            }
+            found
+        }
+        return list.filter { it !in tried && !isTailnet(it) }.distinct()
+    }
+
+    private fun now() = System.nanoTime() / 1_000_000
+
+    /**
+     * The order a round tries: [order], with the Mac's addresses found on
+     * the Wi-Fi just before the first tailnet one (or at the end), looked
+     * for only when the round gets there, so only when no saved Wi-Fi
+     * address answered.
+     */
+    private fun tries(order: List<String>): Sequence<String> = sequence {
+        val tried = HashSet<String>()
+        var looked = finder == null
+        for (h in order) {
+            if (!looked && isTailnet(h)) { looked = true; for (n in nearby(tried)) { tried.add(n); yield(n) } }
+            tried.add(h)
+            yield(h)
+        }
+        if (!looked) for (n in nearby(tried)) { tried.add(n); yield(n) }
     }
 
     private fun failed(h: String) { if (!isTailnet(h)) homeDown.add(h) }
@@ -142,11 +206,9 @@ class HubClient(
      * answers within 5 s, and the round trip in ms. Throws when none does.
      */
     fun probe(): Pair<String, Long> {
-        val order = order(check = true)
-        if (order.isEmpty()) throw IOException("No address can answer now")
         var last: IOException? = null
         var pin: IOException? = null
-        for (h in order) {
+        for (h in tries(order(check = true))) {
             val t = System.nanoTime()
             try {
                 pick(h, quickHome, quick).newCall(build(h, "GET", "/api/phone/hello", null, emptyMap())).execute().use { r ->
@@ -161,7 +223,7 @@ class HubClient(
                 if (pinRefused(e)) pin = e
             }
         }
-        throw pin ?: last ?: IOException("No address to try")
+        throw pin ?: last ?: IOException("No address can answer now")
     }
 
     fun url(h: String, path: String): String {
@@ -199,11 +261,9 @@ class HubClient(
 
     /** Runs a request on the first address that answers. Throws when none does. */
     fun execute(method: String, path: String, body: RequestBody? = null, headers: Map<String, String> = emptyMap()): Response {
-        val order = order()
-        if (order.isEmpty()) throw IOException("No address can answer now")
         var last: IOException? = null
         var pin: IOException? = null
-        for (h in order) {
+        for (h in tries(order())) {
             try {
                 val r = pick(h, httpHome, http).newCall(build(h, method, path, body, headers)).execute()
                 answered(h)
@@ -219,7 +279,7 @@ class HubClient(
                 if (pinRefused(e)) pin = e
             }
         }
-        throw pin ?: last ?: IOException("No address to try")
+        throw pin ?: last ?: IOException("No address can answer now")
     }
 
     /** A JSON call: `body` is JSON text or null. */
@@ -316,9 +376,13 @@ class HubClient(
          */
         const val HOME_CONNECT_MS = 1500L
 
-        fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}, skip: (String) -> Boolean = { false }, dns: okhttp3.Dns? = null, cache: okhttp3.Cache? = null): HubClient {
+        /** How often the Mac is looked for on the Wi-Fi while no saved address answers, and at most (Nearby). */
+        const val FIND_EVERY_MS = 60_000L
+        const val FIND_EVERY_MAX_MS = 15 * 60_000L
+
+        fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}, skip: (String) -> Boolean = { false }, dns: okhttp3.Dns? = null, cache: okhttp3.Cache? = null, finder: (() -> List<String>)? = null): HubClient {
             val order = listOfNotNull(p.lastHost) + p.hosts
-            return HubClient(order, p.port, p.pin, p.token, onHost, onSignedOut, skip, dns, cache = cache)
+            return HubClient(order, p.port, p.pin, p.token, onHost, onSignedOut, skip, dns, cache = cache, finder = finder)
         }
     }
 }

@@ -173,4 +173,10 @@ final class PinTests: XCTestCase {
         s.close()
         XCTAssertEqual(c.host, home)
     }
+
+    /// The id the Mac says on the Wi-Fi: the same vector as hub/tools/nearby-test.mjs and Android's PinTest.
+    func testTheHubIdIsTheHubsOwn() {
+        XCTAssertEqual(Pins.hubId("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"), "Yw3NKWbEM2aRElRI")
+        XCTAssertEqual(Pins.hubId(hubPin).count, 16)
+    }
 }
