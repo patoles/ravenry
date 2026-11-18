@@ -1,6 +1,7 @@
 // A '...' or "..." string that holds ${name} was meant to be a template: the
 // person sees the literal text. Scans the board, the hub, the phone and the
 // desktop sources and fails on any. Shell snippets (${VAR}, ${2}) are left alone.
+import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
