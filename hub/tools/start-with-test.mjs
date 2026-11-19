@@ -572,7 +572,8 @@ async function metaSwitchChecks(browser, pb, PMC, SH) {
       label: g ? g.querySelector('#pas-l').textContent : null,
       btns: g ? [...g.querySelectorAll('[data-pas]')].map((b) => b.textContent + (b.classList.contains('on') && b.getAttribute('aria-pressed') === 'true' ? '*' : '')).join(',') : null,
       groups: meta.querySelectorAll('.pas-meta').length,
-      last: g ? g === meta.lastElementChild : false,
+      // The Model menu beside the switch (28a3220): the switch's group, then the menu's, which ends the line.
+      model: (() => { const m = g && g.nextElementSibling; return m && m.matches('.pas-meta') && m.querySelector('select.pm-sel') && m === meta.lastElementChild ? m.querySelector('select.pm-sel').getAttribute('aria-label') : null; })(),
       err: (meta.querySelector('.pas-err') || {}).textContent || null,
       lvTag: (document.querySelector('.lv-h .as-tag') || {}).textContent || null,
     };
@@ -593,7 +594,7 @@ async function metaSwitchChecks(browser, pb, PMC, SH) {
       const words = g.wordDy.every(([, d]) => Math.abs(d) <= 1) && g.factDy.every((d) => Math.abs(d) <= 1);
       const same = !g.same || g.same.every(([, d]) => Math.abs(d) <= 1);
       if (theme === 'dark') {
-        check(`page ${tag}: the meta line ends on "New sessions:" and the switch, on Paper Boat's own Codex`, st.label === 'New sessions:' && st.btns === 'Claude,Codex*' && st.groups === 1 && st.last, JSON.stringify(st));
+        check(`page ${tag}: the meta line ends on "New sessions:", the switch on Paper Boat's own Codex, and the Model menu`, st.label === 'New sessions:' && st.btns === 'Claude,Codex*' && st.groups === 2 && st.model === 'Model for new sessions', JSON.stringify(st));
         check(`page ${tag}: the label's and the switch's words sit on the facts' baseline (within 1px)`, words && same, `${JSON.stringify(g.wordDy)} same row as "${g.sameWith}": ${JSON.stringify(g.same)}`);
         check(`page ${tag}: the switch is centred on its line (within 1px), the label and the switch on one row`, Math.abs(g.centre) <= 1 && Math.abs(g.groupRowH - g.factRowH) <= 0.5 && Math.abs(g.labelTop - g.switchTop) < 6 && g.labelRight < g.switchLeft, `centre ${g.centre}, row ${g.groupRowH} vs ${g.factRowH}`);
         if (tag === '1440') check('page 1440: the meta line keeps its height with the switch', Math.abs(g.metaH - g.metaHWithout) <= 0.5 && g.metaHWithout === g.factRowH, `${g.metaHWithout} without, ${g.metaH} with`);
