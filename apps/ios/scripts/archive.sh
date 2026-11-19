@@ -18,8 +18,8 @@
 #   RAVENRY_RELAY    the relay the app's alerts go through (relay/README.md),
 #                    else the first line of ~/.ravenry-release/ios-relay.txt;
 #                    an App Store build is refused without one, since its
-#                    alerts would go nowhere. Never written in the repository
-#                    (a workers.dev address names the Cloudflare account).
+#                    alerts would go nowhere. Kept outside the repository,
+#                    with the account's other values.
 # The version is the Mac app's (apps/desktop/package.json), the build
 # number Android's versionCode (0.1.69 is 1069); a second upload of one
 # version needs a new number: RAVENRY_IOS_BUILD=1069.1.

@@ -94,9 +94,14 @@ npx wrangler@4 deploy
 
 The relay's address goes into the iPhone app's build (it sends it to the
 hub as `relay` with its token), from a value outside the repository
-(apps/ios/README.md): a `*.workers.dev` address names the Cloudflare
-account, so it is not written here. A custom domain (a route in
-`wrangler.jsonc`) can be written in the repository and the app.
+(apps/ios/README.md, scripts/archive.sh: `RAVENRY_RELAY` or
+`~/.ravenry-release/ios-relay.txt`), like the account's other values.
+
+After a deploy, a probe with a well-formed token no device has and a
+properly sealed body should get APNs' `BadDeviceToken` (the relay's 400)
+for both `production` and `sandbox`: that proves the HTTP/2 connection,
+the provider token and the topic. A 502 with `InvalidProviderToken` or
+`ExpiredProviderToken` means the key, its id or the team id is wrong.
 
 ## Run it here
 

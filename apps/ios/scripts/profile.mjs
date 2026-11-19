@@ -99,6 +99,11 @@ for (const p of PROFILES) {
   } else if (CHECK) say(`${p.name}: fine, until ${profile.attributes.expirationDate.slice(0, 10)}`);
   if (CHECK) continue;
   fs.mkdirSync(dir, { recursive: true });
+  // An older copy of the same name (one made before push) would leave the export two to choose from: it goes.
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.mobileprovision') && x !== `${profile.attributes.uuid}.mobileprovision`)) {
+    const raw = fs.readFileSync(path.join(dir, f)).toString('latin1');
+    if (raw.includes(`<key>Name</key>\n\t<string>${p.name}</string>`) || raw.includes(`<key>Name</key><string>${p.name}</string>`)) { fs.rmSync(path.join(dir, f)); say(`${p.name}: an older copy removed (${f})`); }
+  }
   fs.writeFileSync(path.join(dir, `${profile.attributes.uuid}.mobileprovision`), Buffer.from(profile.attributes.profileContent, 'base64'));
   out[p.bundle] = p.name;
 }
