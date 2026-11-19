@@ -24,7 +24,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         AlertCenter.shared.setUp()
         Net.watch()
         Revokes.run()
+        Push.shared.start()
         return true
+    }
+
+    // Push through APNs (Push.swift): the token, to the Mac; a silent push (a close) opened and done.
+    func application(_ app: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) { Push.shared.arrived(token) }
+    func application(_ app: UIApplication, didFailToRegisterForRemoteNotificationsWithError e: Error) { Push.shared.failed(e) }
+    func application(_ app: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any], fetchCompletionHandler done: @escaping (UIBackgroundFetchResult) -> Void) {
+        Push.shared.background(info, done: done)
     }
 
     func application(_ app: UIApplication, configurationForConnecting s: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
@@ -50,9 +58,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             Store.shared.clear(); Hub.reset()
             self?.showPairing(signedOut: true)
         }
-        if let n = options.notificationResponse, let s = n.notification.request.content.userInfo["alert"] as? String {
-            Self.pendingAlert = (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any]
-        }
+        if let n = options.notificationResponse { Self.pendingAlert = AlertContent.alertOf(n.notification.request.content.userInfo) }
         if let u = options.urlContexts.first?.url, u.scheme == "ravenry" { showPairing(link: u.absoluteString) }
         else if Store.shared.paired() != nil { showBoard(cold: true) }
         else { showPairing() }
@@ -65,7 +71,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     // Each said in the log: a field log shows when the app was away and came back.
-    func sceneDidBecomeActive(_ s: UIScene) { Log.say("app: in front"); AlertCenter.shared.refresh { self.board?.appeared() } }
+    func sceneDidBecomeActive(_ s: UIScene) { Log.say("app: in front"); AlertCenter.shared.refresh { self.board?.appeared() }; Push.shared.start() }
     func sceneWillResignActive(_ s: UIScene) {}
     func sceneDidEnterBackground(_ s: UIScene) { Log.say("app: in the background"); board?.disappeared() }
 
@@ -87,6 +93,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         if UIApplication.shared.applicationState == .active { b.appeared() }
         Log.say("board: shown (\(cold ? "cold start" : "after pairing"))")
+        if !cold { Push.shared.start() }
     }
 
     /// The demo (Board.swift): the board on sample projects, in a web view that keeps nothing; never once a Mac is paired.

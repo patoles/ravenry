@@ -231,10 +231,13 @@ final class SecretField: NSObject, UITextFieldDelegate {
     }
 }
 
-/// The alerts while the app is open (docs/PHONE.md section 5): the hub's
-/// messages on the live stream drawn by iOS, once each; a close takes one
-/// off. A command's alert has Run (Face ID in the app first) and Refuse.
-/// Push (APNs, the alerts while the app is closed) comes later.
+/// The alerts (docs/PHONE.md section 5): the hub's messages on the live
+/// stream while the app is open, drawn by iOS once each, and the alerts
+/// through APNs while it is closed (Push.swift, drawn by the Notification
+/// Service Extension); both with the same words and buttons
+/// (Sources/Shared/AlertContent.swift). A close takes one off, whichever
+/// way it came. A button answers the Mac as Android's does; Run, Allow once
+/// and This session open the app and ask for Face ID first.
 final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
     static let shared = AlertCenter()
     private(set) var allowed = false
@@ -243,10 +246,7 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
     func setUp() {
         let c = UNUserNotificationCenter.current()
         c.delegate = self
-        let run = UNNotificationAction(identifier: "run", title: "Run", options: [.foreground, .authenticationRequired])
-        let refuse = UNNotificationAction(identifier: "refuse", title: "Refuse", options: [.destructive, .authenticationRequired])
-        let open = UNNotificationAction(identifier: "open", title: "Open", options: [.foreground])
-        c.setNotificationCategories([UNNotificationCategory(identifier: "approve", actions: [run, refuse, open], intentIdentifiers: [])])
+        // Each alert's buttons are a category made for it (AlertContent.prepare).
         refresh()
     }
 
@@ -262,21 +262,27 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
     /// One message of the hub (an alert, a close or a test).
     func message(_ m: [String: Any]) {
         guard let type = m["type"] as? String, let id = m["id"] as? String else { return }
-        if type == "close" {
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
-            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
-            return
-        }
+        if type == "close" { remove(id); return }
         guard type == "alert" || type == "test", !Store.shared.seen(id) else { return }
         let c = UNMutableNotificationContent()
-        c.title = m["title"] as? String ?? "Ravenry"
-        c.body = [m["body"] as? String, m["detail"] as? String].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
-        c.sound = .default
-        if (m["kind"] as? String) == "approve" { c.categoryIdentifier = "approve" }
-        if let p = (m["project"] as? [String: Any])?["id"] as? String { c.threadIdentifier = p }
-        if let d = try? JSONSerialization.data(withJSONObject: m) { c.userInfo = ["alert": String(decoding: d, as: UTF8.self)] }
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: c, trigger: nil)) { e in
-            Log.say("alert: \(e == nil ? "shown" : "not shown") (\(m["kind"] as? String ?? type))")
+        AlertContent.prepare(c, m) {
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: c, trigger: nil)) { e in
+                Log.say("alert: \(e == nil ? "shown" : "not shown") (\(m["kind"] as? String ?? type))")
+            }
+        }
+    }
+
+    /// The alert a notification carries (drawn, or still sealed: AlertContent.alertOf).
+    static func alertOf(_ n: UNNotification) -> [String: Any]? { AlertContent.alertOf(n.request.content.userInfo) }
+
+    /// Takes an alert off: the one the app drew (its id is the alert's) and one
+    /// that came through APNs (iOS gave it an id of its own; the alert says its id).
+    func remove(_ id: String) {
+        let c = UNUserNotificationCenter.current()
+        c.removePendingNotificationRequests(withIdentifiers: [id])
+        c.getDeliveredNotifications { ns in
+            let ids = ns.filter { $0.request.identifier == id || (Self.alertOf($0)?["id"] as? String) == id }.map { $0.request.identifier }
+            c.removeDeliveredNotifications(withIdentifiers: ids.isEmpty ? [id] : ids)
         }
     }
 
@@ -309,7 +315,12 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
         c.getDeliveredNotifications { ns in c.removeDeliveredNotifications(withIdentifiers: ns.map { $0.request.identifier }.filter { $0.hasPrefix("demo:") }) }
     }
 
+    /// In front: an alert through APNs that the live stream already drew is not drawn twice.
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification, withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
+        if n.request.trigger is UNPushNotificationTrigger, let id = Self.alertOf(n)?["id"] as? String {
+            DispatchQueue.main.async { done(Store.shared.seen(id) ? [] : [.banner, .list, .sound]) }
+            return
+        }
         done([.banner, .list, .sound])
     }
 
@@ -319,14 +330,15 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
     /// thread") on every tap, the app open or not (2026-11-15, a launch from an alert).
     func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse, withCompletionHandler done: @escaping () -> Void) {
         DispatchQueue.main.async {
-            self.tapped(r)
-            done()
+            self.tapped(r, done: done)
         }
     }
 
-    private func tapped(_ r: UNNotificationResponse) {
-        guard let s = r.notification.request.content.userInfo["alert"] as? String,
-              let a = (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any] else { return }
+    private func tapped(_ r: UNNotificationResponse, done: @escaping () -> Void) {
+        // An answer from the alert, without the app in front: iOS waits for it.
+        var answered = false
+        defer { if !answered { done() } }
+        guard let a = Self.alertOf(r.notification) else { return }
         let cp = (a["checkpoint"] as? [String: Any])?["id"] as? String
         Log.say("alert: tapped (\(r.actionIdentifier == UNNotificationDefaultActionIdentifier ? "open" : r.actionIdentifier))")
         // The demo's alert: its buttons answer the demo's card, on its board only.
@@ -337,19 +349,78 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
             } else { b.event(["event": "open", "alert": a]) }
             return
         }
-        switch r.actionIdentifier {
-        case "run":
-            guard let cp else { return }
-            // Run always asks for Face ID, from the alert and in the app.
-            Biometrics.ask(reason: a["title"] as? String ?? "Run") { ok, _ in
-                guard ok else { return }
-                Task { _ = try? await Hub.client()?.call("POST", "/api/checkpoints/answer", json: ["id": cp, "approve": true, "by": "phone"]) }
+        let act = r.actionIdentifier
+        let sendTo = { (path: String, body: [String: Any]) in
+            answered = true
+            Task {
+                let why: String?
+                do {
+                    let res = try await Hub.client()?.call("POST", path, json: body)
+                    if let res { why = (200..<300).contains(res.status) ? nil : (res.json?["error"] as? String) ?? "The Mac said no (HTTP \(res.status))." }
+                    else { why = "This \(Device.model) is not paired." }
+                } catch { why = "The Mac did not answer." }
+                Log.say("alert: answer \(why == nil ? "sent" : "not sent") (\(act))")
+                await MainActor.run {
+                    if let why { self.notSent(a, why) }
+                    done()
+                }
             }
-        case "refuse":
+        }
+        let answer = { (extra: [String: Any]) in
             guard let cp else { return }
-            Task { _ = try? await Hub.client()?.call("POST", "/api/checkpoints/answer", json: ["id": cp, "decline": true, "by": "phone"]) }
+            sendTo("/api/checkpoints/answer", ["id": cp, "by": "phone"].merging(extra) { $1 })
+        }
+        let session = a["session"] as? [String: Any]
+        let projectId = (a["project"] as? [String: Any])?["id"] as? String
+        let toSession = { (extra: [String: Any]) in
+            guard let projectId, let sf = session?["surfaceId"] as? String else { return }
+            sendTo("/api/send", ["projectId": projectId, "surfaceId": sf].merging(extra) { $1 })
+        }
+        let actionOf = { (id: String) in (a["actions"] as? [[String: Any]] ?? []).first { $0["id"] as? String == id } }
+        switch act {
+        case "run", "allow:once", "allow:session":
+            // Run, and letting an agent type into a tab, always ask for Face ID, from the alert and in the app.
+            guard let cp else { return }
+            Biometrics.ask(reason: a["title"] as? String ?? "Run") { ok, why in
+                guard ok else { if let why { self.notSent(a, why) }; return }
+                var body: [String: Any] = ["id": cp, "approve": true, "by": "phone"]
+                if act.hasPrefix("allow:") { body["allow"] = String(act.dropFirst("allow:".count)) }
+                Task { _ = try? await Hub.client()?.call("POST", "/api/checkpoints/answer", json: body) }
+            }
+        case "refuse", "decline":
+            answer(["decline": true])
+        case _ where act.hasPrefix("choice:"):
+            if let n = Int(act.dropFirst("choice:".count)) { answer(["choice": n]) }
+        case _ where act.hasPrefix("pick:"):
+            let vs = (a["checkpoint"] as? [String: Any])?["variants"] as? [[String: Any]] ?? []
+            if let n = Int(act.dropFirst("pick:".count)), n < vs.count, let l = vs[n]["label"] as? String { answer(["pick": ["label": l]]) }
+        case _ where act.hasPrefix("quick:"):
+            if let t = actionOf(act)?["text"] as? String { toSession(["text": t]) }
+            else if let n = Int(act.dropFirst("quick:".count)) { toSession(["choice": n]) }
+        case "undo":
+            if let d = (a["decision"] as? [String: Any])?["id"] as? String { sendTo("/api/decisions/undo", ["id": d]) }
+        case "later":
+            break
+        case "reply":
+            let text = ((r as? UNTextInputNotificationResponse)?.userText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return }
+            if (a["reply"] as? [String: Any])?["action"] as? String == "text" { answer(["text": text]) } else { toSession(["text": text]) }
         default:
             if let b = board { b.event(["event": "open", "alert": a]) } else { SceneDelegate.pendingAlert = a }
+        }
+    }
+
+    /// An answer from an alert the Mac did not take: said in an alert of its own, with Open.
+    private func notSent(_ a: [String: Any], _ why: String) {
+        var m = a
+        m["id"] = "\(a["id"] as? String ?? "alert"):not-sent"
+        m["body"] = "Not sent: \(why)"
+        m["detail"] = nil
+        m["reply"] = nil
+        m["actions"] = [["id": "open", "label": "Open"]]
+        let c = UNMutableNotificationContent()
+        AlertContent.prepare(c, m) {
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: m["id"] as? String ?? "not-sent", content: c, trigger: nil))
         }
     }
 }

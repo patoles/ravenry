@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Push through APNs (docs/PHONE.md section 4, "apns"): development for a
+	     debug build (the sandbox APNs), production for the App Store and
+	     TestFlight (project.yml RAVENRY_APS_ENVIRONMENT). -->
+	<key>aps-environment</key>
+	<string>$(RAVENRY_APS_ENVIRONMENT)</string>
+	<!-- The app's own group first, so its items stay where they were (Store.swift);
+	     then the group it shares with the Notification Service Extension: the alerts' key. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)dev.ravenry.ios</string>
+		<string>$(AppIdentifierPrefix)dev.ravenry.shared</string>
+	</array>
+</dict>
+</plist>

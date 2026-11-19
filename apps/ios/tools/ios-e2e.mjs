@@ -14,7 +14,12 @@
 //   to ntfy.sh), a wrong pin is refused, the launch's Ink ends on the board,
 //   cards that arrive while the board is open, a launch from an alert
 //   (a pick, a secret, a command) ends on its checkpoint's screen, and
-//   Attach (a document from Files and a photo into the project's .inbox);
+//   Attach (a document from Files and a photo into the project's .inbox),
+//   and an alert through APNs (test9k): the app's token and key to the
+//   test hub, a card sealed by the hub, sent through the real relay
+//   (relay/src/relay.js, here) to a stand-in APNs that hands what Apple
+//   would deliver to `simctl push` (which runs no Notification Service
+//   Extension: iOS shows the placeholder), and its tap opening the card;
 // - after: the token in the simulator's Keychain, and the secret in no log
 //   and nowhere in the web view's storage.
 //
@@ -64,6 +69,44 @@ const published = [];
 const ntfy = http.createServer((req, res) => { let b = ''; req.on('data', (d) => { b += d; }); req.on('end', () => { published.push(b); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); }); });
 await new Promise((r) => ntfy.listen(0, '127.0.0.1', r));
 const STUB = `http://127.0.0.1:${ntfy.address().port}`;
+
+// ------------------------------------------------------------ a stand-in APNs, behind the real relay: nothing reaches Apple
+
+// What the relay sends APNs is written to apns.jsonl and handed to the
+// simulator as Apple would deliver it (`simctl push`), where the app's
+// Notification Service Extension opens it.
+const APNS_LOG = path.join(SIG, 'apns.jsonl');
+const apnsStandIn = http.createServer((req, res) => {
+  let b = '';
+  req.on('data', (d) => { b += d; });
+  req.on('end', () => {
+    fs.appendFileSync(APNS_LOG, JSON.stringify({ at: new Date().toISOString(), url: req.url, type: req.headers['apns-push-type'], topic: req.headers['apns-topic'], body: b }) + '\n');
+    const f = path.join(SIG, `apns-${Date.now()}.json`);
+    fs.writeFileSync(f, b);
+    try { simctl('push', UDID, 'dev.ravenry.ios', f); } catch (x) { console.log('  simctl push (APNs stand-in): ' + String(x.message).slice(0, 200)); }
+    res.writeHead(200);
+    res.end();
+  });
+});
+await new Promise((r) => apnsStandIn.listen(0, '127.0.0.1', r));
+const { handler: relayHandler } = await import(path.join(REPO, 'relay', 'src', 'relay.js'));
+const relayKey = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+const RELAY_ENV = { APNS_KEY: relayKey, APNS_KEY_ID: 'E2EKEYID01', APNS_TEAM_ID: 'E2ETEAM001', APNS_TOPIC: 'dev.ravenry.ios', APNS_ORIGIN: `http://127.0.0.1:${apnsStandIn.address().port}` };
+const relaySeen = [];
+const relay = http.createServer((req, res) => {
+  const ch = [];
+  req.on('data', (d) => ch.push(d));
+  req.on('end', async () => {
+    const raw = Buffer.concat(ch);
+    relaySeen.push(raw.toString('utf8'));
+    const r = await relayHandler.fetch(new Request(`http://relay.test${req.url}`, { method: req.method, headers: req.headers, body: req.method === 'POST' ? raw : undefined }), RELAY_ENV);
+    res.writeHead(r.status, { 'Content-Type': 'application/json' });
+    res.end(Buffer.from(await r.arrayBuffer()));
+  });
+});
+await new Promise((r) => relay.listen(0, '127.0.0.1', r));
+// The test hub sends an app that names no relay (a simulator build) to this one.
+cleanEnv.RAVENRY_APNS_RELAY = `http://127.0.0.1:${relay.address().port}`;
 
 // ------------------------------------------------------------ the test hub
 
@@ -223,7 +266,18 @@ async function openCard(c) {
   // another version's (only a --hub copy, never the tree's): swap.wait names
   // a folder whose files go over its public/.
   const sw = path.join(SIG, 'swap.wait');
+  // test9k: apns.target once the test hub has the app's apns target (its phone.json).
+  const at = path.join(SIG, 'apns.target');
+  let phoneJson = null;
+  const findPhoneJson = (d, depth = 0) => { if (depth > 5) return null; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isFile() && e.name === 'phone.json' && path.basename(d) === '.ravenry') return f; if (e.isDirectory() && !['node_modules', 'state', 'runtime'].includes(e.name)) { const x = findPhoneJson(f, depth + 1); if (x) return x; } } return null; };
   while (watching) {
+    if (!fs.existsSync(at)) {
+      try {
+        phoneJson = phoneJson || findPhoneJson(DEMO);
+        const t = phoneJson && JSON.parse(fs.readFileSync(phoneJson, 'utf8')).tokens.find((x) => x.push && x.push.kind === 'apns');
+        if (t) fs.writeFileSync(at, JSON.stringify({ environment: t.push.environment, relay: t.push.relay, keys: !!(t.push.p256dh && t.push.auth) }));
+      } catch { /* not yet */ }
+    }
     if (fs.existsSync(sw)) {
       const from = fs.readFileSync(sw, 'utf8').trim();
       const hubDir = HUB_DIR;
@@ -332,6 +386,13 @@ if (!SHOTS_ONLY && !args.includes('--no-unit')) {
 const e = await xcodebuild('RavenryE2E', 'flow');
 check(`the app driven on the simulator (Tests/RavenryUITests, ${THEME})`, e.result === 'Passed', `${e.passedTests} passed, ${e.failedTests} failed of ${e.totalTestCount} (${e.secs} s)`);
 watching = false;
+// test9k: what the relay and APNs were sent: sealed bytes and the fixed placeholder, never the card's words.
+if (!SHOTS_ONLY && (!opt('--only') || opt('--only').includes('test9k'))) {
+  const sent = fs.existsSync(APNS_LOG) ? fs.readFileSync(APNS_LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  const alertsSent = sent.filter((x) => x.type === 'alert');
+  check('APNs (the stand-in) got the card as an alert: the fixed placeholder, mutable-content and sealed bytes, for the app\'s topic', alertsSent.length >= 1 && alertsSent.every((x) => { const p = JSON.parse(x.body); return x.topic === 'dev.ravenry.ios' && p.aps.alert.title === 'Ravenry' && p.aps.alert.body === 'Open Ravenry to see this alert.' && p.aps['mutable-content'] === 1 && typeof p.e === 'string'; }), `${alertsSent.length} alerts, ${sent.length} in all`);
+  check('neither the relay nor APNs was sent the card\'s words', ![...relaySeen, ...sent.map((x) => x.body)].some((b) => /Ship it through APNs|notes-app/.test(b)), `${relaySeen.length} to the relay`);
+}
 
 // ------------------------------------------------------------ after
 

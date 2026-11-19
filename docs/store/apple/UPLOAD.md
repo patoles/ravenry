@@ -67,18 +67,24 @@ ASC_KEY_ID=<key ID> ASC_ISSUER_ID=<issuer ID> scripts/archive.sh upload
 
 ### Export compliance
 
-`Info.plist` says `ITSAppUsesNonExemptEncryption` NO, so App Store
-Connect asks nothing per build. The app's only encryption is Apple's
-own: TLS through URLSession to the person's own Mac (the pinned key is
-checked by comparing a SHA-256 of the certificate's public key, which is
-authentication, not encryption), SHA-256 from CryptoKit for that pin and
-the check number, and the Keychain. No encryption algorithm of its own,
-no third-party crypto library; the board's page uses no Web Crypto. That
-is the "only the encryption in Apple's operating system" case, exempt,
-with no documentation to upload. When push through APNs comes (alerts
-encrypted on the Mac for the phone, as Android's are), look again: with
-CryptoKit's standard algorithms it stays exempt from documentation in
-App Store Connect's own form, but the answer is to be checked then.
+`Info.plist` says `ITSAppUsesNonExemptEncryption` NO (the app's and its
+Notification Service Extension's), so App Store Connect asks nothing per
+build. The app's only encryption is Apple's own: TLS through URLSession
+to the person's own Mac (the pinned key is checked by comparing a
+SHA-256 of the certificate's public key, which is authentication, not
+encryption), SHA-256 from CryptoKit for that pin and the check number,
+the Keychain, and, since 0.1.71, the alerts through APNs: each is sealed
+on the Mac for the device (RFC 8291) and opened on it with CryptoKit's
+P-256 key agreement, HKDF-SHA256 and AES-128-GCM
+(`apps/ios/Sources/Shared/PushCrypto.swift`). No encryption algorithm of
+its own, no third-party crypto library; the board's page uses no Web
+Crypto. That is still the first case of Apple's table ("Your app uses
+encryption limited to that within the Apple operating system": no
+documentation required in App Store Connect; checked 2026-11-19 at
+developer.apple.com/help/app-store-connect/reference/app-information/export-compliance-documentation-for-encryption),
+so the answer holds. Apple's own note beside it: an app that uses exempt
+encryption may owe the US a year-end self-classification report (BIS);
+Apple does not ask for it.
 
 ## What is set in App Store Connect
 

@@ -696,6 +696,47 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(shown && alive, "the ask's screen after its alert, with the app running")
     }
 
+    // ------------------------------------------------------------ an alert through APNs (docs/PHONE.md section 4, "apns")
+
+    /// The app gives the Mac its APNs token (a stand-in here: the simulator has no APNs of its own for an
+    /// ad hoc build) and its alert key; with the app stopped, a new card goes from the test hub, sealed for
+    /// this device, through the real relay to a stand-in APNs that hands it to the simulator (`simctl push`,
+    /// tools/ios-e2e.mjs). `simctl push` runs no Notification Service Extension (the simulator's own path,
+    /// seen 2026-11-19: no extension process starts), so iOS shows what Apple would have shown before it:
+    /// the relay's fixed placeholder, never the card's words. A tap on it opens the app, which opens the
+    /// sealed alert itself and lands on the card's own screen. What the extension draws, and the buttons it
+    /// registers, are the unit tests' (PushTests: AlertContent.service on the same sealed bytes).
+    func test9k_AnAlertThroughAPNsIsSealedAndOpensItsCard() throws {
+        if shotsOnly { return }
+        continueAfterFailure = true
+        guard let sig = env["RAVENRY_SIG"] else { return }
+        let a = launch(reset: false, ["RAVENRY_TEST_APNS_TOKEN": String(repeating: "5a", count: 32)])
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board")
+        let target = URL(fileURLWithPath: "\(sig)/apns.target")
+        let registered = until(20) { FileManager.default.fileExists(atPath: target.path) }
+        let t = (try? Data(contentsOf: target)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        mark("apns target on the Mac: \(registered) \(t)")
+        XCTAssertTrue(registered && t["environment"] as? String == "sandbox" && t["keys"] as? Bool == true, "the Mac has the app's apns target (a debug build: sandbox) with its key")
+        a.terminate()
+        XCTAssertTrue(a.wait(for: .notRunning, timeout: 10), "the app stopped")
+        let question = "Ship it through APNs?"
+        guard newCard(["kind": "ask", "project": "notes-app", "title": question, "options": ["Ship it", "Not yet"]]) != nil else { XCTFail("no ask card"); return }
+        let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let note = sb.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Open Ravenry to see this alert")).firstMatch
+        let shown = note.waitForExistence(timeout: 25)
+        let label = shown ? note.label : ""
+        shot("apns-alert-sealed")
+        mark("the alert through APNs: shown \(shown), \"\(label)\"")
+        XCTAssertTrue(shown && !label.contains(question) && !label.contains("notes-app"), "iOS gets the placeholder and sealed bytes only")
+        guard shown else { return }
+        note.tap()
+        XCTAssertTrue(a.wait(for: .runningForeground, timeout: 15), "the alert opens the app")
+        let opened = until(20) { self.appShows(a, question) }
+        shot("apns-alert-opened")
+        mark("the sealed alert's tap: the card's screen \(opened)")
+        XCTAssertTrue(opened, "the app opens the sealed alert itself and shows the card's own screen")
+    }
+
     // ------------------------------------------------------------ a card in no project, its videos (the pickvideo round, 2026-11-16)
 
     /// The video elements a selector finds: each one's time, whether it plays, its frame's state, its width, its source.

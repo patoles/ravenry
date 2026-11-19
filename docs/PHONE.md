@@ -1087,8 +1087,8 @@ them.
 | Pairing: deep link | `ravenry://pair` | `ravenry://pair` |
 | Pairing: found on this Wi-Fi | later | later |
 | Local network | open | iOS asks at the first reach of the Mac's Wi-Fi address (at pairing, which waits for the answer); off, the reach words "Local Network is off for Ravenry..." with Open Settings |
-| Push | UnifiedPush (ntfy or any distributor), RFC 8291 | APNs through the relay, decrypted in a Notification Service Extension; until the app, the ntfy iPhone app on a topic of its own, the title and line in clear (section 4) |
-| Push without a distributor | the connection held by a foreground service | the connection while the app is open: its alerts drawn by iOS then (built); none in the background until APNs |
+| Push | UnifiedPush (ntfy or any distributor), RFC 8291 | APNs through the relay (`relay/`), RFC 8291, opened in a Notification Service Extension with CryptoKit (0.1.71); before the app, the ntfy iPhone app on a topic of its own, the title and line in clear (section 4) |
+| Push without a distributor | the connection held by a foreground service | the connection while the app is open: its alerts drawn by iOS then; APNs while it is closed |
 | Alert buttons | notification actions | `UNNotificationCategory` actions |
 | A pick's picture in the alert | `BigPictureStyle` with the image variants side by side in one picture, fetched over the pinned connection when the alert arrives | a `UNNotificationAttachment` the Notification Service Extension fetches over the pinned connection |
 | A pick's region and note | the phone board's pick screen | the phone board's pick screen |

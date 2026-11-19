@@ -12,8 +12,13 @@
 	<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key><true/>
-	<!-- Only the encryption in Apple's own frameworks (URLSession's TLS, CryptoKit's SHA-256): exempt, docs/store/apple/UPLOAD.md. -->
+	<!-- Only the encryption in Apple's own frameworks (URLSession's TLS; CryptoKit: SHA-256, and the alerts' P-256, HKDF and AES-GCM): exempt, docs/store/apple/UPLOAD.md. -->
 	<key>ITSAppUsesNonExemptEncryption</key><false/>
+	<!-- Push through APNs (Push.swift): the relay for this build, and the Keychain group shared with the extension. -->
+	<key>RavenryRelay</key><string>$(RAVENRY_RELAY)</string>
+	<key>RavenryKeychainGroup</key><string>$(AppIdentifierPrefix)dev.ravenry.shared</string>
+	<!-- A silent push takes an alert answered elsewhere off (Push.swift background). -->
+	<key>UIBackgroundModes</key><array><string>remote-notification</string></array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

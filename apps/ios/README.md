@@ -21,7 +21,11 @@ Licence: GPL-3.0-only (../../LICENSING.md).
 | `Store.swift` | the pairing and the token in the Keychain (this device only) |
 | `Pairing.swift` | the pairing screens: the QR code (AVFoundation), the typed code and its check number, the `ravenry://pair` link, Which iPhone is this, the alerts' ask |
 | `Board.swift` | the board in a WKWebView at `ravenry-app://phone/` (a WKURLSchemeHandler), the bridge, Face ID before Run, Sign out |
-| `Shell.swift` | the connection watch (the top bar's chip), the private keyboard for a secret, the alerts while the app is open |
+| `Shell.swift` | the connection watch (the top bar's chip), the private keyboard for a secret, the alerts (`AlertCenter`: drawn, taken off, and every button's answer) |
+| `Push.swift` | push through APNs: the token and the alerts' key to the Mac (`POST /api/phone/push`, kind `apns`), a silent push (a close) opened |
+| `Sources/Shared/PushCrypto.swift` | the alerts' key (P-256 and a 16-byte secret, in a Keychain group shared with the extension) and RFC 8291 decryption, CryptoKit only |
+| `Sources/Shared/AlertContent.swift` | an alert as iOS draws it, with its buttons (a category made for each set), for the app and the extension |
+| `Sources/Notify/NotificationService.swift` | the Notification Service Extension (`dev.ravenry.ios.notify`): opens each alert APNs brings and draws it; the relay's fixed placeholder when it cannot |
 | `InkLaunch.swift` | the launch's Ink: the Mac's `Shaders.swift`, compiled from its source as is |
 
 ## Build
@@ -66,7 +70,25 @@ use the WebView's debugging port), since the live screen keeps the page
 from ever being idle for XCUITest. Boot the simulator with `xcrun simctl
 boot`, never Simulator.app.
 
-Not built yet: push through APNs (the relay, the Notification Service
-Extension) and alert buttons from push, which need an Apple account; a
-voice note, voice typing. The App Store build: `scripts/archive.sh`,
-`../../docs/store/apple/UPLOAD.md`.
+Push through APNs (docs/PHONE.md section 4, "apns"): once paired, with
+iOS showing its alerts, the app gives the Mac its APNs token, the APNs it
+talks to (a debug build: `sandbox`; the App Store and TestFlight:
+`production`, the `aps-environment` entitlement from
+`RAVENRY_APS_ENVIRONMENT` in project.yml), the relay for this build
+(Info.plist `RavenryRelay`, from `RAVENRY_RELAY`; scripts/archive.sh sets
+it from the environment or the first line of
+`~/.ravenry-release/ios-relay.txt`, and refuses to build without one) and
+the public half of its alerts' key. The Mac seals each alert for it; the
+relay (`../../relay`) hands it to APNs; the extension opens it. Buttons:
+an answer (and the reply line) is sent from the alert with the phone
+unlocked; Run, Allow once and This session open the app, which asks for
+Face ID first; Open, Type it and Compare open the app. A simulator build
+names no relay and gets no token from Apple: `tools/ios-e2e.mjs` test9k
+gives it one (`RAVENRY_TEST_APNS_TOKEN`) and runs the real relay to a
+stand-in APNs that hands each alert to `simctl push`. The App Store
+profiles (`scripts/profile.mjs`): the app's with Push Notifications and
+the extension's, its bundle ID registered the first time; `--check` only
+reads.
+
+Not built yet: a voice note, voice typing. The App Store build:
+`scripts/archive.sh`, `../../docs/store/apple/UPLOAD.md`.

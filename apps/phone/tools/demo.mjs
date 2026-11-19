@@ -155,6 +155,8 @@ Object.assign(extraEnv, { RAVENRY_HUB_NAME: SAMPLE ? 'Sample Mac' : 'MacBook Pro
 if (E2E) Object.assign(extraEnv, { RAVENRY_TERMINAL: 'ravenry', PATH: `${STAND}:${process.env.PATH}` });
 // MC_NO_STYLED_READ=1: the board without its styled read (the history alone).
 if (process.env.MC_NO_STYLED_READ === '1') extraEnv.MC_NO_STYLED_READ = '1';
+// The relay the iPhone app's alerts go through (docs/PHONE.md section 4, "apns"): the iOS checks' stand-in.
+if (process.env.RAVENRY_APNS_RELAY) extraEnv.RAVENRY_APNS_RELAY = process.env.RAVENRY_APNS_RELAY;
 if (PHONE) Object.assign(extraEnv, { RAVENRY_PHONE_HOSTS: opt('--phone-hosts', '10.0.2.2'), RAVENRY_PHONE_PORT: String(Number(opt('--phone-port', PORT + 1))) });
 const hub = await startDemoHub({
   dir: path.join(WORK, 'hub'), port: PORT, runtime: RT, alerts: false, ...(opt('--hub') ? { hubDir: path.resolve(opt('--hub')) } : {}),

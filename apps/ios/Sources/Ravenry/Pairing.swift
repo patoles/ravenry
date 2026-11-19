@@ -192,6 +192,7 @@ final class PairModel: ObservableObject {
         Task {
             let ok = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
             Log.say("alerts: iOS's answer \(ok ? "allowed" : "not allowed")")
+            if ok { Push.shared.start() }
             onDone()
         }
     }
