@@ -1,6 +1,7 @@
-// An HTML page drawn as a picture, for a pick's HTML variant (GET
-// /api/checkpoints/<id>/variants/<n>?as=png): what the Mac app draws on a
-// pick's card and in its picker, and what the board's tiles and Compare show.
+// An HTML page drawn as a picture: a pick's HTML variant (GET
+// /api/checkpoints/<id>/variants/<n>?as=png: what the Mac app draws on a
+// pick's card and in its picker, what the board's tiles and Compare show)
+// and an idea's mockups (server/mockups.mjs render, 800x500).
 //
 // Drawn by the Mac's own Quick Look (qlmanage -t, WebKit), which every Mac
 // has. It used to be headless Chromium through Playwright, a development
@@ -15,8 +16,12 @@
 // draws a file of this Mac it names (file://, a path beside it).
 //
 // Quick Look lays a page out 1024 CSS pixels wide and draws a square; the
-// picture is its top, 16:10, as the pick's tiles are (cut here: sips crops
-// only around the middle, whatever its --cropOffset says).
+// picture is its top (cut here: sips crops only around the middle, whatever
+// its --cropOffset says). A pick's page keeps that width, its picture 16:10
+// as the pick's tiles are. A page made for a size of its own (a mockup,
+// 800x500) is drawn in a frame of exactly that size, scaled up to Quick
+// Look's width, so its 100vw and 100vh are that size (CSS zoom would not
+// make them so), and the picture is that size at one pixel a CSS pixel.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,6 +33,8 @@ import { assertDataWrite } from './home.mjs';
 export const SIZE = 1600;
 export const HEIGHT = Math.round(SIZE * 10 / 16);
 export const CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline' data:; font-src data:; media-src data:";
+// Quick Look's layout width, in CSS pixels.
+const QL_WIDTH = 1024;
 const QLMANAGE = '/usr/bin/qlmanage';
 
 const run = (bin, args, ms = 20000) => new Promise((resolve, reject) => {
@@ -43,18 +50,31 @@ export function withPolicy(html) {
   return m ? m[0] + meta + s.slice(m[0].length) : meta + s;
 }
 
-// Draws the page `src` (an .html or .htm file) to the PNG `png`, SIZE wide
-// and HEIGHT tall. Resolves with `png`, or rejects with what failed.
-export async function drawPage(src, png) {
+// The page in a frame of `width` x `height` CSS pixels, scaled to fill
+// Quick Look's width. The frame runs no script (sandbox), and the page in
+// it carries the policy too.
+export function inFrame(html, width, height) {
+  const k = QL_WIDTH / width;
+  const url = `data:text/html;base64,${Buffer.from(withPolicy(html)).toString('base64')}`;
+  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${CSP}; frame-src data:"><style>html,body{margin:0;overflow:hidden;background:#000}iframe{position:absolute;left:0;top:0;width:${width}px;height:${height}px;border:0;transform-origin:0 0;transform:scale(${k})}</style></head><body><iframe sandbox="" src="${url}"></iframe></body></html>`;
+}
+
+// Draws the page `src` (an .html or .htm file) to the PNG `png`: as Quick
+// Look lays it out, SIZE x HEIGHT; with `width` and `height` (at most
+// `width`), laid out at that size and drawn at it. Resolves with `png`, or
+// rejects with what failed.
+export async function drawPage(src, png, { width = 0, height = 0 } = {}) {
   assertDataWrite(png);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ravenry-page-'));
   try {
     const page = path.join(dir, 'page.html');
-    fs.writeFileSync(page, withPolicy(fs.readFileSync(src, 'utf8')), { mode: 0o600 });
-    await run(QLMANAGE, ['-t', '-s', String(SIZE), '-o', dir, page]);
+    const html = fs.readFileSync(src, 'utf8');
+    const sized = width > 0 && height > 0 && height <= width;
+    fs.writeFileSync(page, sized ? inFrame(html, width, height) : withPolicy(html), { mode: 0o600 });
+    await run(QLMANAGE, ['-t', '-s', String(sized ? width : SIZE), '-o', dir, page]);
     const thumb = `${page}.png`;
     if (!fs.existsSync(thumb)) throw new Error('Quick Look drew no picture of it');
-    fs.writeFileSync(png + '.tmp', topOf(fs.readFileSync(thumb), HEIGHT));
+    fs.writeFileSync(png + '.tmp', topOf(fs.readFileSync(thumb), sized ? height : HEIGHT));
     fs.renameSync(png + '.tmp', png);
     return png;
   } finally {

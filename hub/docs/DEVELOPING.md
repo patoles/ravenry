@@ -38,9 +38,10 @@ repository root (`node tools/audit.mjs`) and in CI on every push.
 
 Node 22, no runtime npm dependencies (the QR encoder, uqr 0.1.2, is vendored
 in `server/vendor/`). Playwright and jsQR are dev dependencies, used by the
-headless test and screenshot tools. The board loads Playwright lazily, only
-to draw idea mockup pictures, and runs without it (the round then says how to
-install it).
+headless test and screenshot tools. The board never loads Playwright: a
+pick's .html variants and an idea's mockups are drawn by the Mac's Quick
+Look (`server/pagepicture.mjs`). A test that proves a feature works in the
+installed app starts its board with `node --import tools/no-playwright.mjs`.
 
 - `server/assistant.mjs` is the one assistant interface, beside the
   terminal one: everything particular to Claude Code or OpenAI Codex (the
@@ -655,8 +656,9 @@ The top bar switches views; each view lives in the URL (`#/objectives`,
     context and asks for a JSON array of 3 `{title, note, html}`, each a
     self-contained 800x500 page, inline CSS and SVG, no scripts, under 6 KB.
     The board checks the answer, writes `ideas/<id>/mockups/r<N>-<a|b|c>.html`
-    and draws each to a PNG in headless Chromium (Playwright, a dev
-    dependency) with JavaScript off and the network blocked; the PNGs are
+    and draws each to an 800x500 PNG with the Mac's Quick Look
+    (`server/pagepicture.mjs`: no script, no network, only the page's own
+    data: pictures, in a frame of exactly 800x500); the PNGs are
     served only as `<id>/mockups/r<N>-<a|b|c>.png` through the idea-picture
     route. The card shows the viewed variant big with Pick, the 3 thumbnails,
     a note and Another round (which sends the picked, else the viewed,

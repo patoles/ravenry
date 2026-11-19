@@ -115,7 +115,7 @@ To remove Ravenry completely: `ravenry uninstall --purge`, then `npm rm -g raven
 - Optional: [Codex](https://developers.openai.com/codex) (`codex` on your PATH; measured on 0.166.0), followed the same way; outside cmux, Codex sessions are found by folder or shown watch only (docs/ASSISTANTS.md)
 - To answer sessions from the board: cmux, [iTerm2](https://iterm2.com) or Rex
 
-Playwright is optional, only for the mockup pictures of an idea: `npm i -g playwright && npx playwright install chromium`.
+Pictures of pages (a pick's .html variants, an idea's mockups) are drawn by the Mac's own Quick Look: nothing to install.
 
 ## Development
 
@@ -145,7 +145,7 @@ Ravenry has no telemetry of any kind. Everything stays on your Mac: the board re
 - **The port is taken**: `PORT=4700 ravenry`.
 - **iTerm2 sessions are watch only**: start `ravenry` from an iTerm2 tab, and allow the Automation prompt (System Settings > Privacy & Security > Automation).
 - **Rex sessions are watch only**: `ravenry doctor` says whether it finds Rex's `rex` command and whether Rex's server answers. Open in Rex says to turn on Remote Control in Rex's Settings when that is off.
-- **Mockup pictures fail on an idea**: they need Playwright (see Requirements).
+- **A pick's page or an idea's mockup shows no picture**: they are drawn by Quick Look (`/usr/bin/qlmanage`); `ravenry doctor` says whether it is there.
 
 ## Author
 

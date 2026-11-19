@@ -8,7 +8,8 @@
 //
 //   - the page as it looks: its data: pictures are in the picture, 16:10;
 //   - the same protection as before: no script runs, and a file of this
-//     Mac the page names (file://) is never drawn.
+//     Mac the page names (file://) is never drawn; the same for a page
+//     drawn at a size of its own (an idea's mockup, 800x500, in a frame).
 //
 // A test board on a free port with a throwaway RAVENRY_HOME holding the
 // kept pick (server/picks.mjs keep), started with Playwright made
@@ -96,8 +97,7 @@ await picks.keep({ id: ID, kind: 'pick', state: 'open', title: 'Which one leads?
 check(`the pick is kept with its two pages (A: ${(pageSize / 1e6).toFixed(2)} MB)`, !!picks.keptFile(ID, 0) && picks.keptFile(ID, 0).type === 'html' && !!picks.keptFile(ID, 1));
 
 // The board, with Playwright unresolvable, as in the installed app.
-const NOPW = path.join(T, 'no-playwright.mjs');
-fs.writeFileSync(NOPW, `import { register } from 'node:module';\nregister('data:text/javascript,' + encodeURIComponent(\`export async function resolve(s, c, next) { if (/^playwright(-core)?($|\\\\/)/.test(s)) { const e = new Error("Cannot find package '" + s + "'"); e.code = 'ERR_MODULE_NOT_FOUND'; throw e; } return next(s, c); }\`));\n`);
+const NOPW = path.join(ROOT, 'tools', 'no-playwright.mjs');
 const PORT = await new Promise((r) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const base = `http://127.0.0.1:${PORT}`;
 let log = '';
@@ -123,6 +123,15 @@ let pb = null;
 try { pb = b.status === 200 ? decodePng(b.body) : null; } catch (e) { log += `\n${e.message}`; }
 const red = pb ? pb.share((r, g, bl) => r > 200 && g < 60 && bl < 60) : 1;
 check('and keeps the protection: no script runs, no file of this Mac is drawn', !!pb && red < 0.001, `${b.status} ${pb ? `${(red * 100).toFixed(1)}% red` : b.body.toString('utf8').slice(0, 300)}`);
+
+// An idea's mockup is drawn the same way at its own size (server/mockups.mjs,
+// 800x500, in a frame): the same protection in the frame.
+const { drawPage } = await import('../server/pagepicture.mjs');
+const FR = path.join(T, 'frame.png');
+let pf = null;
+try { await drawPage(path.join(FILES, 'B.html'), FR, { width: 800, height: 500 }); pf = decodePng(fs.readFileSync(FR)); } catch (e) { log += `\n${e.message}`; }
+const fred = pf ? pf.share((r, g, bl) => r > 200 && g < 60 && bl < 60) : 1;
+check('a page drawn at 800x500 (a mockup): 800x500, no script, no file of this Mac', !!pf && pf.w === 800 && pf.h === 500 && fred < 0.001, pf ? `${pf.w}x${pf.h}, ${(fred * 100).toFixed(1)}% red` : 'not drawn');
 
 console.log(fails ? `\n${fails} failed\n${log.slice(-1500)}` : `\nall passed  (scratch: ${T})`);
 process.exit(fails ? 1 : 0);

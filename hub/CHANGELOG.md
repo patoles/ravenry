@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- An idea's mockup rounds draw their pictures in the installed app too:
+  Quick Look draws each page at 800x500, in a frame of exactly that size,
+  with no script, no network and only the page's own data: pictures.
+  Before, every round there failed asking for Playwright. `ravenry doctor`
+  says whether Quick Look is there, and no longer asks for Playwright.
+- The phone's strip under a pick shows an .html variant as its picture,
+  as the board and the Mac app do; it was an empty place.
+- A phone that pairs again no longer piles up on the Mac's phones list:
+  the app sends its install id (and the token it still holds), a phone
+  browser its `mc_install` cookie, and the new pairing takes over that
+  device's own row (its name and alerts kept) while the old token stops
+  working. Two devices of the same name stay two rows. The iOS app on an
+  iPad says "iPad app" there, not "iPhone app".
 - A pick's .html variants show as pictures again in the installed app
   (the Mac app's card and picker, the board's tiles and Compare): they
   are drawn by the Mac's Quick Look, not by Playwright, which the app does

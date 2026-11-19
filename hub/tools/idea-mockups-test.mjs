@@ -62,7 +62,8 @@ fs.writeFileSync(path.join(MC, 'ideas.json'), JSON.stringify({ version: 1, seede
   { id: 'other', name: 'Other', stage: 'spark', pitch: 'x', status: '', img: null, alt: null, thread: [], created: new Date().toISOString(), updated: new Date().toISOString() },
 ] }, null, 2));
 
-const server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools/fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, STUB_PROMPT_LOG: LOG }), stdio: ['ignore', 'pipe', 'pipe'] });
+// Without Playwright, as the installed app's board (tools/no-playwright.mjs).
+const server = spawn(process.execPath, ['--import', path.join(ROOT, 'tools', 'no-playwright.mjs'), path.join(ROOT, 'server/index.mjs')], { env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools/fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, STUB_PROMPT_LOG: LOG }), stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 server.stdout.on('data', (d) => { serverLog += d; });
 server.stderr.on('data', (d) => { serverLog += d; });

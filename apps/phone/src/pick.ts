@@ -450,11 +450,12 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
     capEl = vid && ui.t != null ? h('div.pzv-nfv', h('p.pzv-fr.num', say('pick.frameAt', { t: clock(ui.t) })), h('div.pfield.pnf.pzv-nf', field, mic)) : h('div.pfield.pnf.pzv-nf', field, mic);
   } else capEl = h('p.pzv-cap', h('b', `${letter}. ${name}`), says ? h('span', says) : null);
 
-  // The strip: each variant whole, its letter, the one shown ringed, the circled one ticked.
+  // The strip: each variant whole, its letter, the one shown ringed, the circled one ticked;
+  // a page as the picture the hub draws of it (?as=png), as the board's tiles and the Mac app show it.
   const strip = h('div.pzv-strip', vs.map((vv, k) => {
     const nm = c.nameOf(k);
     return h(`button.pzv-th${k === i ? '.on' : ''}`, { 'aria-label': `${nm.letter}. ${nm.name}`, 'aria-current': k === i ? 'true' : null, on: { click: () => go(k) } },
-      videoOf(cp, k) ? firstFrame(videoOf(cp, k)!) : vv.type === 'html' ? null : h('img', { src: variantUrl(cp, k), alt: '', draggable: 'false' }), h('span.pk-lt', ui.circledOn === k ? `${nm.letter} ✓` : nm.letter));
+      videoOf(cp, k) ? firstFrame(videoOf(cp, k)!) : h('img', { src: vv.type === 'html' ? `${variantUrl(cp, k)}?as=png` : variantUrl(cp, k), alt: '', draggable: 'false' }), h('span.pk-lt', ui.circledOn === k ? `${nm.letter} ✓` : nm.letter));
   }));
 
   paintSend();

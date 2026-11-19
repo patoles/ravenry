@@ -21,7 +21,7 @@
 // 4. `ravenry uninstall --yes`: settings.json is back to its exact bytes.
 // 5. Playwright absent: the scratch install sits outside this repo (whose
 //    node_modules holds Playwright), the package resolves no Playwright, the
-//    board ran without it, and a mockup round says how to install it.
+//    board ran without it, and a mockup is drawn without it (Quick Look).
 //
 // Scratch: a folder in the OS temp dir (outside the repo, for step 5). The
 // real ~/.claude/settings.json and ~/.ravenry/projects.json are hashed
@@ -141,7 +141,7 @@ const afterFirst = fs.readFileSync(SETTINGS, 'utf8');
 r = rv('setup-again', ['setup', '--yes']);
 check('setup again: changes nothing', r.status === 0 && /Hooks: both are in/.test(r.stdout) && fs.readFileSync(SETTINGS, 'utf8') === afterFirst);
 r = rv('doctor', ['doctor']);
-check('doctor after setup: all good (exit 0), hooks ok, Playwright optional and absent', r.status === 0 && /Hooks: both in/.test(r.stdout) && /Playwright: not installed/.test(r.stdout), r.stdout.split('\n').filter((l) => /^\s+(fix|note)/.test(l)).join(' | '));
+check('doctor after setup: all good (exit 0), hooks ok, pictures of pages by Quick Look', r.status === 0 && /Hooks: both in/.test(r.stdout) && /drawn by Quick Look/.test(r.stdout) && !/Playwright/.test(r.stdout), r.stdout.split('\n').filter((l) => /^\s+(fix|note)/.test(l)).join(' | '));
 
 // A stale hook (a Node that is gone): doctor names it, setup fixes it.
 const stale = JSON.parse(afterFirst);
@@ -261,8 +261,12 @@ check('uninstall again: nothing to take out', r.status === 0 && /nothing to take
 const res = run(process.execPath, ['--input-type=module', '-e', "try { await import('playwright'); console.log('found'); } catch { console.log('absent'); }"], {});
 const resIn = spawnSync(process.execPath, ['--input-type=module', '-e', "try { await import('playwright'); console.log('found'); } catch { console.log('absent'); }"], { cwd: PKG_DIR, env, encoding: 'utf8' });
 check('Playwright cannot be resolved from the installed package', resIn.stdout.trim() === 'absent' && res.stdout.trim() === 'absent', resIn.stdout.trim());
-const mk = spawnSync(process.execPath, ['--input-type=module', '-e', `import('${path.join(PKG_DIR, 'server', 'mockups.mjs')}').then((m) => m.render([])).then(() => console.log('rendered'), (e) => console.log(e.message))`], { cwd: PKG_DIR, env, encoding: 'utf8' });
-check('a mockup round without Playwright says how to install it', /need Playwright.*npm i -g playwright/.test(mk.stdout), mk.stdout.trim());
+const MK = path.join(W, 'mockup.html');
+fs.writeFileSync(MK, '<!doctype html><body style="margin:0;background:#2a6"><div style="width:100vw;height:100vh;background:#fc3"></div></body>');
+const mk = spawnSync(process.execPath, ['--input-type=module', '-e', `import('${path.join(PKG_DIR, 'server', 'mockups.mjs')}').then((m) => m.render([${JSON.stringify(MK)}])).then((o) => console.log('rendered ' + o.join(' ')), (e) => console.log(e.message))`], { cwd: PKG_DIR, env, encoding: 'utf8' });
+const mkPng = MK.replace(/\.html$/, '.png');
+const mkSize = fs.existsSync(mkPng) ? ((b) => `${b.readUInt32BE(16)}x${b.readUInt32BE(20)}`)(fs.readFileSync(mkPng)) : 'none';
+check('a mockup is drawn without Playwright (Quick Look), 800x500', /^rendered /.test(mk.stdout) && mkSize === '800x500', `${mk.stdout.trim()} ${mkSize}`);
 
 // ------------------------------------------------------------ safety
 const after = REAL.map(sha);

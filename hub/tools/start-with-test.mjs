@@ -378,14 +378,13 @@ try {
   for (let i = 0; i < 80; i++) { all = await b.get('/api/ideas'); if (!all.brainstorm && !all.ideas.find((x) => x.id === slowId).pending) break; await sleep(250); }
   const slowLast = all.ideas.find((x) => x.id === slowId).thread.slice(-1)[0];
   check('busy: the answer that never came is Codex\'s, marked not answered', slowLast && slowLast.who === 'codex' && slowLast.error && !all.brainstorm, JSON.stringify(slowLast));
-  let hasPw = true;
-  try { await import('playwright'); } catch { hasPw = false; }
-  if (hasPw) {
+  // Drawn by Quick Look (server/pagepicture.mjs), with or without Playwright.
+  {
     await b.post(`/api/ideas/${ideaId}/mockups`, {});
     for (let i = 0; i < 60; i++) { await sleep(300); iv = (await b.get('/api/ideas')).ideas.find((x) => x.id === ideaId); if (iv && iv.mockups && !iv.mockups.job) break; }
     const round = iv && iv.mockups && iv.mockups.rounds[0];
     check('Mockups: a round with startWith codex lands 3 variants drawn from Codex\'s HTML, with its tokens', round && round.variants.length === 3 && round.variants[0].title === 'Codex a' && round.tokens && round.tokens.input === 1234 && !iv.mockups.error, JSON.stringify(iv && iv.mockups));
-  } else console.log('SKIP  Mockups on Codex: Playwright is not installed');
+  }
 
   // ---- startWith claude: the stubs of claude -p again
   await b.post('/api/settings/assistant', { startWith: 'claude' });

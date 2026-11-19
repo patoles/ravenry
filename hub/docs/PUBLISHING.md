@@ -12,8 +12,8 @@ icon), and README.md (the user's guide), LICENSE (GPL-3.0-only), NOTICE and
 CHANGELOG.md. No
 test, fixture (`tools/fixtures/live` holds real session text), docs, design
 mockup, screenshot, `.tmp` or brand candidate. No runtime dependency:
-Playwright and jsQR are dev dependencies; the board loads Playwright lazily
-for idea mockup pictures only.
+Playwright and jsQR are dev dependencies; the board never loads Playwright
+(pictures of pages are drawn by the Mac's Quick Look).
 
 ## The proof
 
@@ -28,7 +28,7 @@ with `npm i -g --prefix <scratch>` and a scratch HOME outside this repo;
 runs setup, doctor, a stale hook, the board on :4697 with headless shots of
 the first run, a hook event through the installed command, and uninstall
 (settings.json back to its exact bytes); proves the package resolves no
-Playwright; and checks the real `~/.claude/settings.json` and
+Playwright and still draws a mockup (Quick Look); and checks the real `~/.claude/settings.json` and
 `~/.ravenry/projects.json` did not change.
 
 ## The public repository

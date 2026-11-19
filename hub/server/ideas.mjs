@@ -541,7 +541,7 @@ export function startMockups(id, { note, from } = {}, cfg) {
       files = vs.map((v, k) => { const f = path.join(dir, `r${n}-${mk.KEYS[k]}.html`); fs.writeFileSync(f, v.html); return f; });
       await mk.render(files);
     } catch (e) {
-      return failed(/need Playwright/.test(e.message) ? e.message : `the board could not draw the pictures (${String(e.message).split('\n')[0].slice(0, 160)})`);
+      return failed(`the board could not draw the pictures (${String(e.message).split('\n')[0].slice(0, 160)})`);
     }
     const cur = current();
     if (!cur) { for (const f of files) { fs.rmSync(f, { force: true }); fs.rmSync(f.replace(/\.html$/, '.png'), { force: true }); } return; }

@@ -6,11 +6,11 @@
 // ~/.ravenry/ideas (the Ideas thread's command, queue and 3-minute stop).
 // Claude writes no files: it answers with a JSON array of 3
 // {title, note, html}, and the board writes <id>/mockups/r<N>-<a|b|c>.html
-// and renders each in headless Chromium with JavaScript off and the network
-// blocked.
+// and draws each with the Mac's Quick Look, no script and no network
+// (server/pagepicture.mjs).
 
-import fs from 'node:fs';
 import path from 'node:path';
+import { drawPage } from './pagepicture.mjs';
 
 export const KEYS = ['a', 'b', 'c'];
 export const W = 800;
@@ -100,37 +100,14 @@ export function parseVariants(text) {
   return out.length === 3 ? out : null;
 }
 
-// Draws each HTML file to a PNG next to it. JavaScript off, every network
-// request refused, 800x500. Playwright is optional: without it the round
-// fails with one sentence that says how to install it (a global install is
-// found from a global Ravenry, since Node looks up the folders above it).
+// Draws each HTML file to a PNG next to it, 800x500, with the Mac's Quick
+// Look (server/pagepicture.mjs): no script, no network, only what the page
+// carries itself. The installed app has no Playwright, which drew them
+// before and so failed for every user of the app.
 export async function render(files) {
-  let pw;
-  try { pw = await import('playwright'); } catch {
-    throw new Error('Mockup pictures need Playwright, which is not installed. Install it with: npm i -g playwright && npx playwright install chromium');
-  }
-  let browser;
-  try {
-    browser = await pw.chromium.launch({ headless: true });
-  } catch (e) {
-    throw new Error(`headless Chromium did not start (${String(e.message).split('\n')[0].slice(0, 120)})`);
-  }
-  try {
-    const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, javaScriptEnabled: false, offline: true });
-    await ctx.route('**/*', (r) => (r.request().url().startsWith('data:') ? r.continue() : r.abort()));
-    const out = [];
-    for (const f of files) {
-      const page = await ctx.newPage();
-      await page.setContent(fs.readFileSync(f, 'utf8'), { waitUntil: 'load', timeout: 15000 });
-      const png = f.replace(/\.html$/, '.png');
-      await page.screenshot({ path: png, clip: { x: 0, y: 0, width: W, height: H } });
-      await page.close();
-      out.push(png);
-    }
-    return out;
-  } finally {
-    await browser.close().catch(() => {});
-  }
+  const out = [];
+  for (const f of files) out.push(await drawPage(f, f.replace(/\.html?$/, '') + '.png', { width: W, height: H }));
+  return out;
 }
 
 export function dir(ideasDir, id) {

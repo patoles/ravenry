@@ -339,9 +339,9 @@ async function doctor() {
   }
   const b = await boardUp();
   line(b.up && !b.ours ? 'fix' : 'ok', b.up ? (b.ours ? `The board answers on ${URL_}` : `Something that is not Ravenry holds :${PORT}. Stop it, or start with PORT=<another port> ravenry.`) : `The board is not running (ravenry starts it on :${PORT}).`);
-  let pw = false;
-  try { await import('playwright'); pw = true; } catch { /* optional */ }
-  line(pw ? 'ok' : 'note', pw ? 'Playwright: found (idea mockup pictures work).' : 'Playwright: not installed. Optional, only for idea mockup pictures: npm i -g playwright && npx playwright install chromium');
+  // A pick's pages and an idea's mockups are drawn by the Mac's Quick Look (server/pagepicture.mjs).
+  const ql = fs.existsSync('/usr/bin/qlmanage');
+  line(ql ? 'ok' : 'fix', ql ? 'Pictures of pages (a pick\'s .html variants, idea mockups): drawn by Quick Look.' : 'Quick Look (/usr/bin/qlmanage) is missing: a pick\'s .html variants and idea mockups cannot be drawn as pictures.');
   console.log(bad ? `\n${bad} thing${bad > 1 ? 's' : ''} to fix.` : '\nAll good.');
   return bad ? 1 : 0;
 }
