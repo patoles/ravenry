@@ -1,0 +1,26 @@
+// The Ravenry relay (relay/README.md). Account-specific values are never
+// here: the APNs key, its id and the team id are Worker secrets
+// (wrangler secret put APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID), and a local
+// run reads them from .dev.vars, which git ignores.
+{
+  "name": "ravenry-relay",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-19",
+  "workers_dev": true,
+  "preview_urls": false,
+  // Keeps nothing: no Workers Logs, no traces, no Logpush. Nothing in the
+  // code writes a request to the console either (`wrangler tail` would show
+  // only the request line Cloudflare itself prints, while someone watches).
+  "observability": { "enabled": false, "logs": { "enabled": false, "invocation_logs": false }, "traces": { "enabled": false } },
+  "logpush": false,
+  "vars": {
+    // The app's bundle id: the one app this relay sends to.
+    "APNS_TOPIC": "dev.ravenry.ios"
+  },
+  // Abuse limits, per Cloudflare location, counters in memory for the
+  // period only, keyed by a hash of the device token and of the address.
+  "ratelimits": [
+    { "name": "PER_DEVICE", "namespace_id": "7301", "simple": { "limit": 60, "period": 60 } },
+    { "name": "PER_ADDRESS", "namespace_id": "7302", "simple": { "limit": 300, "period": 60 } }
+  ]
+}

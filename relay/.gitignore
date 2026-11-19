@@ -1,0 +1,4 @@
+# The APNs key and ids for a local run (relay/README.md), never committed.
+.dev.vars
+.dev.vars.*
+.wrangler/

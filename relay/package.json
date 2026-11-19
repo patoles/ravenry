@@ -1,0 +1,13 @@
+{
+  "name": "ravenry-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Ravenry relay: sealed alerts to Apple's push service for the Ravenry iPhone and iPad app. It keeps nothing.",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "test": "node test/relay-test.mjs",
+    "dev": "npx wrangler@4 dev",
+    "deploy": "npx wrangler@4 deploy"
+  }
+}
