@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Privacy · Ravenry</title>
-<meta name="description" content="What Ravenry keeps, where it keeps it, and what leaves your Mac and your phone. Ravenry has no servers and collects nothing.">
+<meta name="description" content="What Ravenry keeps, where it keeps it, and what leaves your Mac and your phone. Ravenry collects nothing, and its one server, a relay for iPhone and iPad alerts, keeps nothing.">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
@@ -24,8 +24,9 @@
 <section class="short" aria-labelledby="short">
   <h2 id="short">The short version</h2>
   <ul>
-    <li><b>We don't collect anything.</b> Ravenry has no servers and no accounts, and no analytics, crash reports or tracking of any kind.</li>
-    <li><b>Your sessions stay on your Mac.</b> Your phone talks straight to your Mac, over your Wi-Fi or your own Tailscale. Nothing goes through us.</li>
+    <li><b>We don't collect anything.</b> Ravenry has no accounts, and no analytics, crash reports or tracking of any kind.</li>
+    <li><b>Your sessions stay on your Mac.</b> Your phone talks straight to your Mac, over your Wi-Fi or your own Tailscale. Your sessions never go through us.</li>
+    <li><b>One relay, for iPhone and iPad alerts.</b> It is our only server. It passes each alert to Apple, sealed on your Mac so the relay cannot read it, and keeps nothing.</li>
     <li><b>A few things leave your devices, only when you use them:</b> the alerts you set up, the update check, and the Claude Code or Codex you already use. Each one is below.</li>
   </ul>
 </section>
@@ -44,6 +45,7 @@
   <h3>On your phone</h3>
   <ul>
     <li>The app keeps which Mac it is paired with and a sign-in token, encrypted with a key that never leaves the phone. It is never backed up or moved to a new phone: a new phone pairs again.</li>
+    <li>The iPhone and iPad app makes a key for its alerts when you turn them on. The private half never leaves the device; your Mac gets the public half, to seal each alert so only that device can open it.</li>
     <li>When it pairs, the app gives your Mac an install id, so pairing the same phone again replaces its old entry instead of adding one. On iPhone and iPad it is a random number kept on the device; on Android it is made from the id Android gives this app on this phone. A phone's browser gets a random one in a cookie. Your Mac keeps only a hash of it, and it goes nowhere else.</li>
   </ul>
 </section>
@@ -54,6 +56,15 @@
     <div><dt>Your phone and your Mac</dt><dd>They talk directly, encrypted, and the phone only trusts your Mac's own key. On your Wi-Fi, or through Tailscale when you turn on Away from this Mac's Wi-Fi.</dd></div>
     <div><dt>Tailscale</dt><dd>Only with Away from this Mac's Wi-Fi on. Ravenry joins your own Tailscale network as a device called ravenry, so Tailscale sees that device, your account and its addresses, as it does for any of your devices. What your phone and Mac say to each other is encrypted end to end. Ravenry turns off Tailscale's log uploads. Tailscale's own privacy policy applies.</dd></div>
     <div><dt>Android alerts</dt><dd>Through UnifiedPush and the app you pick for it, such as ntfy. Each alert is encrypted on your Mac for your phone alone, so the service that carries it sees only scrambled bytes, their size and the time. With no such app, alerts come over the connection the Ravenry app keeps to your Mac.</dd></div>
+    <div><dt>iPhone and iPad alerts, through the Ravenry app</dt><dd>
+      <p>Apple only lets an app's own server wake it, so these go through the Ravenry relay, which we run on Cloudflare, and then Apple's push service. Your Mac seals each alert for your device before it leaves, so the relay and Apple see only scrambled bytes. For each alert the relay sees:</p>
+      <ul>
+        <li>your device's push token, an address Apple gave the app on that device (not your name, number or Apple account);</li>
+        <li>the sealed bytes, their size and the time;</li>
+        <li>the network address it came from, as any server does.</li>
+      </ul>
+      <p>It keeps none of it: it has no storage and writes no logs. To stop abuse it counts requests per device and per address for one minute, by a one-way hash of each, in Cloudflare's memory. Apple sees the push token, the sealed bytes and a fixed line, "Open Ravenry to see this alert.", which is what your device shows if it ever cannot open one. Cloudflare's and Apple's own privacy policies apply. With the app's alerts off, nothing goes to the relay.</p>
+    </dd></div>
     <div><dt>iPhone alerts, through ntfy</dt><dd>
       <p>Sent to ntfy.sh unless you set your own ntfy server in Alerts, and readable there in plain text. So an alert says little:</p>
       <ul>
@@ -90,7 +101,7 @@
     <li>We hold nothing about you, so there is nothing for us to delete.</li>
     <li>On your Mac, choose Uninstall Ravenry… in the Ravenry menu and tick "Also delete Ravenry's own data". Or delete <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code> yourself. Photos, voice notes and files you sent stay in each project's <code>.inbox</code> folder until you delete them.</li>
     <li>On your phone, Sign out in the app's settings, or uninstall the app: what it kept goes with it.</li>
-    <li>ntfy, Telegram, Discord and Slack keep the alerts they carried by their own rules.</li>
+    <li>ntfy, Telegram, Discord and Slack keep the alerts they carried by their own rules. The Ravenry relay keeps nothing; Apple keeps an alert for a device that is off for up to an hour, then drops it.</li>
   </ul>
 </section>
 
