@@ -19,9 +19,16 @@
 // (the `access` switch).
 //
 // State: <RAVENRY_HOME>/phone.json (mode 0600): { key, access, away, tokens: [{
-// hash, id, name, platform, app, ua, created, lastSeen, push }] }. Tokens
-// are kept as SHA-256 hashes. The key, a token and a pairing code are
+// hash, id, name, platform, form, app, ua, install, created, lastSeen, push }] }.
+// Tokens are kept as SHA-256 hashes. The key, a token and a pairing code are
 // never logged.
+//
+// One record per device, however often it pairs (docs/PHONE.md section 3,
+// "The same device again"): an app sends its install id (the iOS Keychain's,
+// Android's per-app ANDROID_ID) and the token it holds; a phone browser
+// carries its install id in the mc_install cookie. A pairing that matches
+// takes over that record (its row, name and push target) with a new token,
+// and the old token stops working. `install` is that id's SHA-256.
 //
 // A device that alerts reach without signing in (an iPhone through ntfy,
 // server/alerts.mjs) is a record in the same list with `hash: null`: no
@@ -41,6 +48,11 @@ export const COOKIE = 'mc_phone';
 // A short-lived readable cookie that tells the page it was just signed in,
 // so it shows the one-time toast.
 export const NEW_COOKIE = 'mc_new';
+// Which phone browser this is, across its sign-ins (an install id, not a
+// key: it opens nothing). SameSite=Lax, so a QR scan that opens the board
+// from the camera (a cross-site navigation, which drops the Strict sign-in
+// cookie) still says which record to take over.
+export const INSTALL_COOKIE = 'mc_install';
 const YEAR_S = 365 * 24 * 3600;
 const SEEN_SAVE_MS = 60 * 1000;
 
@@ -52,6 +64,8 @@ const shaHex = (s) => sha(s).toString('hex');
 const newSecret = () => crypto.randomBytes(32).toString('base64url');
 const B32 = '0123456789abcdefghjkmnpqrstvwxyz';
 const newId = () => 'd' + [...crypto.randomBytes(10)].map((b) => B32[b & 31]).join('');
+// An install id as the phone sends it, kept only as its hash; null when it is not one.
+const installHash = (v) => (typeof v === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(v) ? shaHex(`install:${v}`) : null);
 
 // A phone browser's name from its user agent: "iPhone", "Android", else "Browser".
 function browserName(ua) {
@@ -167,6 +181,9 @@ function keyMatches(given) {
 }
 
 // GET /?k=<key> from a phone. Answers the request either way.
+// The same browser signing in again (its mc_install cookie) takes over its
+// own record with a new token, so its row does not pile up; another browser,
+// even on the same phone, holds its own cookies and is a device of its own.
 export function signIn(req, res, given) {
   const already = check(req);
   if (!keyMatches(given)) {
@@ -174,11 +191,24 @@ export function signIn(req, res, given) {
     return signedOutPage(res, 401, 'This code is out of date. Scan the code on the Mac again.');
   }
   const set = [`${NEW_COOKIE}=1; SameSite=Strict; Path=/; Max-Age=120`];
-  if (!already.ok) {
+  const d = load();
+  let inst = cookies(req)[INSTALL_COOKIE];
+  if (!installHash(inst)) {
+    inst = newSecret();
+    set.push(`${INSTALL_COOKIE}=${inst}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${YEAR_S}`);
+  }
+  const ih = installHash(inst);
+  if (already.ok) {
+    // Signed in from before install ids: its record learns this browser's.
+    const t = d.tokens.find((x) => x.id === already.id);
+    if (t && t.platform === 'browser' && t.install !== ih) { t.install = ih; save(); }
+  } else {
     const tok = newSecret();
     const now = new Date().toISOString();
     const ua = String(req.headers['user-agent'] || '').slice(0, 300);
-    load().tokens.push({ hash: shaHex(tok), id: newId(), name: browserName(ua), platform: 'browser', app: null, ua, created: now, lastSeen: now, push: null });
+    const t = d.tokens.find((x) => x.platform === 'browser' && x.install === ih);
+    if (t) Object.assign(t, { hash: shaHex(tok), ua, lastSeen: now, paired: now });
+    else d.tokens.push({ hash: shaHex(tok), id: newId(), name: browserName(ua), platform: 'browser', app: null, ua, install: ih, created: now, lastSeen: now, push: null });
     save();
     set.unshift(`${COOKIE}=${tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${YEAR_S}`);
   }
@@ -223,7 +253,17 @@ export function setAway(on) {
   save();
 }
 
-const pub = (t) => ({ id: t.id, name: t.name || null, platform: t.platform || null, app: t.app || null, created: t.created || null, lastSeen: t.lastSeen || null, push: t.push ? t.push.kind : null });
+// Which kind of device it is, for its words: "ipad" or "iphone" for the iOS
+// app (the form it sends when it pairs; a record from before that is an iPad
+// when its name says so, as iOS names it "iPad"), else what it sent, or null.
+export function formOf(d) {
+  if (!d) return null;
+  if (d.platform === 'ios') return d.form === 'ipad' || d.form === 'iphone' ? d.form : /\biPad\b/.test(String(d.name || '')) ? 'ipad' : 'iphone';
+  if (d.platform === 'browser' && !d.form) return /\biPad\b/.test(String(d.name || '')) ? 'ipad' : null;
+  return typeof d.form === 'string' ? d.form : null;
+}
+
+const pub = (t) => ({ id: t.id, name: t.name || null, platform: t.platform || null, form: formOf(t), app: t.app || null, created: t.created || null, lastSeen: t.lastSeen || null, push: t.push ? t.push.kind : null });
 
 // Every device signed in (a phone browser, a paired app), without its hash
 // or push secrets.
@@ -244,9 +284,12 @@ export function seen(iso, now) {
 // What a device is, as the phone card lists it (its name and the line
 // under it). Moved from the desktop's renderer/phonecard.ts deviceLine()
 // for the native Mac app; the desktop still works it out itself.
+// The device's word is its own: "iPad app" for the iOS app on an iPad,
+// "iPhone app" on an iPhone (formOf).
 export function deviceLine(d, now = Date.now()) {
-  if (d.platform === 'browser') return { name: 'Phone browser', sub: `Signed in with the browser code, ${seen(d.lastSeen, now)}` };
-  const what = d.platform === 'android' ? 'Android app' : d.platform === 'ios' ? 'iPhone app' : 'App';
+  const form = d.form !== undefined ? d.form : formOf(d);
+  if (d.platform === 'browser') return { name: form === 'ipad' ? 'iPad browser' : 'Phone browser', sub: `Signed in with the browser code, ${seen(d.lastSeen, now)}` };
+  const what = d.platform === 'android' ? 'Android app' : d.platform === 'ios' ? (form === 'ipad' ? 'iPad app' : 'iPhone app') : 'App';
   return { name: d.name || what, sub: `${what}, ${seen(d.lastSeen, now)}`, renamable: true };
 }
 export function device(id) { const t = load().tokens.find((x) => x.id === id); return t ? pub(t) : null; }
@@ -261,10 +304,14 @@ export function revoke(id) {
   const d = load();
   const t = d.tokens.find((x) => x.id === id);
   if (!t) return false;
-  if (t.hash && ntfyIphone(t)) Object.assign(t, signedOff(t));
-  else d.tokens = d.tokens.filter((x) => x !== t);
+  retire(d, t);
   save();
   return true;
+}
+
+function retire(d, t) {
+  if (t.hash && ntfyIphone(t)) Object.assign(t, signedOff(t));
+  else d.tokens = d.tokens.filter((x) => x !== t);
 }
 
 // Forgets a device's record whatever it is (Remove of an iPhone through ntfy).
@@ -299,6 +346,9 @@ export function takeover(deviceId, into) {
   if (!me || !me.hash || me.platform !== 'ios') return { ok: false, status: 400, error: 'Only the iPhone app takes over an iPhone through ntfy.' };
   if (!old || old === me || old.hash !== null || !ntfyIphone(old)) return { ok: false, status: 404, error: 'That iPhone is not in the phones list any more.' };
   Object.assign(old, { hash: me.hash, app: me.app, ua: me.ua, lastSeen: me.lastSeen, tookOver: new Date().toISOString() });
+  // The app's install id and form go with its sign-in, so its next pairing finds this record.
+  if (me.install) old.install = me.install;
+  if (me.form) old.form = me.form;
   delete old.by;
   d.tokens = d.tokens.filter((t) => t !== me);
   save();
@@ -430,7 +480,16 @@ export function pairLink({ name, hosts, port, pin, code }) {
 }
 
 // A pairing: { ok, token, device } or { ok: false, status, error }.
-export function pair({ code, name, platform, app, ua }, now = Date.now()) {
+//
+// The same device pairing again (a reinstall, an update, Scan the code
+// again, a new code) takes over its own record: the one with its install
+// id (`install`), else the one its old token (`previous`, the token it
+// still holds) signs in. The record keeps its id, row, name (the one the
+// person may have given it on the Mac) and push target; it gets the new
+// token, so the old one stops working. Any other record the old token
+// still signs in goes too. With neither, it is a new device: two iPads of
+// the same name stay two rows.
+export function pair({ code, name, platform, form, app, ua, install, previous }, now = Date.now()) {
   if (!access()) return { ok: false, status: 403, error: 'Phone access is off on the computer. Turn it on there, then scan the code again.' };
   misses = misses.filter((t) => now - t < 60000);
   if (now < lockedUntil) return { ok: false, status: 429, error: 'Too many wrong codes. Wait a minute, then scan the code again.' };
@@ -446,10 +505,20 @@ export function pair({ code, name, platform, app, ua }, now = Date.now()) {
   const tok = newSecret();
   const at = new Date(now).toISOString();
   const clip = (v, n) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : null);
-  const t = { hash: shaHex(tok), id: newId(), name: clip(name, 60) || 'Phone', platform: clip(platform, 20) || 'unknown', app: clip(app, 30), ua: String(ua || '').slice(0, 300), created: at, lastSeen: at, push: null };
-  load().tokens.push(t);
+  const d = load();
+  const plat = clip(platform, 20) || 'unknown';
+  const ih = plat === 'browser' ? null : installHash(install);
+  const ph = typeof previous === 'string' && /^[A-Za-z0-9_-]{20,200}$/.test(previous) ? shaHex(previous) : null;
+  const fm = typeof form === 'string' && /^[a-z]{1,12}$/.test(form) ? form : null;
+  const same = (x) => x.platform === plat && x.platform !== 'browser';
+  const t = (ih && d.tokens.find((x) => x.install === ih && same(x))) || (ph && d.tokens.find((x) => x.hash === ph && same(x))) || null;
+  const fresh = { hash: shaHex(tok), app: clip(app, 30), ua: String(ua || '').slice(0, 300), lastSeen: at, ...(ih ? { install: ih } : {}), ...(fm ? { form: fm } : {}) };
+  if (ph) for (const x of d.tokens.filter((y) => y !== t && y.hash === ph)) retire(d, x);
+  let rec = t;
+  if (rec) Object.assign(rec, fresh, { paired: at });
+  else d.tokens.push(rec = { id: newId(), name: clip(name, 60) || 'Phone', platform: plat, created: at, push: null, ...fresh });
   save();
-  return { ok: true, token: tok, device: { id: t.id, name: t.name } };
+  return { ok: true, token: tok, device: { id: rec.id, name: rec.name }, again: !!t };
 }
 
 // For tests: forget the pairing state kept in memory.

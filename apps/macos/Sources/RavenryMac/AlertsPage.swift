@@ -205,7 +205,9 @@ final class AlertsPage: FormPage {
             : ntfy ? (when.map { t("alerts.getsNtfyLast", ["when": $0]) } ?? t("alerts.getsNtfy"))
             : (when.map { t("alerts.getsLast", ["when": $0]) } ?? t("alerts.gets"))
         let iphone = ntfy || p["platform"] as? String == "ios"
-        let glyph = symbol(iphone || NSImage(systemSymbolName: "smartphone", accessibilityDescription: nil) == nil ? "iphone" : "smartphone", "tx2", 13)
+        // The iOS app on an iPad draws an iPad (the hub's `form`), never an iPhone.
+        let ipad = p["form"] as? String == "ipad"
+        let glyph = symbol(ipad ? "ipad" : iphone || NSImage(systemSymbolName: "smartphone", accessibilityDescription: nil) == nil ? "iphone" : "smartphone", "tx2", 13)
         let icon = boxed(glyph, fill: "card2", radius: 8, insets: NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0))
         icon.widthAnchor.constraint(equalToConstant: 30).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 30).isActive = true

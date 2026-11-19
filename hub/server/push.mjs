@@ -246,7 +246,7 @@ export async function sendTo(id, msg, opts = {}) {
 
 // The devices alerts reach, for the phones list: { id, name, platform,
 // transport, last } (no topic, endpoint or key).
-export const phones = () => phone.alertRecords().map((d) => ({ id: d.id, name: d.name || 'A phone', platform: d.platform || null, transport: transportOf(d), last: lastBy.get(d.id) || null }));
+export const phones = () => phone.alertRecords().map((d) => ({ id: d.id, name: d.name || 'A phone', platform: d.platform || null, form: phone.formOf(d), transport: transportOf(d), last: lastBy.get(d.id) || null }));
 
 // The apps' names, for the board's alerts section and older clients (the
 // phones that get alerts through the Ravenry app; `phones` has them all).

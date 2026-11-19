@@ -493,7 +493,8 @@ that the phone pins that key exactly as if it had scanned it.
 ### Pairing
 
 `POST /api/phone/pair` on the phone port, body
-`{ "code": "...", "name": "Pixel 8", "platform": "android", "app": "0.1.0" }`.
+`{ "code": "...", "name": "Pixel 8", "platform": "android", "app": "0.1.0", "install": "...", "previous": "..." }`
+(the iOS app adds `"form": "ipad"` or `"iphone"`).
 The name is the one the person gave the phone: the system device name
 (Settings.Global DEVICE_NAME), then Bluetooth's name, then maker and model
 (never Build.MODEL alone, a code like "SM-F731B"). The Mac's card can rename it.
@@ -506,10 +507,50 @@ The name is the one the person gave the phone: the system device name
 
 The code is compared in constant time and used up by the first success.
 
+#### The same device again
+
+A device that pairs again (the app reinstalled or updated, Scan the code
+again, a new code) keeps one row on the Mac's card: its new pairing takes
+over its own record, and its old token stops working at once.
+
+- `install`: this install's id, 16 to 128 characters of base64url. The
+  iOS app makes 32 random bytes once and keeps them in the Keychain for
+  this device only (a reinstall keeps them while iOS keeps the item; a
+  backup restored on another device does not carry them). The Android app
+  sends the SHA-256 of `ravenry-install:` and ANDROID_ID, which Android 8
+  and later keep per app signing key, user and device (a reinstall keeps
+  it, a factory reset makes a new one), else a random id in the app's own
+  storage, which is never backed up. The hub keeps only its SHA-256.
+- `previous`: the token the app still holds for this Mac (only when the
+  pairing's pin is the one that token was made with). It finds the row of
+  an app paired before install ids, and any other row that token signs in
+  is signed out.
+
+The record found (the same platform's with this `install`, else the one
+`previous` signs in) keeps its id, row, name (the one the person gave it
+on the Mac too) and push target, and takes the new token, version and
+form. With neither, the pairing is a new device: two iPads of the same
+name, each with its own install id, stay two rows. Rows an app left
+behind before this (tokens it no longer holds, no install id) are not
+guessed at: Sign out on the Mac's card removes them.
+
+A phone browser has no app to keep an id: the sign-in also sets
+`mc_install` (32 random bytes, HttpOnly, `SameSite=Lax`, a year), which
+says which browser this is and opens nothing. A camera's QR link is a
+cross-site navigation, so the browser leaves out the Strict `mc_phone`
+cookie but sends `mc_install`: the sign-in then takes over that browser's
+row with a new token. Another browser on the same phone holds its own
+cookies and is a row of its own.
+
+The card's line says what the device is in its own word: "Android app",
+"iPhone app", "iPad app" (the iOS app's `form`; a record from before it
+is an iPad when its name says so), "Phone browser", "iPad browser".
+
 ### Devices
 
 `<RAVENRY_HOME>/phone.json` (mode 0600) keeps one record per device:
-`{ id, hash, name, platform, app, created, lastSeen, push }`. A phone
+`{ id, hash, name, platform, form, app, install, created, lastSeen, paired, push }`
+(`install`: the install id's SHA-256; `paired`: when it last paired again). A phone
 browser signed in with the QR cookie is a device too (`platform: "browser"`,
 its cookie is its token). The same token store serves both; the cookie
 `mc_phone` and the header are two ways to carry a token. A device alerts

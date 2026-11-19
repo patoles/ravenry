@@ -8,7 +8,7 @@ import './phonecard.css';
 import { h, replace } from './dom.ts';
 import { pairable } from './phonepair.ts';
 
-export interface PhoneDevice { id: string; name: string; platform: string; app?: string | null; created?: string; lastSeen?: string | null }
+export interface PhoneDevice { id: string; name: string; platform: string; form?: string | null; app?: string | null; created?: string; lastSeen?: string | null }
 export interface PhoneCardData {
   access?: boolean; port?: number; phones?: number;
   devices?: PhoneDevice[];
@@ -33,10 +33,15 @@ export function seen(iso: string | null | undefined, now: number): string {
   return hr < 48 ? 'seen yesterday' : `seen ${Math.floor(hr / 24)} d ago`;
 }
 
-/** What a device is, for the card's list. */
+/**
+ * What a device is, for the card's list, in its own word: "iPad app" for
+ * the iOS app on an iPad (the hub's `form`; from an older hub, an iPad's
+ * name), as hub/server/phone.mjs deviceLine.
+ */
 export function deviceLine(d: PhoneDevice, now: number): { name: string; sub: string } {
-  if (d.platform === 'browser') return { name: 'Phone browser', sub: `Signed in with the browser code, ${seen(d.lastSeen, now)}` };
-  const what = d.platform === 'android' ? 'Android app' : d.platform === 'ios' ? 'iPhone app' : 'App';
+  const ipad = d.form ? d.form === 'ipad' : (d.platform === 'ios' || d.platform === 'browser') && /\biPad\b/.test(d.name || '');
+  if (d.platform === 'browser') return { name: ipad ? 'iPad browser' : 'Phone browser', sub: `Signed in with the browser code, ${seen(d.lastSeen, now)}` };
+  const what = d.platform === 'android' ? 'Android app' : d.platform === 'ios' ? (ipad ? 'iPad app' : 'iPhone app') : 'App';
   return { name: d.name || what, sub: `${what}, ${seen(d.lastSeen, now)}` };
 }
 
