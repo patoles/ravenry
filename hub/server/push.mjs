@@ -1,9 +1,9 @@
 // Alerts to the phones (docs/PHONE.md sections 4 and 5).
 //
 // Each device may have one push target. A paired app sets its own:
-// `unifiedpush` (built: any UnifiedPush distributor, such as ntfy),
-// `apns` and `fcm` (designed: through a relay; refused until built) or
-// `none`. An iPhone with no Ravenry app yet gets `ntfy` from its setup
+// `unifiedpush` (Android: any UnifiedPush distributor, such as ntfy),
+// `apns` (the iPhone and iPad app: through a Ravenry relay to Apple's push
+// service, relay/), `fcm` (designed; refused until built) or `none`. An iPhone with no Ravenry app yet gets `ntfy` from its setup
 // (server/alerts.mjs): a device record with no sign-in, alerted through
 // the ntfy iPhone app on its own topic. Sending picks the transport by the
 // target's kind (SENDERS), so the trigger, the dedupe and the cooldown are
@@ -11,7 +11,8 @@
 //
 // An app's body is encrypted for that device with Web Push message
 // encryption (RFC 8291, aes128gcm, RFC 8188), with the device's own P-256
-// key and auth secret, so the distributor or a relay sees only ciphertext.
+// key and auth secret, so the distributor, the relay or Apple sees only
+// ciphertext.
 // It carries the question, the command and the agent's words, with the
 // buttons that answer it from the shade. ntfy carries text in clear, so an
 // iPhone through ntfy gets only the title and the fixed `line` of the same
@@ -40,7 +41,16 @@ const num = (v, d) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Num
 const RETRY_MS = num(env.MC_PUSH_RETRY_MS, 30 * 1000);
 const TIMEOUT_MS = 10000;
 const CAP = 3000;
+// An APNs payload is at most 4096 bytes, the sealed body in base64url with
+// the relay's fixed JSON around it: the relay takes 2900 sealed bytes, so
+// the message is at most 2780 (2780 + 1 + 16 + 86 of header and key + tag).
+const APNS_CAP = 2780;
 const RS = 4096;
+// The relay for an iPhone app that names none (docs/PHONE.md section 4,
+// "apns"): RAVENRY_APNS_RELAY, else none. The app's build names its relay
+// (the one that holds the APNs key for that app), so this is for a hub
+// that must use another one.
+const RELAY = () => String(env.RAVENRY_APNS_RELAY || '').trim().replace(/\/+$/, '');
 
 // ------------------------------------------------------------ RFC 8291
 
@@ -106,14 +116,80 @@ export function endpointOk(u) {
 export function checkTarget(b) {
   const body = b && typeof b === 'object' ? b : {};
   const kind = String(body.kind || '');
-  if (!KINDS.has(kind)) return { ok: false, status: 400, error: 'Unknown push kind. This hub knows unifiedpush and none.' };
+  if (!KINDS.has(kind)) return { ok: false, status: 400, error: 'Unknown push kind. This hub knows unifiedpush, apns and none.' };
   if (kind === 'none') return { ok: true, target: null };
-  if (kind !== 'unifiedpush') return { ok: false, status: 400, error: `Push through ${kind} is not built yet. Use unifiedpush, or none.` };
-  if (!endpointOk(body.endpoint)) return { ok: false, status: 400, error: 'The endpoint must be https, or http to an address on this computer, the home network or Tailscale (such as http://192.168.1.20:8080/...).' };
+  if (kind !== 'unifiedpush' && kind !== 'apns') return { ok: false, status: 400, error: `Push through ${kind} is not built yet. Use unifiedpush, apns, or none.` };
   const p = unb64u(body.p256dh), a = unb64u(body.auth);
-  if (p.length !== 65 || p[0] !== 4) return { ok: false, status: 400, error: 'p256dh is not an uncompressed P-256 public key in base64url.' };
-  if (a.length !== 16) return { ok: false, status: 400, error: 'auth is not 16 bytes in base64url.' };
+  const keys = () => {
+    if (p.length !== 65 || p[0] !== 4) return 'p256dh is not an uncompressed P-256 public key in base64url.';
+    if (a.length !== 16) return 'auth is not 16 bytes in base64url.';
+    return null;
+  };
+  if (kind === 'apns') {
+    // The iPhone and iPad app: its APNs device token, the relay that holds
+    // the key for its build, and which APNs it registered with (a debug
+    // build: sandbox; TestFlight and the App Store: production).
+    const relay = String(body.relay || RELAY()).trim().replace(/\/+$/, '');
+    if (!relay) return { ok: false, status: 400, error: 'Which relay? Send relay (https://...), or set RAVENRY_APNS_RELAY on this Mac.' };
+    if (!endpointOk(relay) || /[?#]/.test(relay)) return { ok: false, status: 400, error: 'The relay must be https (or http to an address on this computer, the home network or Tailscale), with no query.' };
+    const token = String(body.token || '').toLowerCase();
+    if (!/^[0-9a-f]{64,200}$/.test(token)) return { ok: false, status: 400, error: 'token is not an APNs device token (hex).' };
+    const environment = body.environment == null ? 'production' : String(body.environment);
+    if (environment !== 'production' && environment !== 'sandbox') return { ok: false, status: 400, error: 'environment is production or sandbox.' };
+    const e = keys();
+    if (e) return { ok: false, status: 400, error: e };
+    return { ok: true, target: { kind, relay, token, environment, p256dh: b64u(p), auth: b64u(a), at: new Date().toISOString() } };
+  }
+  if (!endpointOk(body.endpoint)) return { ok: false, status: 400, error: 'The endpoint must be https, or http to an address on this computer, the home network or Tailscale (such as http://192.168.1.20:8080/...).' };
+  const e = keys();
+  if (e) return { ok: false, status: 400, error: e };
   return { ok: true, target: { kind, endpoint: String(body.endpoint), p256dh: b64u(p), auth: b64u(a), at: new Date().toISOString() } };
+}
+
+// The words of the last line an iPhone's old ntfy topic gets, when the
+// Ravenry app takes its alerts over (fixed words: ntfy carries them in clear).
+export const MOVED_LINE = 'Alerts for this iPhone now come from the Ravenry app. You can delete ntfy.';
+
+// Sets a device's push target (checked by checkTarget) from the app. An
+// iPhone that got its alerts through ntfy and now has the app's own (the
+// takeover, docs/PHONE.md section 4) keeps the ntfy target in `push.was`,
+// with `moved` (when), and its old topic gets one last line; from then on
+// alerts go through the app only. A new token for the same app keeps both.
+// Resolves { ok, moved }.
+export async function setTarget(id, target) {
+  const rec = phone.deviceRecord(id);
+  if (!rec) return { ok: false };
+  const old = rec.push || null;
+  let farewell = null;
+  if (target && target.kind === 'apns') {
+    if (old && old.kind === 'ntfy' && old.confirmed) {
+      target.was = { ...old };
+      target.moved = target.at;
+      farewell = old;
+    } else if (old && old.kind === 'apns' && old.was) {
+      target.was = old.was;
+      if (old.moved) target.moved = old.moved;
+    } else if (!old && rec.gone && rec.gone.was) {
+      // The app back after Apple said it was gone: its ntfy target stays the one to go back to.
+      target.was = rec.gone.was;
+    }
+  }
+  phone.updateRecord(id, (t) => { t.push = target || null; delete t.gone; });
+  if (farewell) {
+    const r = await CHANNELS.ntfy.send({ test: false, title: 'Ravenry', body: MOVED_LINE, url: null }, { server: farewell.server, topic: farewell.topic }).catch(() => ({ ok: false }));
+    console.log(`push: ${rec.name} moved from ntfy to the Ravenry app${r.ok ? '' : ' (the last ntfy line did not go)'}`);
+  }
+  return { ok: true, moved: !!farewell };
+}
+
+// Use ntfy again: an iPhone whose app Apple said is gone gets its alerts
+// through its old ntfy topic again (docs/PHONE.md section 4). There is no
+// silent fall back: the person asks for it on the Mac.
+export function ntfyAgain(id) {
+  const rec = phone.deviceRecord(id);
+  if (!rec || !rec.gone || !rec.gone.was) return false;
+  phone.updateRecord(id, (t) => { t.push = { ...t.gone.was }; delete t.gone; });
+  return true;
 }
 
 // ------------------------------------------------------------ live streams
@@ -137,6 +213,52 @@ async function post(t, body) {
   } catch (e) {
     return { ok: false, status: 0, error: (e && e.cause && e.cause.code) || (e && e.name) || 'error' };
   }
+}
+
+// Apple said the app is gone from this device (410 from the relay): the
+// target is dropped, and the row says so, with Use ntfy again when it came
+// from ntfy (`gone.was`). No alert goes to ntfy by itself: the person was
+// told ntfy could go.
+function appGone(dev, status) {
+  phone.updateRecord(dev.id, (t) => { t.gone = { at: new Date().toISOString(), was: (t.push && t.push.was) || null }; t.push = null; });
+  console.log(`push: Apple says the Ravenry app is gone from ${dev.name} (${status}); dropped`);
+}
+
+// The iPhone and iPad app through the relay to APNs: the whole message,
+// sealed for the device as Android's is (the relay and Apple see only
+// ciphertext), at most APNS_CAP bytes; the app's Notification Service
+// Extension opens it and draws the alert. A close goes as a silent
+// background push: the app takes that alert off. `collapse` (a hash of the
+// alert's id, nothing readable) makes a resent alert replace the first.
+async function sendApns(dev, msg) {
+  const t = dev.push;
+  let body;
+  try {
+    let m = msg.type === 'close' ? msg : capped(JSON.parse(JSON.stringify(msg)), APNS_CAP);
+    // Still too long (a pick's many variants): what the alert needs, the rest in the app.
+    if (Buffer.byteLength(JSON.stringify(m)) > APNS_CAP) {
+      const cp = m.checkpoint ? { id: m.checkpoint.id, kind: m.checkpoint.kind, expires_at: m.checkpoint.expires_at || null } : null;
+      m = capped({ v: m.v, type: m.type, id: m.id, at: m.at, kind: m.kind, title: m.title, body: m.body, detail: m.detail, line: m.line, project: m.project, machine: m.machine, session: m.session, checkpoint: cp, decision: m.decision, actions: [{ id: 'open', label: 'Open' }], reply: null }, APNS_CAP);
+    }
+    body = encrypt(Buffer.from(JSON.stringify(m)), unb64u(t.p256dh), unb64u(t.auth));
+  } catch (e) { return { ok: false, final: true, error: e.message }; }
+  const close = msg.type === 'close';
+  const req = { token: t.token, environment: t.environment || 'production', ttl: 3600, push: close ? 'background' : 'alert', body: b64u(body) };
+  if (!close && msg.id) req.collapse = crypto.createHash('sha256').update(String(msg.id)).digest('base64url').slice(0, 22);
+  let r;
+  try {
+    const res = await fetch(`${t.relay}/v1/apns`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req), signal: AbortSignal.timeout(TIMEOUT_MS), redirect: 'error' });
+    let j = null;
+    try { j = await res.json(); } catch { /* no JSON */ }
+    const why = j && (j.reason || j.error);
+    r = { ok: res.ok, status: res.status, error: res.ok ? null : `the relay answered ${res.status}${why ? ` (${String(why).slice(0, 80)})` : ''}` };
+  } catch (e) {
+    return { ok: false, status: 0, error: (e && e.cause && e.cause.code) || (e && e.name) || 'error' };
+  }
+  if (r.status === 410) { appGone(dev, r.status); return { ...r, final: true }; }
+  // A token APNs refuses, or a request the relay refuses: trying again changes nothing.
+  if (r.status === 400 || r.status === 413) return { ...r, final: true };
+  return r;
 }
 
 // An app through UnifiedPush: the whole message, encrypted for it.
@@ -174,14 +296,15 @@ async function sendNtfy(dev, msg, { click = null } = {}) {
 }
 
 // The transports, by the push target's kind (docs/PHONE.md section 4).
-// One more kind later (`apns`, the Ravenry iPhone app through the relay)
-// is one more entry: the device record, the trigger, the dedupe and the
-// cooldown stay as they are. The target a new one replaced waits in
-// `push.was` (the takeover, docs/PHONE.md section 4).
+// One more kind (`fcm`) is one more entry: the device record, the trigger,
+// the dedupe and the cooldown stay as they are. The ntfy target the iPhone
+// app's own replaced waits in `push.was` (the takeover, docs/PHONE.md
+// section 4).
 //   transport: what the phones list says it gets alerts through ('app', 'ntfy');
 //   clear: the message travels in clear, so only what clearOk() allows goes.
 export const SENDERS = {
   unifiedpush: { transport: 'app', clear: false, send: sendUnifiedPush },
+  apns: { transport: 'app', clear: false, send: sendApns },
   ntfy: { transport: 'ntfy', clear: true, send: sendNtfy },
 };
 
@@ -245,8 +368,14 @@ export async function sendTo(id, msg, opts = {}) {
 }
 
 // The devices alerts reach, for the phones list: { id, name, platform,
-// transport, last } (no topic, endpoint or key).
-export const phones = () => phone.alertRecords().map((d) => ({ id: d.id, name: d.name || 'A phone', platform: d.platform || null, form: phone.formOf(d), transport: transportOf(d), last: lastBy.get(d.id) || null }));
+// transport, last, moved, gone, ntfyBack } (no topic, token, endpoint or
+// key). `moved`: when the iPhone app took the alerts over from ntfy;
+// `gone`: when Apple said the app is gone from the device (no alerts
+// since), `ntfyBack` whether Use ntfy again can bring the old topic back.
+export const phones = () => phone.alertRecords().map((d) => ({
+  id: d.id, name: d.name || 'A phone', platform: d.platform || null, form: phone.formOf(d), transport: transportOf(d), last: lastBy.get(d.id) || null,
+  moved: (d.push && d.push.kind === 'apns' && d.push.moved) || null, gone: (d.gone && d.gone.at) || null, ntfyBack: !!(d.gone && d.gone.was),
+}));
 
 // The apps' names, for the board's alerts section and older clients (the
 // phones that get alerts through the Ravenry app; `phones` has them all).
@@ -262,11 +391,11 @@ const who = (a) => ASSISTANT[String(a || '').toLowerCase()] || 'The agent';
 const clip = (s, n) => { const t = String(s ?? ''); return t.length > n ? t.slice(0, Math.max(0, n - 3)) + '...' : t; };
 const hhmm = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
-// Keeps a message within CAP bytes, cutting its longest texts first.
-export function capped(msg) {
+// Keeps a message within `cap` bytes, cutting its longest texts first.
+export function capped(msg, cap = CAP) {
   const size = () => Buffer.byteLength(JSON.stringify(msg));
   let n = 1000;
-  while (size() > CAP && n > 20) {
+  while (size() > cap && n > 20) {
     for (const k of ['detail', 'body', 'command', 'title']) if (typeof msg[k] === 'string') msg[k] = clip(msg[k], n);
     if (msg.checkpoint && typeof msg.checkpoint.command === 'string') msg.checkpoint.command = clip(msg.checkpoint.command, n);
     for (const a of msg.actions || []) a.label = clip(a.label, Math.max(12, Math.floor(n / 4)));

@@ -179,6 +179,7 @@ session's review comments and the agent's replies).
 | `/api/alerts/desktop/result` | person | Judged (ambiguous): the app says whether macOS showed a notification; an agent could say one reached the person when it never did. |
 | `/api/alerts/desktop/focus` | person | Judged (ambiguous): the app focused last gets the next Mac notification; an agent could send them to an app the person is not using. |
 | `/api/alerts/iphone/{start,test,confirm,copy,remove}` | person | It makes the topic an iPhone gets the person's alerts on, adds that iPhone to the phones or removes it: an agent could send the person's alerts to itself, or cut an iPhone off. |
+| `/api/alerts/phone/ntfy-again` | person | It changes where the device's alerts go, back to its old ntfy topic: an agent could move the person's alerts to a transport that carries them in clear. |
 | `/api/alerts/phone/test` | person | Judged (ambiguous): it sends to one of the person's phones, as Send a test does. |
 | `/api/alerts/{telegram,telegram/find-chat,webhook,ntfy,ntfy/new-topic,ntfy/copy,done}` | person | An agent could send the person's alerts to itself. |
 | `/api/ideas/add` | open | Adding an idea: the person sees it on the Ideas page and decides. |

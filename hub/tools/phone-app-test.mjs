@@ -132,7 +132,8 @@ const auth = crypto.randomBytes(16);
   // Suggested answers read from the message (server/answers.mjs): the label on the button, the key typed; the first two beside Reply, no Open.
   const sg = projectMessage({ kind: 'question' }, { id: 'lp', name: 'landing-page', primary: 's3', state: 'you', question: 'B, C, or keep A?', quick: [{ label: 'B: the app', text: 'B' }, { label: 'C: the app with an alert…', text: 'C' }, { label: 'Keep A: today', text: 'Keep A' }], sessions: [{ surfaceId: 's3', assistant: 'claude' }] });
   check('a question with suggested answers: the first two, each typing its key, then Reply (no Open)', JSON.stringify(sg.actions) === '[{"id":"quick:0","label":"B: the app","text":"B"},{"id":"quick:1","label":"C: the app with an alert…","text":"C"}]' && sg.reply && sg.reply.label === 'Reply', JSON.stringify(sg.actions));
-  check('push targets: unifiedpush is checked, apns is not built yet, none clears', checkTarget({ kind: 'unifiedpush', endpoint: 'https://ntfy.example/up1?up=1', p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) }).ok && checkTarget({ kind: 'apns' }).status === 400 && checkTarget({ kind: 'none' }).target === null);
+  check('push targets: unifiedpush is checked, apns needs its relay, token and keys, fcm is not built yet, none clears', checkTarget({ kind: 'unifiedpush', endpoint: 'https://ntfy.example/up1?up=1', p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) }).ok && checkTarget({ kind: 'apns' }).status === 400
+    && checkTarget({ kind: 'apns', relay: 'https://relay.example', token: 'ab'.repeat(32), p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) }).ok && /not built yet/.test(checkTarget({ kind: 'fcm' }).error) && checkTarget({ kind: 'none' }).target === null);
   // http: only to an address written as a number on this computer, the
   // home network or Tailscale (a self-hosted ntfy); never a host name or a
   // public address.
@@ -335,8 +336,9 @@ await new Promise((r) => stub.listen(0, '127.0.0.1', r));
 const endpoint = `http://127.0.0.1:${stub.address().port}/up/abc?up=1`;
 const setp = await phoneReq('POST', '/api/phone/push', { token: TOKEN, body: { kind: 'unifiedpush', endpoint, p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) } });
 check('the device sets its push target', setp.status === 200 && setp.body.push === 'unifiedpush', setp.text);
-const apns = await phoneReq('POST', '/api/phone/push', { token: TOKEN, body: { kind: 'apns', token: 'x' } });
-check('apns is refused until it is built', apns.status === 400 && /not built yet/.test(apns.body.error));
+const apns = await phoneReq('POST', '/api/phone/push', { token: TOKEN, body: { kind: 'apns', relay: 'https://relay.example', token: 'x', p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) } });
+const fcm = await phoneReq('POST', '/api/phone/push', { token: TOKEN, body: { kind: 'fcm', token: 'x' } });
+check('an apns target with no device token is refused (the target stays), fcm is not built yet', apns.status === 400 && /token/.test(apns.body.error) && fcm.status === 400 && /not built yet/.test(fcm.body.error), apns.text);
 const ev = await phoneReq('GET', '/api/events', { token: TOKEN, stream: true });
 let evText = '';
 let evEnded = false;

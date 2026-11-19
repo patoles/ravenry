@@ -176,7 +176,7 @@ export function setupView(qrSvg, { iphoneLink = null, iphoneQr = null } = {}) {
   return {
     ...status(),
     // The phones list, with what the Mac's rows need (ids, the last send).
-    phones: push.phones().map((x) => ({ id: x.id, name: x.name, platform: x.platform, form: x.form, transport: x.transport, last: x.last })),
+    phones: push.phones().map((x) => ({ id: x.id, name: x.name, platform: x.platform, form: x.form, transport: x.transport, last: x.last, moved: x.moved, gone: x.gone, ntfyBack: x.ntfyBack })),
     // Add an iPhone: the QR (the sign-in link + #iphone) only while phone
     // access is on, else the person copies the code instead; the code this
     // Mac copied and has not confirmed yet.

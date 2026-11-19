@@ -3320,6 +3320,8 @@ async function alertsWrite(req, res, p) {
   if (p === '/api/alerts/iphone/copy') return answer(await alerts.iphoneCopy());
   if (p === '/api/alerts/iphone/remove') return answer(alerts.iphoneRemove(body.id));
   if (p === '/api/alerts/phone/test') return answer(await alerts.phoneTest(body.id, boardUrl()));
+  // Use ntfy again: an iPhone whose app Apple said is gone, back on its old ntfy topic.
+  if (p === '/api/alerts/phone/ntfy-again') return answer(push.ntfyAgain(String(body.id || '')) ? { ok: true } : { ok: false, status: 404, error: 'That phone has no ntfy topic to go back to.' });
   if (p === '/api/alerts/desktop/test') return answer(await alerts.testDesktop());
   // The app's answer for a notification it was sent: shown by macOS or not, and why.
   // An app's window came to the front: Mac notifications go to it (desktop.mjs pickApp).
@@ -3998,7 +4000,8 @@ async function phoneDeviceRoute(req, res, p) {
     }
     const t = push.checkTarget(body);
     if (!t.ok) return sendJson(res, t.status, { error: t.error }), true;
-    phone.setPush(req.mcDevice, t.target);
+    // An iPhone app's own target over its ntfy one: the takeover (push.setTarget).
+    await push.setTarget(req.mcDevice, t.target);
     return sendJson(res, 200, { ok: true, push: t.target ? t.target.kind : 'none' }), true;
   }
   return false;

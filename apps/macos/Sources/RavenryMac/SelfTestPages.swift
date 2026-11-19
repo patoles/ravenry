@@ -252,6 +252,41 @@ extension SelfTestBoard {
         _ = wait(6) { pg.buttons["ntfy-use"]?.title == t("alerts.useIt") }
     }
 
+    /// The iPhone app's rows (docs/PHONE.md section 4, the fixture in scripts/sidetest.mjs): moved from ntfy
+    /// ("Moved from ntfy today, ..."); Apple says the app is gone ("No alerts: ...") with Use ntfy again, which
+    /// posts its route and makes it a row through ntfy (then Remove forgets it), and with Remove alone when
+    /// there is no ntfy topic to go back to, which signs it out. Neither gone row has Send a test.
+    private func alertsAppRows(_ pg: AlertsPage) {
+        let phones = { pg.setup?["phones"] as? [[String: Any]] ?? [] }
+        let row = { (id: String) in phones().first { $0["id"] as? String == id } }
+        _ = wait(6) { row("dgone01") != nil && pg.busy.isEmpty }
+        let moved = When.day(row("dmoved1")?["moved"] as? String) ?? "?"
+        check("alerts_app_moved_row", wait(6) { self.shows(pg, "Work iPhone") && self.texts(pg).contains(t("alerts.movedFromNtfy", ["when": moved])) } && pg.buttons["phoneTest-dmoved1"] != nil && pg.buttons["remove-dmoved1"] == nil,
+              texts(pg).filter { $0.contains("Moved") || $0.contains("Gets") }.joined(separator: " | "))
+        check("alerts_app_gone_rows", texts(pg).contains(t("alerts.appGone", ["device": "iPad"])) && texts(pg).contains(t("alerts.appGone", ["device": "iPhone"]))
+              && pg.buttons["ntfyAgain-dgone01"]?.title == t("alerts.ntfyAgain") && pg.buttons["remove-dgone01"] != nil && pg.buttons["phoneTest-dgone01"] == nil
+              && pg.buttons["ntfyAgain-dgone02"] == nil && pg.buttons["remove-dgone02"] != nil && pg.buttons["phoneTest-dgone02"] == nil,
+              texts(pg).filter { $0.hasPrefix("No alerts") }.joined(separator: " | "))
+        pictures("alerts-app-rows")
+        var n = board.hub.sent.count
+        var L = board.log.count
+        pg.buttons["ntfyAgain-dgone01"]?.performClick(nil)
+        check("alerts_app_ntfy_again", wait(5) { self.sentSince(n).contains("POST /api/alerts/phone/ntfy-again") && self.toasts(since: L).contains(t("alerts.ntfyAgainDone", ["name": "iPad"])) }
+              && wait(6) { row("dgone01")?["transport"] as? String == "ntfy" && pg.buttons["ntfyAgain-dgone01"]?.window == nil && pg.buttons["remove-dgone01"] != nil },
+              "\(sentSince(n)) \(toasts(since: L)) \(row("dgone01") ?? [:])")
+        _ = wait(5) { pg.busy.isEmpty }
+        n = board.hub.sent.count
+        pg.buttons["remove-dgone01"]?.performClick(nil)
+        check("alerts_app_ntfy_again_then_remove", wait(5) { self.sentSince(n).contains("POST /api/alerts/iphone/remove") } && wait(6) { row("dgone01") == nil && !self.shows(pg, "iPad") }, "\(sentSince(n))")
+        _ = wait(5) { pg.busy.isEmpty }
+        n = board.hub.sent.count
+        L = board.log.count
+        pg.buttons["remove-dgone02"]?.performClick(nil)
+        check("alerts_app_gone_remove_signs_out", wait(5) { self.sentSince(n).contains("POST /api/phone/devices/revoke") && self.toasts(since: L).contains(t("alerts.removedApp", ["name": "Old iPhone"])) } && wait(6) { row("dgone02") == nil },
+              "\(sentSince(n)) \(toasts(since: L))")
+        _ = wait(5) { pg.busy.isEmpty }
+    }
+
     /// Phones (docs/PHONE.md section 4): the Pixel the board knows as a row, Add an iPhone's setup
     /// (the steps, the QR while phone access is on), Copy the code instead, then Send a test and It
     /// arrived from here: each posts the hub's route, the stand-in ntfy gets the test on the
@@ -390,6 +425,7 @@ extension SelfTestBoard {
         pg.buttons["newTopic"]?.performClick(nil)
         check("alerts_ntfy_new_topic", wait(5) { self.toasts(since: L).contains(t("alerts.newTopicDone")) })
         pictures("alerts-ntfy")
+        alertsAppRows(pg)
         alertsOwnNtfy(pg)
         alertsPhones(pg)
         formKeepsTyping(pg)

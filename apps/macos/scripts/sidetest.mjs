@@ -523,8 +523,19 @@ if (SCREEN === 'alerts') {
   screenHub.prepare = (a) => {
     first?.(a);
     const at = (h) => new Date(Date.now() - h * 3600000).toISOString();
+    // The iPhone app's rows (docs/PHONE.md section 4): one that moved from ntfy to the app (APNs), an iPad whose
+    // app Apple says is gone (its old ntfy topic kept: Use ntfy again), an iPhone gone with nothing to go back to.
+    // Their relay and ntfy server are a closed port on this Mac: nothing is ever sent anywhere.
+    const nowhere = 'http://127.0.0.1:2';
+    const keys = { p256dh: 'BNGIu6zvEX-BrX_v7FnpK3mNzn3cJ-nvy722PWmz-cLYg0l2jYAhi8TkdZxd45qLimk3fAZ8rRlNyWP50sxRdow', auth: 'Hd9b1ePuupUVsWIDUb-8NQ' };
+    const was = (topic) => ({ kind: 'ntfy', server: nowhere, topic, confirmed: at(30) });
     fs.writeFileSync(path.join(a.MC, 'phone.json'), JSON.stringify({ key: 'k'.repeat(48), access: true, away: false, tokens: [
       { hash: 'a'.repeat(64), id: 'd1a2', name: 'Pixel 8', platform: 'android', app: '0.4.2', created: at(48), lastSeen: at(0.05) },
+      { hash: 'b'.repeat(64), id: 'dmoved1', name: 'Work iPhone', platform: 'ios', form: 'iphone', app: '0.1.71', created: at(30), lastSeen: at(0.1),
+        push: { kind: 'apns', relay: nowhere, token: '0'.repeat(64), environment: 'production', ...keys, at: at(0.5), moved: at(0.5), was: was('ravenry-standinmovedtopic01') } },
+      { hash: 'c'.repeat(64), id: 'dgone01', name: 'iPad', platform: 'ios', form: 'ipad', app: '0.1.71', created: at(30), lastSeen: at(20), push: null,
+        gone: { at: at(2), was: was('ravenry-standingonetopic001') } },
+      { hash: 'e'.repeat(64), id: 'dgone02', name: 'Old iPhone', platform: 'ios', form: 'iphone', app: '0.1.71', created: at(30), lastSeen: at(20), push: null, gone: { at: at(3), was: null } },
     ] }), { mode: 0o600 });
   };
 }

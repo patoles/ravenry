@@ -194,16 +194,25 @@ final class AlertsPage: FormPage {
     }
 
     /// A phone: its icon, its name and how it gets alerts, what it got last, Send a test, Remove for an iPhone through ntfy.
+    /// The iPhone app (docs/PHONE.md section 4): "Moved from ntfy" after the takeover, until an alert went; when Apple
+    /// says the app is gone, no alerts, with Use ntfy again (its old topic) and Remove (signs it out).
     private func phoneRow(_ p: [String: Any]) -> NSView {
         let id = p["id"] as? String ?? ""
         let name = p["name"] as? String ?? ""
         let ntfy = p["transport"] as? String == "ntfy"
         let last = p["last"] as? [String: Any]
-        let failed = last != nil && !(last?["ok"] as? Bool ?? true)
+        let gone = p["gone"] as? String
+        let moved = p["moved"] as? String
+        let failed = gone != nil || (last != nil && !(last?["ok"] as? Bool ?? true))
         let when = When.day(last?["at"] as? String)
-        let line = failed ? t("alerts.phoneFailed", ["error": last?["error"] as? String ?? t("alerts.noAnswer")])
+        // Moved from ntfy, until an alert went after it: then the last one, as every phone.
+        let movedWhen = moved.flatMap { m in (last?["at"] as? String).map { $0 <= m } ?? true ? When.day(m) : nil }
+        let device = p["form"] as? String == "ipad" ? "iPad" : "iPhone"
+        let line = gone != nil ? t("alerts.appGone", ["device": device])
+            : failed ? t("alerts.phoneFailed", ["error": last?["error"] as? String ?? t("alerts.noAnswer")])
             : ntfy ? (when.map { t("alerts.getsNtfyLast", ["when": $0]) } ?? t("alerts.getsNtfy"))
-            : (when.map { t("alerts.getsLast", ["when": $0]) } ?? t("alerts.gets"))
+            : movedWhen.map { t("alerts.movedFromNtfy", ["when": $0]) }
+            ?? (when.map { t("alerts.getsLast", ["when": $0]) } ?? t("alerts.gets"))
         let iphone = ntfy || p["platform"] as? String == "ios"
         // The iOS app on an iPad draws an iPad (the hub's `form`), never an iPhone.
         let ipad = p["form"] as? String == "ipad"
@@ -219,7 +228,17 @@ final class AlertsPage: FormPage {
         tx.setContentHuggingPriority(.init(1), for: .horizontal)
         tx.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         var test: RButton? = nil, remove: RButton? = nil
-        if !id.isEmpty {
+        if !id.isEmpty, gone != nil {
+            // Apple says the app is gone: nothing to test; its old ntfy topic back, or Remove (signs it out).
+            if p["ntfyBack"] as? Bool == true {
+                test = RButton(t("alerts.ntfyAgain")) { [weak self] in self?.post("phone/ntfy-again", ["id": id]) { _ in self?.toast?(t("alerts.ntfyAgainDone", ["name": name])) } }
+                test?.isEnabled = busy.isEmpty
+                buttons["ntfyAgain-\(id)"] = test
+            }
+            remove = RButton(t("alerts.remove")) { [weak self] in self?.act("remove-\(id)", "/api/phone/devices/revoke", ["id": id]) { _ in self?.toast?(t("alerts.removedApp", ["name": name])) } }
+            remove?.isEnabled = busy.isEmpty
+            buttons["remove-\(id)"] = remove
+        } else if !id.isEmpty {
             test = RButton(t("alerts.sendTest")) { [weak self] in self?.post("phone/test", ["id": id]) { _ in self?.toast?(t("alerts.phoneTestSent", ["name": name])) } }
             test?.isEnabled = busy.isEmpty
             buttons["phoneTest-\(id)"] = test

@@ -595,7 +595,7 @@ with `POST /api/phone/push`; an iPhone with no Ravenry app yet gets
 | --- | --- | --- | --- |
 | `unifiedpush` | `endpoint`, `p256dh`, `auth` | now | Android, through any UnifiedPush distributor (ntfy) |
 | `ntfy` | `server`, `topic`, `confirmed` | now | an iPhone through the ntfy iPhone app, on a topic of its own, in clear: the title and the `line` only (section 5); set by Add an iPhone, never by `POST /api/phone/push` |
-| `apns` | `relay`, `token`, `p256dh`, `auth` | later | iOS, through a Ravenry relay to APNs |
+| `apns` | `relay`, `token`, `p256dh`, `auth`, `environment` | now (hub and relay; the app: 0.1.71) | the iPhone and iPad app, through the Ravenry relay to APNs |
 | `fcm` | `token`, `p256dh`, `auth` | later | Android with Google services, through a relay |
 | `none` | | now | no push; alerts arrive only while the app holds its connection |
 
@@ -617,11 +617,30 @@ message of section 5, at most 3000 bytes (longer texts are cut with `...`).
   (100.64/10), where a self-hosted distributor such as ntfy often runs
   without TLS; the body is encrypted for the phone either way. http to a
   host name or a public address is refused with 400.
-- **apns** (designed): `POST <relay>/v1/apns` `{ token, ttl, body }` with the
-  same encrypted body in base64url; the relay sends it to APNs with
-  `mutable-content: 1` and a placeholder title, and the app's Notification
-  Service Extension decrypts it and draws the real alert. The relay keeps
-  nothing.
+- **apns**: the app sends `relay` (the relay that holds the APNs key for
+  its build, https; when it sends none, the hub's `RAVENRY_APNS_RELAY`),
+  `token` (its APNs device token, hex), `environment` (`production`, the
+  default, for TestFlight and the App Store; `sandbox` for a debug build
+  from Xcode, whose token only the sandbox APNs knows) and its `p256dh`
+  and `auth`. The hub sends `POST <relay>/v1/apns`
+  `{ token, environment, ttl: 3600, push, collapse, body }`: `body` the
+  encrypted message in base64url, at most 2900 bytes (the message is cut
+  to 2780 first, so with the relay's fixed JSON it fits APNs' 4096; a pick
+  with too many variants keeps what the alert needs and Open); `push`
+  `alert`, or `background` for a close (a silent push the app wakes to,
+  to take that alert off; iOS may hold it back, and the snapshot of
+  section 5 makes it good); `collapse` the first 22 characters of the
+  base64url SHA-256 of the alert's id, so an alert sent again replaces the
+  first and says nothing. The relay (`relay/`, a Cloudflare Worker) signs
+  an ES256 provider token with Ravenry's APNs key and posts to APNs with
+  the fixed placeholder (title "Ravenry", "Open Ravenry to see this
+  alert."), `mutable-content: 1` and the sealed bytes as `e`; the app's
+  Notification Service Extension opens them with the device's key and
+  draws the real alert. The relay keeps nothing (relay/README.md). Its
+  410 (APNs: the app is gone from the device) drops the target (below,
+  "The app deleted later"); its 400 (APNs refused the token, such as a
+  debug build's token sent to production) and 413 are not tried again;
+  anything else once more after 30 s.
 
 The same messages also reach a device on its live event stream
 (`GET /api/events`, as `event: phone`), so an app that holds its connection
@@ -629,7 +648,7 @@ shows an alert at once and without push. The app keeps each alert id it
 has shown and draws it once.
 
 **One sender per kind.** `server/push.mjs` sends through `SENDERS[kind]`
-(`unifiedpush`, `ntfy`; `apns` is one more entry when it is built), so every
+(`unifiedpush`, `apns`, `ntfy`; `fcm` is one more entry when it is built), so every
 phone, whatever it is reached by, is alerted by the same trigger, dedupe
 and cooldown (`server/alerts.mjs`, the phones' trigger, on while any phone
 gets alerts) and each alert reaches each phone once. A kind this hub has no
@@ -703,10 +722,12 @@ is not sent (its only use is Undo), nor a close (ntfy cannot take a
 notification back on iOS: an alert answered on the Mac stays until
 swiped).
 
-### Later: the Ravenry iPhone app takes over (designed, built with the app)
+### The Ravenry iPhone app takes over
 
 The iPhone app pairs like Android (section 3) and sets an `apns` target.
-Nothing for the person to switch, and no duplicates:
+Nothing for the person to switch, and no duplicates. The hub's side is
+built (2026-11-19, `hub/tools/iphone-apns-test.mjs`); the app sets its
+target from 0.1.71:
 
 - **Which iPhone is this?** At pairing, when the person has iPhones through
   ntfy, the app asks once: "Which iPhone is this?" with each by its name
@@ -720,24 +741,34 @@ Nothing for the person to switch, and no duplicates:
   target of its own the record keeps its ntfy one, so no alert is lost; the
   app signing out (or New key) leaves that iPhone through ntfy as it was,
   and Remove on the Mac forgets it whole (`hub/tools/phone-app-test.mjs`).
-  Later, with APNs: `push` becomes the `apns` target, the ntfy target
-  moving to `push.was`. One last ntfy line goes on the old
-  topic: "Alerts for this iPhone now come from the Ravenry app. You can
-  delete ntfy." From then on alerts go through the app only, encrypted, with
-  the agent's words and the buttons. The row reads "iPhone · Ravenry app,
-  Gets alerts. Moved from ntfy today at 10:20."
+  With APNs (`push.setTarget`): `push` becomes the `apns` target, the
+  ntfy target moving to `push.was` and the time to `push.moved`. One last
+  ntfy line goes on the old topic: "Alerts for this iPhone now come from
+  the Ravenry app. You can delete ntfy." From then on alerts go through
+  the app only, encrypted, with the agent's words and the buttons. The row
+  reads "iPhone · Ravenry app, Gets alerts. Moved from ntfy today, 10:20."
+  until the next alert goes (then "Last one ..." as every phone). The app
+  setting its target again (a new token) keeps `was` and `moved`, with no
+  second line. An app that signs out after it moved is signed out like any
+  other app: its record goes.
 - **The app deleted later.** When APNs says the app is gone (410 from the
-  relay), the target is dropped and the row says "No alerts: Apple says the
-  Ravenry app is gone from this iPhone." with **Use ntfy again** (the target
-  in `push.was` back as `push`, so a kept ntfy works at once) and Remove.
-  There is no silent fall back to ntfy: the person was told ntfy can go.
+  relay), the target is dropped (`push: null`, `gone: { at, was }`) and the
+  row says "No alerts: Apple says the Ravenry app is gone from this
+  iPhone." (or iPad) with **Use ntfy again** when it came from ntfy (`POST
+  /api/alerts/phone/ntfy-again { id }`, the Mac's, a person row: the target
+  in `was` back as `push`, so a kept ntfy works at once) and **Remove**
+  (signs it out, `/api/phone/devices/revoke`). There is no silent fall back
+  to ntfy: the person was told ntfy can go. The phones list carries
+  `moved`, `gone` and `ntfyBack` for these rows (never a token or topic).
 
-The model leaves room for it today: the sender is picked by the kind
-(`SENDERS`), the record shape is the same for both, and
-`hub/tools/iphone-ntfy-test.mjs` proves a target of a later kind on the
-same record, with the ntfy one in `push.was`, is sent through its own
-sender once and never through ntfy, and that a kind with no sender here is
-skipped.
+The sender is picked by the kind (`SENDERS`) and the record is the same
+for both: `hub/tools/iphone-apns-test.mjs` drives the hub's sender, the
+real relay code and a stand-in APNs that opens each alert with the
+device's key (the takeover and its last line, each phone once, the
+placeholder and ciphertext only at Apple, a close as a background push,
+the size, sandbox, 410 and Use ntfy again, no retry on a refused token);
+`hub/tools/iphone-ntfy-test.mjs` proves an iPhone through ntfy works as
+before beside it, and that a kind with no sender here is skipped.
 
 ## 5. Alerts and their actions
 
@@ -764,7 +795,7 @@ skipped.
 ```
 
 `{ "v": 1, "type": "close", "id": "cp:c7k2m9qx" }` takes an alert off the
-phone: the checkpoint was answered, cancelled or ran out, or the session
+phone (on iOS it comes as a silent background push, section 4, "apns"): the checkpoint was answered, cancelled or ran out, or the session
 left Needs you. `{ "v": 1, "type": "test", ... }` is a test alert. A close
 the phone never heard (asleep with no push distributor, the hub restarted
 in between) is made good by the next state snapshot on the live stream:
