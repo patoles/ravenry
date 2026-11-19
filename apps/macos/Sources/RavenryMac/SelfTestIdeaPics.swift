@@ -49,9 +49,11 @@ extension SelfTestBoard {
         // the hub's answer itself (a ref's file only on its 200) and the idea's picture in GET /api/ideas.
         let took = { (n: Int, what: String) in what == "kill" ? hub.answers.contains { $0.seq >= n && $0.path == "/api/ideas/\(pg.id)/kill" && $0.code == 200 } : true }
         let idle = { _ = self.wait(20) { pg.busy.isEmpty && !pg.uploading } }
-        // IDEA-010: the round asked for above, on a board with no Playwright Chromium (the test's HOME): it ends saying what is missing, with Try again.
-        check("idea_round_without_chromium_says_why", wait(60) { self.texts(pg).contains { $0.contains("did not come back") && $0.contains("Chromium") } && pg.buttons["mkRetry"] != nil },
-              texts(pg).filter { $0.contains("Round") }.joined(separator: " | "))
+        // IDEA-010: the round asked for above, on a board with no Playwright Chromium (the test's HOME): the hub
+        // draws the pages with the Mac's Quick Look (hub/server/pagepicture.mjs), so the round lands with its 3
+        // variants, each with its picture, and Pick; it no longer ends asking for Chromium.
+        check("idea_round_draws_pictures_without_chromium", wait(60) { pg.thumbs.count == 3 && pg.thumbs.allSatisfy { $0.pic.image != nil } && pg.buttons["mkPick"] != nil && pg.buttons["mkRetry"] == nil },
+              "\(pg.thumbs.count) thumbs, \(pg.thumbs.filter { $0.pic.image != nil }.count) drawn; " + texts(pg).filter { $0.contains("Round") || $0.contains("did not come back") }.joined(separator: " | "))
         window.contentView?.layoutSubtreeIfNeeded()
         let center = { (v: NSView) in v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil) }
 
