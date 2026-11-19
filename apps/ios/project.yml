@@ -42,8 +42,8 @@ targets:
         # The Mac app's version (apps/desktop/package.json) and Android's
         # versionCode scheme (major * 1000000 + minor * 1000 + patch);
         # scripts/archive.sh sets both from package.json for the App Store.
-        MARKETING_VERSION: "0.1.69"
-        CURRENT_PROJECT_VERSION: "1069"
+        MARKETING_VERSION: "0.1.70"
+        CURRENT_PROJECT_VERSION: "1070"
         # Sources/Ravenry/Assets.xcassets/AppIcon.appiconset: the brand's
         # 1024 tile (hub/brand/ravenry/icon-1024.png), copied as it is.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
