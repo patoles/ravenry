@@ -263,7 +263,9 @@ func TestProcessRestartFocus(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		pr = call[proto.ProcessResult](t, c, "pane.process", map[string]any{"pane": p.ID})
-		if len(pr.Foreground.Argv) > 0 && filepath.Base(pr.Foreground.Argv[0]) == "sleep" {
+		// Wait for the whole command line: just after exec, Linux can show
+		// an empty /proc/<pid>/cmdline, and the name alone comes from comm.
+		if len(pr.Foreground.Argv) == 2 && filepath.Base(pr.Foreground.Argv[0]) == "sleep" {
 			break
 		}
 		if time.Now().After(deadline) {
