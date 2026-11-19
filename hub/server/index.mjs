@@ -75,7 +75,7 @@ import * as reviewview from './reviewview.mjs';
 import * as reviews from './reviews.mjs';
 import { paneRequest, paneInfo, barKeys } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
-import { render as mockupsRender } from './mockups.mjs';
+import { drawPage } from './pagepicture.mjs';
 import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
@@ -2806,9 +2806,11 @@ function projectIdOf(name) {
 // HTML and SVG come sandboxed, so they never run a script on the hub's
 // origin.
 // ?as=png: an HTML variant drawn to a picture (once, kept beside it), for
-// a client that draws pictures and never a web page (the native Mac app),
-// in headless Chromium with JavaScript off and the network refused
-// (server/mockups.mjs render); a picture variant is served as it is.
+// a client that draws pictures and never a web page (the native Mac app,
+// the board's tiles and Compare), by the Mac's Quick Look with no script,
+// no network and only the page's own data: pictures (server/pagepicture.mjs;
+// never Playwright, which the installed app does not ship); a picture
+// variant is served as it is.
 // ?as=video: the video a variant plays (a video's own file, a page's video
 // kept beside it, server/picks.mjs). A video is served in parts as a player
 // asks (Range, 206), so it starts at once and scrubs.
@@ -2816,11 +2818,7 @@ const variantShots = new Map();
 async function variantPng(k) {
   const png = k.file.replace(/\.html?$/, '.png');
   if (fs.existsSync(png)) return png;
-  if (!variantShots.has(png)) {
-    const src = k.file.endsWith('.html') ? k.file : k.file.replace(/\.htm$/, '.page.html');
-    if (src !== k.file) fs.copyFileSync(k.file, src);
-    variantShots.set(png, mockupsRender([src]).then(([out]) => { if (out !== png) fs.renameSync(out, png); return png; }).finally(() => variantShots.delete(png)));
-  }
+  if (!variantShots.has(png)) variantShots.set(png, drawPage(k.file, png).finally(() => variantShots.delete(png)));
   return variantShots.get(png);
 }
 async function serveVariant(req, res, id, n, as = null) {

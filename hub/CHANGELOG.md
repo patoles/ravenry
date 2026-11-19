@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A pick's .html variants show as pictures again in the installed app
+  (the Mac app's card and picker, the board's tiles and Compare): they
+  are drawn by the Mac's Quick Look, not by Playwright, which the app does
+  not ship, so every page variant came back empty (a dark well). Still no
+  script, no network, and only the page's own data: pictures.
 - The gallery shows only what the session showed you: an image path it
   wrote in its text to you, or an image you attached to your message (from
   the project's folder or the session's scratchpad). Its own Read of an
