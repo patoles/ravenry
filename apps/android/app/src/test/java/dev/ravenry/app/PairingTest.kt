@@ -58,4 +58,25 @@ class PairingTest {
         // 0xFFFFFFFFFF = 1099511627775, modulo 10^12
         assertEquals("099511 627775", Pins.checkNumber(enc.encodeToString(b)))
     }
+    // Pairing again (docs/PHONE.md section 3, "The same device again"): the
+    // install id always, the old token only to the Mac it was made for.
+    @Test fun pairingAgainSendsTheInstallAndTheOldTokenToItsOwnMacOnly() {
+        val old = Paired("Studio Mac", listOf("192.168.1.20"), 4601, pin, "the-old-token-of-this-phone-0001", "d1", "A tester's phone")
+        val again = PairBody.of("ABCDEFGHJKMNPQRS", "A tester's phone", "0.1.70", "install-id-0001-0001", pin, old)
+        assertEquals("android", again.getString("platform"))
+        assertEquals("install-id-0001-0001", again.getString("install"))
+        assertEquals("the-old-token-of-this-phone-0001", again.getString("previous"))
+        assertTrue(!PairBody.of("ABCDEFGHJKMNPQRS", "A tester's phone", "0.1.70", "i", pin.reversed(), old).has("previous"))
+        assertTrue(!PairBody.of("ABCDEFGHJKMNPQRS", "A tester's phone", "0.1.70", "i", pin, null).has("previous"))
+    }
+
+    @Test fun theInstallIdIsAHashOfAndroidIdAndStable() {
+        val a = PairBody.installFrom("5f2c1a9b3e4d6f70")!!
+        assertEquals(a, PairBody.installFrom("5f2c1a9b3e4d6f70"))
+        assertTrue(a != PairBody.installFrom("5f2c1a9b3e4d6f71"))
+        assertTrue(!a.contains("5f2c1a9b3e4d6f70") && Regex("^[A-Za-z0-9_-]{43}$").matches(a))
+        assertNull(PairBody.installFrom(null))
+        assertNull(PairBody.installFrom(""))
+        assertNull(PairBody.installFrom("9774d56d682e549c"))
+    }
 }

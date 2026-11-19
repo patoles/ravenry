@@ -98,4 +98,20 @@ final class PairingTests: XCTestCase {
         XCTAssertEqual(l.pin?.count, 43)
         XCTAssertEqual(l.code.count, 16)
     }
+    /// Pairing again (docs/PHONE.md section 3, "The same device again"):
+    /// the install id and the form always, the old token only to the Mac it
+    /// was made for (Android's PairBodyTest).
+    func testPairingAgainSendsTheInstallAndTheOldTokenToItsOwnMacOnly() {
+        let held = String(repeating: "t", count: 32)
+        let old = Paired(hubName: "Studio Mac", hosts: ["192.168.1.20"], port: 4601, pin: pin, token: held, deviceId: "d1", deviceName: "iPad")
+        let again = PairBody.of(code: "ABCDEFGHJKMNPQRS", name: "iPad", form: "ipad", app: "0.1.70", install: "install-id-0001-0001", pin: pin, old: old)
+        XCTAssertEqual(again["platform"] as? String, "ios")
+        XCTAssertEqual(again["form"] as? String, "ipad")
+        XCTAssertEqual(again["install"] as? String, "install-id-0001-0001")
+        XCTAssertEqual(again["previous"] as? String, held)
+        let otherPin = String(pin.reversed())
+        let elsewhere = PairBody.of(code: "ABCDEFGHJKMNPQRS", name: "iPad", form: "ipad", app: "0.1.70", install: "install-id-0001-0001", pin: otherPin, old: old)
+        XCTAssertNil(elsewhere["previous"])
+        XCTAssertNil(PairBody.of(code: "ABCDEFGHJKMNPQRS", name: "iPhone", form: "iphone", app: "0.1.70", install: "x", pin: pin, old: nil)["previous"])
+    }
 }

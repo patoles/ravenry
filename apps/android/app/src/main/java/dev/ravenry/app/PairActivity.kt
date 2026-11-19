@@ -188,7 +188,8 @@ class PairActivity : ComponentActivity() {
         reach.value = null
         Hub.io.execute {
             val c = HubClient(link.hosts, link.port, pin, null, skip = Reach.skip(this), dns = DebugNet.dns(this))
-            val body = JSONObject().put("code", link.code).put("name", DeviceName.of(this@PairActivity)).put("platform", "android").put("app", BuildConfig.VERSION_NAME)
+            // This install's id and the token held for this Mac: pairing again takes over this phone's row (PairBody).
+            val body = PairBody.of(link.code, DeviceName.of(this@PairActivity), BuildConfig.VERSION_NAME, InstallId.of(this@PairActivity), pin, Store.get(this).paired())
             val r = runCatching { c.call("POST", "/api/phone/pair", body.toString()) }
             val o = r.getOrNull()?.let { runCatching { JSONObject(it.text) }.getOrNull() }
             // Why it did not answer, in plain words: Tailscale off or not on

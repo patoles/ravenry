@@ -119,6 +119,20 @@ enum Pins {
     }
 }
 
+/// What a pairing sends (docs/PHONE.md section 3; the Android app's
+/// PairBody): the code, the device's name, platform and form ("ipad" or
+/// "iphone"), the app's version, this install's id, and the token this app
+/// still holds for the same Mac (the same pin), so the Mac takes over this
+/// device's own row and that old token stops working. A token for another
+/// Mac never leaves the phone.
+enum PairBody {
+    static func of(code: String, name: String, form: String, app: String, install: String, pin: String, old: Paired?) -> [String: Any] {
+        var b: [String: Any] = ["code": code, "name": name, "platform": "ios", "form": form, "app": app, "install": install]
+        if let o = old, o.pin == pin, !o.token.isEmpty { b["previous"] = o.token }
+        return b
+    }
+}
+
 /// Just enough DER to find a certificate's SubjectPublicKeyInfo: Certificate
 /// SEQUENCE { tbsCertificate SEQUENCE { [0] version?, serial, signature,
 /// issuer, validity, subject, subjectPublicKeyInfo, ... }, ... }.

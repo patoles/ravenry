@@ -1,5 +1,6 @@
 package dev.ravenry.app
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import android.provider.Settings
@@ -26,5 +27,25 @@ object DeviceName {
             maker.isEmpty() -> model.ifEmpty { "Android phone" }
             else -> "$maker $model"
         }
+    }
+}
+
+/**
+ * This install's id (docs/PHONE.md section 3, "The same device again"):
+ * from ANDROID_ID (PairBody.installFrom), so a reinstall pairs again as the
+ * same phone and the Mac takes over its row instead of adding one; else a
+ * random id kept in the app's own storage (never backed up: the manifest).
+ */
+object InstallId {
+    // ANDROID_ID is per app signing key here, and only its hash goes to the person's own Mac.
+    @SuppressLint("HardwareIds")
+    fun of(context: Context): String {
+        val aid = runCatching { Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) }.getOrNull()
+        PairBody.installFrom(aid)?.let { return it }
+        val prefs = context.getSharedPreferences("ravenry", Context.MODE_PRIVATE)
+        prefs.getString("install", null)?.let { return it }
+        val id = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { java.security.SecureRandom().nextBytes(it) })
+        prefs.edit().putString("install", id).apply()
+        return id
     }
 }

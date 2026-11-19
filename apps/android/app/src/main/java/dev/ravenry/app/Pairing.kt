@@ -6,6 +6,7 @@ import java.net.URLDecoder
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.util.Base64
+import org.json.JSONObject
 
 /**
  * The pairing link the computer shows as a QR code (docs/PHONE.md section 3):
@@ -97,4 +98,32 @@ object Pins {
      * pin is still what proves it is the paired Mac.
      */
     fun hubId(pin: String): String = b64u.encodeToString(sha256(bytes(pin)).copyOfRange(0, 12))
+}
+
+/**
+ * What a pairing sends (docs/PHONE.md section 3): the code, the phone's
+ * name, the platform, the app's version, this install's id, and the token
+ * this app still holds for the same Mac (the same pin), so the Mac takes
+ * over this phone's own row and that old token stops working. A token for
+ * another Mac never leaves the phone.
+ */
+object PairBody {
+    fun of(code: String, name: String, app: String, install: String, pin: String, old: Paired?): JSONObject {
+        val b = JSONObject().put("code", code).put("name", name).put("platform", "android").put("app", app).put("install", install)
+        if (old != null && old.pin == pin && old.token.isNotEmpty()) b.put("previous", old.token)
+        return b
+    }
+
+    /**
+     * This install's id from Android's ANDROID_ID, which Android 8 and later
+     * keep per app signing key, user and device: the app reinstalled has the
+     * same one, another phone or app never does, and a factory reset makes a
+     * new one. Only its SHA-256 with Ravenry's own prefix leaves the phone.
+     * Null when there is none (or the one value some old phones all share).
+     */
+    fun installFrom(androidId: String?): String? {
+        val a = androidId?.trim().orEmpty()
+        if (a.isEmpty() || a == "9774d56d682e549c") return null
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(Pins.sha256("ravenry-install:$a".toByteArray()))
+    }
 }

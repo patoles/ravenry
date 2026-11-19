@@ -115,7 +115,9 @@ final class PairModel: ObservableObject {
         step = .busy; error = nil; reach = nil
         Task {
             let c = client(link, pin: pin)
-            let body: [String: Any] = ["code": link.code, "name": UIDevice.current.name, "platform": "ios", "app": Self.appVersion]
+            // This install's id and the token held for this Mac: pairing again takes over this device's row (PairBody).
+            let body = PairBody.of(code: link.code, name: UIDevice.current.name, form: Device.form, app: Self.appVersion,
+                                   install: Store.shared.installId(), pin: pin, old: Store.shared.paired())
             var o: [String: Any]?
             do {
                 let r = try await c.call("POST", "/api/phone/pair", json: body)

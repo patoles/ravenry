@@ -53,6 +53,21 @@ final class Store {
         cached = nil
     }
 
+    /// This install's id (docs/PHONE.md section 3, "The same device
+    /// again"): 32 random bytes, made once and kept in the Keychain for this
+    /// device only, so the app reinstalled keeps it (iOS keeps the item) and a
+    /// backup restored on another device does not carry it. Pairing again
+    /// sends it, and the Mac takes over this device's row instead of adding one.
+    func installId() -> String {
+        lock.lock(); defer { lock.unlock() }
+        if let d = read("install"), let s = String(data: d, encoding: .utf8), !s.isEmpty { return s }
+        var b = [UInt8](repeating: 0, count: 32)
+        if SecRandomCopyBytes(kSecRandomDefault, b.count, &b) != errSecSuccess { b = (0..<32).map { _ in UInt8.random(in: 0...255) } }
+        let s = Pins.b64u(Data(b))
+        write("install", Data(s.utf8))
+        return s
+    }
+
     /// Pairings signed out here whose computer has not heard yet (PHONE-018):
     /// Sign out changes the screen at once, the unpair goes out until the Mac answers.
     func revokes() -> [Paired] {
