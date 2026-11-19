@@ -40,6 +40,9 @@ Paste as it is:
 > appear when a coding agent (Claude Code or Codex) running on the Mac
 > asks a question.
 >
+> Alerts need a paired Mac with Ravenry for Mac 0.1.71 or later. The
+> demo's alert is posted by the device itself: nothing leaves it.
+>
 > 3. A video of the app paired with a Mac, as a backup:
 > https://www.youtube.com/watch?v=RfqYjxmg4CQ
 
