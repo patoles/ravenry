@@ -3,6 +3,8 @@
 // pictures under the viewer draws each page as the picture the hub draws of
 // it (GET variants/<n>?as=png, hub/server/pagepicture.mjs), as the board's
 // tiles and the Mac app do. Before, a page's place in the strip was empty.
+// And a finger's tap on a page's slide opens the viewer, as on a picture's:
+// before, the page's frame took the tap and nothing opened.
 //
 // Headless, against a made-up board on a throwaway HOME
 // (apps/desktop/tools/demo-hub.mjs, 127.0.0.1) started without Playwright,
@@ -92,8 +94,15 @@ try {
   await p.goto(`http://127.0.0.1:${PORT}/phone/#/cp/${encodeURIComponent(cp.id)}`);
   await until(() => p.evaluate(() => document.querySelectorAll('.ptrack .pimg').length === 2), 15000);
   await p.screenshot({ path: path.join(OUT, 'phone-pick.png') });
-  // The viewer, on A (a page's frame takes the taps inside it, so the slide is clicked as its handler is).
-  await p.evaluate(() => document.querySelector('.ptrack .pimg').click());
+  // A finger's tap on A's slide (touch events, as on a phone): the viewer opens on A. The slide
+  // shows the page itself in a frame, which must not take the tap.
+  const cdp = await ctx.newCDPSession(p);
+  const pr = await p.evaluate(() => { const r = document.querySelector('.ptrack .pimg').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pr.x, y: pr.y, id: 0 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  const opened = await until(() => p.evaluate(() => { const v = document.querySelector('.pzv'); return v ? document.querySelector('.pzv-at').textContent : null; }), 5000);
+  check('phone_tap_on_a_page_opens_viewer', opened === 'A, 1 of 2', `${opened}; under the finger: ${await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? e.tagName.toLowerCase() + (e.className ? '.' + String(e.className).split(' ').join('.') : '') : 'nothing'; }, [pr.x, pr.y])}`);
+  if (!opened) await p.evaluate(() => document.querySelector('.ptrack .pimg').click());
   const strip = await until(() => p.evaluate(() => {
     const th = [...document.querySelectorAll('.pzv-strip .pzv-th')];
     if (th.length !== 2) return null;
