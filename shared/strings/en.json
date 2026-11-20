@@ -182,7 +182,7 @@
   "panel.handOffChangeTip": "Set when sessions hand off: Settings, Hand-off",
   "panel.handOffOff": "Hand-off is off",
   "panel.handOffQueued": "Hand-off queued",
-  "panel.handOffQueuedTip": "Asked for. It hands off at the next clean point.",
+  "panel.handOffQueuedTip": "Asked for. It hands off at its next stop. Send it any message to get there sooner.",
   "panel.reasonEvents": "From hook events: {why}",
   "panel.reasonScreen": "Read from the screen: {why}",
   "panel.reasonGate": "From the plan: step {n} is a gate, \"{text}\"",
