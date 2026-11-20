@@ -98,6 +98,14 @@ Events decide; these only fill what the hooks cannot see:
   Claude died without one: **none**. The other way round, Claude still on
   screen more than 20 s after a SessionEnd means a session the hook never
   saw, and that tab falls back to the screen rules.
+- **A SessionEnd from another copy.** A SessionEnd says only that the copy
+  that sent it ended. Any event after it (a Ravenry pane's tool calls
+  too) means the session runs on; with no state event since, its screen
+  decides. A live process on the session started after the end (Move
+  here's resume in a pane), or one in another terminal, keeps it going
+  there (server/events.mjs outlivedEnds). A pane's tool calls never push
+  its other events out of the board's window of daemon reports
+  (`node tools/outlived-test.mjs`).
 - **No terminal at all.** A prompt event with no event and no transcript
   activity for `eventWorkingHours` (3 h) reads as **stale**, since nothing
   can show the turn ended.

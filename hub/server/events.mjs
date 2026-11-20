@@ -26,6 +26,11 @@ const files = new Map();   // sessionId -> { size, mtimeMs, events }
 const posted = new Map();  // sessionId -> events seen only by POST so far
 const daemonEvents = new Map(); // sessionId -> events a ravenryd reported
 const DAEMON_KEEP = 200;
+// The events the state rules read one by one. Any other (a pane's
+// PostToolUse, one per tool call) only says the session was active then:
+// summarize reads from it only what the newest one carries.
+const STATE_EVENTS = new Set(['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'Interrupt', 'Notification']);
+export const isStateEvent = (e) => STATE_EVENTS.has(e.event);
 
 function key(e) {
   return `${e.at}|${e.event}|${e.notification_type || ''}`;
@@ -58,11 +63,21 @@ export function ingest(e) {
   return true;
 }
 
-// An event a ravenryd reported for a session in one of its panes.
+// An event a ravenryd reported for a session in one of its panes. Of the
+// activity events only the newest is kept, so a busy turn's tool calls
+// never push its SessionStart, prompt or Stop out of the DAEMON_KEEP
+// window (2026-11-20: a session moved into a pane ran 640 tools in one
+// turn; the window held only those, so the other copy's SessionEnd on
+// disk was its last state event and the board read it as ended).
 export function ingestDaemon(e) {
   if (!e || !SAFE_ID.test(String(e.session_id || '')) || !e.event || !e.at) return false;
   const list = daemonEvents.get(e.session_id) || [];
   if (list.some((x) => key(x) === key(e))) return false;
+  if (!isStateEvent(e)) {
+    const i = list.findIndex((x) => !isStateEvent(x));
+    if (i >= 0 && list[i].at >= e.at) return false;
+    if (i >= 0) list.splice(i, 1);
+  }
   list.push(e);
   list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   daemonEvents.set(e.session_id, list.slice(-DAEMON_KEEP));
@@ -94,7 +109,13 @@ export function summarize(sid, events) {
     // The Claude process the session ran in at its latest event (a /resume
     // in another tab moves it, so the newest one counts).
     if (e.claude_pid) { s.pid = Number(e.claude_pid); s.pidAt = e.at; }
-    if (e.event !== 'SessionEnd') { s.endedAt = null; s.endReason = null; }
+    if (e.event !== 'SessionEnd') {
+      // Activity after a SessionEnd (a pane's tool call): the session runs
+      // on in another copy, so the end is not its state any more; with no
+      // state event since, the screen and the transcript say what it does.
+      if (s.endedAt && !isStateEvent(e)) s.last = null;
+      s.endedAt = null; s.endReason = null;
+    }
     if (e.event === 'SessionStart') {
       s.startedAt = e.at; s.source = e.source || null;
       // Compaction can happen mid-turn: it does not reset the state.
@@ -165,20 +186,28 @@ export function outlivedEnds(all, procs) {
     // A process launched for it that has not reported as another session
     // since it started (a /clear moves a process on; its argument stays).
     const elsewhere = (x) => [...all.values()].some((o) => o !== s && o.pid === x.pid && o.pidAt && Date.parse(o.pidAt) >= (Date.parse(x.startedAt || 0) || 0) - 2000);
-    // A copy in a Ravenry pane is the board's own case (the pane stays and
-    // says the conversation went on elsewhere): only another terminal's.
+    // A copy in a Ravenry pane started before the end is the board's own
+    // case (the pane stays and says the conversation went on elsewhere);
+    // one started after it is the session going on there (Move here into
+    // a pane ends the other copy first, then resumes it: 2026-11-20, the
+    // pane's copy worked all day while the board said ended).
     // Not the copy that ended (its process, or its pane).
     const ended = s.endedBy || {};
     const isEnded = (x) => (ended.pid && x.pid === ended.pid) || (ended.terminalId && (x.ravenryId === ended.terminalId || x.surfaceId === ended.terminalId || x.itermId === ended.terminalId || x.rexId === ended.terminalId));
-    const p = (procs || []).find((x) => x.argvSession === s.sessionId && !x.ravenryId && !isEnded(x) && !elsewhere(x));
+    const endAt = Date.parse(s.endedAt) || 0;
+    const startedAfter = (x) => (Date.parse(x.startedAt || 0) || 0) >= endAt - 2000;
+    const p = (procs || []).find((x) => x.argvSession === s.sessionId && (!x.ravenryId || startedAfter(x)) && !isEnded(x) && !elsewhere(x));
     if (!p) continue;
     s.endedAt = null;
     s.endReason = null;
-    s.last = s.lastStop || null;
+    // At rest as its last turn ended; in a pane the board reads the screen,
+    // which says what this copy does better than the other copy's Stop.
+    s.last = p.ravenryId ? null : s.lastStop || null;
     s.pid = p.pid;
     s.pidAt = p.startedAt || s.pidAt;
     s.outlived = true;
-    if (p.surfaceId) { s.terminal = 'cmux'; s.terminalId = p.surfaceId; s.surfaceId = p.surfaceId; s.workspaceId = p.workspaceId || s.workspaceId; s.pane = null; }
+    if (p.ravenryId) { s.terminal = 'ravenry'; s.terminalId = p.ravenryId; s.pane = p.ravenryId; s.surfaceId = null; }
+    else if (p.surfaceId) { s.terminal = 'cmux'; s.terminalId = p.surfaceId; s.surfaceId = p.surfaceId; s.workspaceId = p.workspaceId || s.workspaceId; s.pane = null; }
     else if (p.itermId) { s.terminal = 'iterm'; s.terminalId = p.itermId; s.surfaceId = null; s.pane = null; }
     else if (p.rexId) { s.terminal = 'rex'; s.terminalId = p.rexId; s.surfaceId = null; s.pane = null; }
     moved.push({ sessionId: s.sessionId, pid: p.pid, terminal: s.terminal });
