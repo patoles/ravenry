@@ -1135,7 +1135,8 @@ final class PanelView: Box {
 
     private func handOff(_ p: HubProject, _ s: HubSession) {
         host?.hub.post("/api/handoff", ["projectId": p.id, "surfaceId": s.surfaceId]) { [weak self] code, j in
-            self?.host?.toast(code == 200 ? t("session.handOffQueued") : (j["error"] as? String ?? "\(code)"))
+            // The hub words its answer: written already, asked now, or at the next stop.
+            self?.host?.toast(code == 200 ? (j["say"] as? String ?? t("session.handOffQueued")) : (j["error"] as? String ?? "\(code)"))
         }
     }
 

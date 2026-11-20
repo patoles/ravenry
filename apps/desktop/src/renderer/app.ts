@@ -3179,7 +3179,8 @@ async function answer(p: HubProject, s: HubSession, label: string, choice?: numb
 
 async function handOff(p: HubProject, s: HubSession): Promise<void> {
   const at = here();
-  try { await api().hubPost('/api/handoff', { projectId: p.id, surfaceId: s.surfaceId }); toast('It hands off after the current task.', undefined, { at, error: false }); } catch (e) { toast((e as Error).message, undefined, { at, error: true }); }
+  // The hub words its answer: written already, asked now, or at the next stop.
+  try { const r = await api().hubPost('/api/handoff', { projectId: p.id, surfaceId: s.surfaceId }) as { say?: string }; toast(r.say || 'It hands off after the current task.', undefined, { at, error: false }); } catch (e) { toast((e as Error).message, undefined, { at, error: true }); }
 }
 
 // ---------------------------------------------------------------- events

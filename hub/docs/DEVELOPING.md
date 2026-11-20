@@ -973,7 +973,8 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   the composer headless against a test server whose registry holds only a
   scratch workspace running `tools/fake-claude.mjs`. Start one with
   `RAVENRY_HOME=<scratch dir> PORT=4601 MC_NO_EVENTS=1 npm start`.
-- `node tools/handoff-hook-test.mjs` and `node tools/handoff-e2e.mjs`: the
+- `node tools/handoff-hook-test.mjs`, `node tools/handoff-now-test.mjs`,
+  `node tools/handoff-now-e2e.mjs` and `node tools/handoff-e2e.mjs`: the
   hand-off proofs (docs/HANDOFF.md, Tests). `handoff-e2e` drives the real
   cmux, so it refuses to run unless `RAVENRY_TEST_REAL_TERMINAL=1`; so do
   the `--real` parts of the choose, suggestion, codex-stage2, new-session

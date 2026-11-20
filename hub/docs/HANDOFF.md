@@ -76,7 +76,23 @@ next message or at 14:12":
 **Hand off now.** The sheet's button asks for a hand-off whatever the
 context, and whether or not hand-off is on: it writes a request marker the hook acts on at the session's next
 stop, with the same clean-point rule, even inside a deferral's 10 minutes. A session sitting idle at its prompt
-has no next stop until it gets a message, so the sheet says to send one.
+has no next stop until it gets a message, so on a session at rest the hub acts at once
+(`server/handoffnow.mjs`, every entry point: the Mac panel, a row's menu, the Sessions page, the board, the phone):
+
+- its hand-off is already written (a new dated bullet in the Hand-off section that its own transcript wrote
+  since the person's last prompt, as when the person asked for it in the chat): the marker is `written` at
+  once and the fresh session starts as for any written hand-off;
+- otherwise, in a Ravenry pane on this Mac, the hub types the hook's own request (the tagged reason a stop
+  would get) at the session's prompt and records the ask as the hook does (`requested`, the section's base,
+  `askedBy: board`), so the stop that ends that turn finds the hand-off. Only after a fresh read shows the
+  assistant at its prompt: never while it works, has a dialog open or background agents running, or has
+  typed text in its input box (Claude Code's dim suggestion is typed over only when a styled read is sure of
+  it; nothing is typed to find out). A refused or failed typing, another terminal (cmux, iTerm2, Rex) and
+  another machine keep the request for the next stop, and the answer says so ("Send it any message to get
+  there sooner").
+
+The answer of `POST /api/handoff` carries `delivered` (`written`, `now` or `next stop`), `why` when it waits,
+and `say`, the words every client shows.
 
 ## Where the hand-off lands
 
@@ -317,6 +333,13 @@ work without it.
   hand-off off (past the line, past the ceiling, a manual request, a
   session queued before it was turned off), the line moved to 60, garbage
   input, and the speed on a copy of a real transcript.
+- `node tools/handoff-now-test.mjs` replays Hand off now on a session at rest with a stand-in pane: written
+  since its last prompt (counted as written), not written (the request typed, then the real hook's stop
+  finds the hand-off), a hand-off from before the last prompt, a suggestion typed over, and every refusal
+  (working, a dialog, background agents, typed text, a shell, not a Ravenry pane, another machine, a failed
+  typing). `node tools/handoff-now-e2e.mjs` runs the same through the hub's `POST /api/handoff` with three
+  sessions in panes of a throwaway ravenryd running `tools/fake-claude.mjs` (RAVENRYD_BIN, else
+  `../daemon/ravenryd`).
 - `node tools/handoff-e2e.mjs docs/shots/phase-c` runs the whole loop on a
   scratch cmux workspace it creates (`mc-test-handoff`, never focused) and
   closes, with a test server on :4601 that reads only a scratch registry,

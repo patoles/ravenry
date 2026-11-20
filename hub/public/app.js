@@ -1840,7 +1840,8 @@ async function handoffNow() {
   const { s } = view(p);
   try {
     const r = await post('/api/handoff', { projectId: p.id, surfaceId: s ? s.surfaceId : null });
-    say(r.atRest ? `${p.name}: hand-off queued. It asks at the session's next stop.` : `${p.name}: hand-off queued for the next clean point`);
+    // The hub words its answer: written already, asked now, or at the next stop.
+    say(r.say ? `${p.name}: ${r.say}` : `${p.name}: hand-off queued for the next clean point`);
   } catch (e) {
     say.error(e.message);
   }

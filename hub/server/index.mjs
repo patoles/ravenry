@@ -31,6 +31,8 @@ import { nextParts } from './briefnext.mjs';
 import { handoffLine } from './handoffline.mjs';
 import { sessionState, eventState, projectState, describe, plain } from './state.mjs';
 import * as handoff from './handoff.mjs';
+import * as handoffnow from './handoffnow.mjs';
+import * as suggest from './suggestion.mjs';
 import { config } from './config.mjs';
 import * as create from './create.mjs';
 import * as ideas from './ideas.mjs';
@@ -2592,23 +2594,56 @@ function autoStarts(workspaces, cmuxOk) {
   }
 }
 
-// "Hand off now": a request marker the hook acts on at the next stop.
-function requestHandoff({ projectId, surfaceId }) {
+// "Hand off now": a request marker the hook acts on at the next stop. On a
+// session at rest, which has no next stop until it gets a message, it acts
+// at once (server/handoffnow.mjs): a hand-off already written since the
+// person's last prompt counts as written; otherwise the hook's own request
+// is typed at its prompt, in a Ravenry pane on this Mac whose screen shows
+// it idle with nothing typed. Anything else waits for the next stop.
+async function requestHandoff({ projectId, surfaceId }) {
   const p = snapshot.projects.find((x) => x.id === projectId);
   if (!p) return { ok: false, status: 404, error: 'No such project.' };
   const s = p.sessions.find((x) => x.surfaceId === surfaceId) || p.sessions.find((x) => x.surfaceId === p.primary);
   if (!s || !s.sessionId) return { ok: false, status: 409, error: `No ${asst.of(s ? s.assistant : p.assistant).SHORT} session to hand off here.` };
   const prev = handoff.readMarker(s.sessionId);
   if (prev && (prev.state === 'written' || prev.state === 'resumed')) return { ok: false, status: 409, error: 'This session has already handed off.' };
-  const now = new Date().toISOString();
-  const m = handoff.writeMarker(s.sessionId, {
-    state: prev && prev.state === 'requested' ? 'requested' : 'queued',
-    manualAt: now, queuedAt: (prev && prev.queuedAt) || now,
-    workspaceId: (prev && prev.workspaceId) || s.workspaceId, surfaceId: (prev && prev.surfaceId) || s.surfaceId,
+  const e = ev.all.get(s.sessionId) || {};
+  const kind = asst.kindOf(s.assistant);
+  const atRest = !!s.live && !s.working && !s.dialog;
+  const local = !s.machine && !p.machine;
+  const cwd = e.cwd || (prev && prev.cwd) || null;
+  const target = local && cwd ? targetFor(cwd, s.workspaceId, p.id) : null;
+  let tab = null;
+  if (atRest && local && term.kindOf(s.surfaceId) === 'ravenry') {
+    try { tab = await freshTab(s.surfaceId); } catch { tab = null; }
+  }
+  const settings = reg.settings || {};
+  const where = term.nameOf(term.kindOf(s.surfaceId));
+  const r = await handoffnow.request({
+    session: { sessionId: s.sessionId, workspaceId: s.workspaceId, surfaceId: s.surfaceId, atRest, local, pane: !!tab, kind },
+    prev, target, cwd, transcriptPath: e.transcriptPath || (prev && prev.transcriptPath) || null,
+    ctx: s.ctx || {}, settings,
+    decisions: (() => { try { return decisions.promptBlock((target && target.projectId) || p.id); } catch { return ''; } })(),
+    pane: tab ? {
+      read: async () => asst.parseScreen(await term.readScreen(tab, 40), kind),
+      // Claude Code's dim suggestion, told apart by a styled read alone.
+      suggestion: async (screen) => {
+        if (kind !== 'claude') return false;
+        const g = await term.readStyled(tab).catch(() => null);
+        const v = suggest.judgePrompt({ text: screen.draft, styled: suggest.styledPrompt(g) });
+        return v.sure && v.kind === 'suggestion';
+      },
+      type: (text) => asst.typeMessage(kind, { ...tab, by: 'hand-off' }, text, { where }),
+    } : null,
+    log: (line) => console.log(line),
   });
-  markers.set(s.sessionId, m);
+  if (r.delivered === 'next stop') console.log(`hand-off: ${s.sessionId} asked for by hand; it waits for its next stop (${r.why})`);
+  markers.set(s.sessionId, handoff.readMarker(s.sessionId));
   wantTick = true;
-  return { ok: true, state: m.state, atRest: !s.working && !s.dialog };
+  // The words every client shows for the answer (shared/strings/en.json).
+  const say = r.delivered === 'written' ? word(settings.handoffAutoStart !== false ? 'session.handOffWritten' : 'session.handOffWrittenStart')
+    : r.delivered === 'now' ? word('session.handOffAsked') : atRest ? word('session.handOffNextStop') : word('session.handOffQueued');
+  return { ok: true, state: r.state, atRest, delivered: r.delivered, say, ...(r.why ? { why: r.why } : {}) };
 }
 
 // ------------------------------------------------------------ actions
@@ -4673,7 +4708,9 @@ async function handleRequest(req, res) {
       }
       if (p === '/api/handoff') {
         const body = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}');
-        const r = requestHandoff(body);
+        // Where each press came from, with its time (this log's lines carry none).
+        console.log(`hand-off: Hand off now for ${String(body.projectId || '?').slice(0, 80)} from ${req.mcPhone ? 'a phone' : 'this Mac'} at ${new Date().toISOString()}`);
+        const r = await requestHandoff(body);
         if (r.ok) setTimeout(tick, 30);
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error });
       }

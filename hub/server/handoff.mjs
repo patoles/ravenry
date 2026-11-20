@@ -212,10 +212,18 @@ export function handoffWritten(marker, io = localIo) {
 // (another session past the line on the same brief did not).
 export function writtenWhileQueued(marker, transcriptPath, io = localIo) {
   if (!marker || marker.state !== 'queued' || !marker.handoffFile || !marker.queuedAt) return false;
-  const top = newestBulletAt(handoffText(marker.handoffFile, io));
-  const since = Date.parse(marker.queuedAt);
-  if (top == null || isNaN(since) || top < Math.floor(since / 60000) * 60000) return false;
-  return wroteFile(transcriptPath, marker.handoffFile, marker.queuedAt, marker.cwd, io);
+  return writtenSince(marker.handoffFile, transcriptPath, marker.queuedAt, marker.cwd, io);
+}
+
+// This session's hand-off, written at or after `sinceIso`: the section's
+// newest bullet is dated at or after that minute, and the session's own
+// transcript wrote to the file since then.
+export function writtenSince(file, transcriptPath, sinceIso, cwd, io = localIo) {
+  const since = Date.parse(sinceIso);
+  if (!file || isNaN(since)) return false;
+  const top = newestBulletAt(handoffText(file, io));
+  if (top == null || top < Math.floor(since / 60000) * 60000) return false;
+  return wroteFile(transcriptPath, file, sinceIso, cwd, io);
 }
 
 // The time of the section's newest bullet, "- YYYY-MM-DD HH:MM ...", read

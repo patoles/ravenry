@@ -458,7 +458,7 @@ extension Board {
     func handOffFromSidebar(_ key: String) {
         guard let f = hub.state?.find(key) else { return }
         hub.post("/api/handoff", ["projectId": f.project.id, "surfaceId": f.session.surfaceId]) { [weak self] code, j in
-            self?.toast(code == 200 ? t("session.handOffQueued") : (j["error"] as? String ?? "\(code)"))
+            self?.toast(code == 200 ? (j["say"] as? String ?? t("session.handOffQueued")) : (j["error"] as? String ?? "\(code)"))
         }
     }
 }
