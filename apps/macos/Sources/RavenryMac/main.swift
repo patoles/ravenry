@@ -268,6 +268,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         EventLog.shared.open(offscreen: options.offscreen)
+        // Hover kept true to the pointer when a list scrolls under it (Views.swift).
+        Hover.watchScrolls()
         signal(SIGTERM, SIG_IGN)
         let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         term.setEventHandler { [weak self] in

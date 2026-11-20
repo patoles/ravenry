@@ -323,7 +323,7 @@ final class SegButton: NSButton {
 
 /// A note on a board (.nt): opens on a press; dragged to another lane, it
 /// moves there (the page's drop). Its buttons show while the pointer is on it.
-final class NoteCard: PressBox {
+final class NoteCard: PressBox, Hovers {
     var acts: NSView?
     /// Where a drag is dropped: the page lights the lane under the point and moves the item on release.
     var dragMoved: ((NSPoint) -> Void)?
@@ -344,8 +344,8 @@ final class NoteCard: PressBox {
         for t in trackingAreas { removeTrackingArea(t) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hover = true }
-    override func mouseExited(with e: NSEvent) { hover = false }
+    override func mouseEntered(with e: NSEvent) { hover = true; Hover.entered(self) }
+    override func mouseExited(with e: NSEvent) { hover = false; Hover.exited(self) }
     /// A press, then: a release where it began opens it; a move of more than
     /// 4 points drags it, the page lighting the lane under the pointer, and
     /// the release drops it there.
@@ -594,7 +594,7 @@ final class Chevron: NSView {
 
 /// A task's dot on an objective's row that ticks it: the task's mark, lit
 /// under the pointer, its words and what a press does in its tooltip.
-final class TaskDot: NSView {
+final class TaskDot: NSView, Hovers {
     let state: String
     let run: () -> Void
     private let mark: Mark
@@ -625,8 +625,8 @@ final class TaskDot: NSView {
         for a in trackingAreas { removeTrackingArea(a) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hover = true }
-    override func mouseExited(with e: NSEvent) { hover = false }
+    override func mouseEntered(with e: NSEvent) { hover = true; Hover.entered(self) }
+    override func mouseExited(with e: NSEvent) { hover = false; Hover.exited(self) }
     override func resetCursorRects() { handCursor() }
     override func mouseDown(with e: NSEvent) { run() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }

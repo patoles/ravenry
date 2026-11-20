@@ -64,6 +64,7 @@ extension SelfTestBoard {
         case "termnav2": screenTermNav2()
         case "idlefold": screenIdleFold()
         case "idlefold2": screenIdleFold2()
+        case "hoverscroll": screenHoverScroll()
         case "openon": screenOpenOn()
         case "openon2": screenOpenOn2()
         case "answers": screenAnswers()

@@ -243,6 +243,8 @@ final class TabBar: NSView {
         offset += dx
         layoutTabs(animated: false)
         if offset != was { needsDisplay = true }
+        // The tabs moved under a still pointer: the one under it lit (Hover).
+        Hover.recheck(in: clip)
     }
 
     override func draw(_ dirty: NSRect) {
@@ -396,7 +398,7 @@ final class TabClip: NSView {
     }
 }
 
-final class TabItem: NSView {
+final class TabItem: NSView, Hovers {
     weak var bar: TabBar?
     var model = TabModel(id: "", name: "", sub: nil, split: false, active: false, tip: "") {
         didSet {
@@ -471,8 +473,10 @@ final class TabItem: NSView {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hover = true; close.isHidden = false; needsDisplay = true }
-    override func mouseExited(with e: NSEvent) { hover = false; close.isHidden = !model.active; needsDisplay = true }
+    /// Lit with the app in the back too (.activeAlways).
+    var hoversInactive: Bool { true }
+    override func mouseEntered(with e: NSEvent) { hover = true; close.isHidden = false; needsDisplay = true; Hover.entered(self) }
+    override func mouseExited(with e: NSEvent) { hover = false; close.isHidden = !model.active; needsDisplay = true; Hover.exited(self) }
 
     /// A press picks the tab: the pointing hand, as on every button (its x too, an IconButton).
     override func resetCursorRects() { handCursor() }

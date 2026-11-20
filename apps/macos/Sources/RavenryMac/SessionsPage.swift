@@ -362,7 +362,7 @@ final class SessionsPage: FormPage {
 }
 
 /// A row pressed as a whole (a tick row toggles its tick; a session at work opens), lit on hover.
-final class PressRow: Box {
+final class PressRow: Box, Hovers {
     var run: (() -> Void)?
     var enabled = true
     private var hover = false { didSet { fill = hover && run != nil && enabled ? "sel" : nil } }
@@ -377,8 +377,8 @@ final class PressRow: Box {
         for t in trackingAreas { removeTrackingArea(t) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hover = true }
-    override func mouseExited(with e: NSEvent) { hover = false }
+    override func mouseEntered(with e: NSEvent) { hover = true; Hover.entered(self) }
+    override func mouseExited(with e: NSEvent) { hover = false; Hover.exited(self) }
     override func mouseDown(with e: NSEvent) { if enabled { run?() } }
     override func resetCursorRects() { handCursor(enabled) }
     /// Its own buttons (the tick, Reopen) take their press.

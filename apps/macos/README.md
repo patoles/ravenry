@@ -811,7 +811,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`, `daemons`, `links`, `idlefold`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`, `daemons`, `links`, `idlefold`, `hoverscroll`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 
@@ -826,6 +826,15 @@ same data folder (`--screen idlefold2`): Idle as it was left. The choice is
 the app's own setting beside the sidebar's width (never kept by the bench or
 the self-tests outside their data folder). It leaves pictures of the
 sidebar alone, `sidebar-NAME-{dark,light}-{284,220}.png`.
+
+`--screen hoverscroll` (`SelfTestHoverScroll.swift`, `Hover` in
+`Views.swift`): the hover highlight follows the pointer when the sidebar's
+list scrolls under it. The pointer is a point in the window (the real one is
+never moved); a row lit as AppKit lights it, then the list scrolled under the
+still pointer (a trackpad's scroll events): after each scroll exactly the row
+under the pointer is lit, the one it left is not; the same on the idle lines
+and after the list is drawn again, and none with the pointer off the rows. It
+leaves `sidebar-hoverscroll-dark-284.png`.
 
 `--screen links` (`SelfTestLinks.swift`, `SessionLinks.swift`): Claude's
 name files for three demo sessions and a named session that ended in

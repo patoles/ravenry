@@ -263,7 +263,7 @@ final class ZoomView: NSScrollView {
 /// name and when), the picture shown whole on a dark well (never cropped),
 /// a spinner until it arrives, lit on hover, ringed when it is the one the
 /// keyboard is on or the viewer came from.
-final class GalleryCard: Box {
+final class GalleryCard: Box, Hovers {
     var image: NSImage? { didSet { well.needsDisplay = true; spin.isHidden = image != nil || failed; if image != nil { spin.stopAnimation(nil) } } }
     var failed = false { didSet { spin.isHidden = image != nil || failed; well.needsDisplay = true } }
     var lit = false { didSet { restyle() } }
@@ -319,8 +319,8 @@ final class GalleryCard: Box {
         for t in trackingAreas { removeTrackingArea(t) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hovering = true }
-    override func mouseExited(with e: NSEvent) { hovering = false }
+    override func mouseEntered(with e: NSEvent) { hovering = true; Hover.entered(self) }
+    override func mouseExited(with e: NSEvent) { hovering = false; Hover.exited(self) }
     override func resetCursorRects() { handCursor() }
     override func hitTest(_ p: NSPoint) -> NSView? { super.hitTest(p) == nil ? nil : self }
     override func mouseDown(with e: NSEvent) { onOpen?() }

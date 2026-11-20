@@ -88,10 +88,90 @@ enum FocusRings {
     }
 }
 
+/// A view lit while the pointer is over it, kept true to the pointer by
+/// Hover when what is under the pointer moves.
+protocol Hovers: NSView {
+    /// It lights on hover at all (a diff line without its + does not).
+    var takesHover: Bool { get }
+    /// It lights while the app is not the active one too (.activeAlways).
+    var hoversInactive: Bool { get }
+}
+extension Hovers {
+    var takesHover: Bool { true }
+    var hoversInactive: Bool { false }
+}
+
+/// Hover true to the pointer while the content under it moves. AppKit
+/// says the pointer came or went (mouseEntered, mouseExited) only when the
+/// pointer moves: a list scrolled under a still pointer (the wheel, a
+/// trackpad) kept the row it left lit and never lit the one now under it,
+/// and as each row's tracking area is added again for its new visible rect
+/// (updateTrackingAreas) AppKit takes the pointer as it finds it, so the
+/// row left behind got no mouseExited even once the pointer moved on. Each
+/// Hovers view says here when it lights and goes out; when a clip view's
+/// bounds change (any scroll view scrolled), a StackScroll's rows are
+/// replaced or the tab strip scrolls, the views inside are lit again from
+/// where the pointer is: exactly the one under it, if any.
+enum Hover {
+    /// The views told mouseEntered and not yet mouseExited.
+    private static let lit = NSHashTable<NSView>.weakObjects()
+    /// The self-test's pointer, in its window's coordinates (the window is
+    /// off every screen and the real pointer is never moved).
+    static var testPointer: NSPoint?
+    private static var checking = false
+
+    static func entered(_ v: NSView) { lit.add(v) }
+    static func exited(_ v: NSView) { lit.remove(v) }
+    /// The view is lit now (the self-test).
+    static func isLit(_ v: NSView) -> Bool { lit.contains(v) }
+
+    /// Every scroll view's content moving rechecks its views. Once, at launch.
+    static func watchScrolls() {
+        NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: nil, queue: nil) { n in
+            if let c = n.object as? NSClipView { recheck(in: c) }
+        }
+    }
+
+    /// The Hovers views inside `container` lit from where the pointer is now.
+    static func recheck(in container: NSView) {
+        // A window off every screen (the self-tests) has no pointer to go by but the test's.
+        guard !checking, let w = container.window, testPointer != nil || w.screen != nil else { return }
+        checking = true
+        defer { checking = false }
+        // The Hovers views under the pointer inside `container`, the innermost first.
+        var under: [NSView] = []
+        if let p = pointer(in: w), let root = w.contentView?.superview ?? w.contentView, let hit = root.hitTest(root.superview?.convert(p, from: nil) ?? p) {
+            var v: NSView? = hit, chain: [NSView] = []
+            while let c = v, c !== container { if let h = c as? Hovers, h.takesHover { chain.append(c) }; v = c.superview }
+            // Only when the hit view is inside the container.
+            if v === container { under = chain.filter { NSApp.isActive || testPointer != nil || ($0 as? Hovers)?.hoversInactive == true } }
+        }
+        for v in lit.allObjects where v.window === w && v.isDescendant(of: container) && !under.contains(where: { $0 === v }) { tell(v, .mouseExited) }
+        for v in under where !lit.contains(v) { tell(v, .mouseEntered) }
+    }
+
+    private static func pointer(in w: NSWindow) -> NSPoint? {
+        if let p = testPointer { return p }
+        let s = NSEvent.mouseLocation
+        // Over this window, not under another one in front of it.
+        guard NSWindow.windowNumber(at: s, belowWindowWithWindowNumber: 0) == w.windowNumber else { return nil }
+        return w.convertPoint(fromScreen: s)
+    }
+
+    private static func tell(_ v: NSView, _ type: NSEvent.EventType) {
+        guard let e = NSEvent.enterExitEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: v.window?.windowNumber ?? 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) else { return }
+        if type == .mouseEntered { v.mouseEntered(with: e) } else { v.mouseExited(with: e) }
+        // Its tracking area added again: AppKit starts from where the pointer
+        // is now, so the next mouseExited comes when the pointer leaves it.
+        v.updateTrackingAreas()
+    }
+}
+
 /// A row that opens what it stands for: lit on hover (--sel), and when
 /// selected with its ring (--selring). It opens on the press, as the
 /// desktop's rows do (rowPress), and on Enter.
-class Row: Box {
+class Row: Box, Hovers {
     var onOpen: (() -> Void)?
     var selected = false { didSet { restyle() } }
     var hoverFill = "sel"
@@ -117,8 +197,8 @@ class Row: Box {
         for t in trackingAreas { removeTrackingArea(t) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hovering = true }
-    override func mouseExited(with e: NSEvent) { hovering = false }
+    override func mouseEntered(with e: NSEvent) { hovering = true; Hover.entered(self) }
+    override func mouseExited(with e: NSEvent) { hovering = false; Hover.exited(self) }
     override func mouseDown(with e: NSEvent) { onOpen?() }
     override func resetCursorRects() { handCursor(onOpen != nil) }
     /// The whole row takes the press (its labels and stacks are its
@@ -238,7 +318,7 @@ final class Icon: NSImageView {
 /// The desktop's buttons: .btn (grey), .btn.pri (blue), .sm, .lk (a link),
 /// .icon-btn (an icon, lit on hover), each a real NSButton for the
 /// keyboard and VoiceOver.
-final class RButton: NSButton {
+final class RButton: NSButton, Hovers {
     enum Kind { case normal, primary, ghost, link, icon, no, quiet }
     let kind: Kind
     let small: Bool
@@ -375,8 +455,8 @@ final class RButton: NSButton {
         for t in trackingAreas { removeTrackingArea(t) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hover = true }
-    override func mouseExited(with e: NSEvent) { hover = false }
+    override func mouseEntered(with e: NSEvent) { hover = true; Hover.entered(self) }
+    override func mouseExited(with e: NSEvent) { hover = false; Hover.exited(self) }
     override func viewDidChangeEffectiveAppearance() { if iconView == nil { setTitle(title) }; if lead != nil { leadImage() }; if external { externalImage() }; needsDisplay = true }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
 }
@@ -481,6 +561,8 @@ final class StackScroll: NSScrollView {
         stack.layoutSubtreeIfNeeded()
         contentView.scroll(to: NSPoint(x: 0, y: min(y, max(0, (documentView?.frame.height ?? 0) - contentView.bounds.height))))
         reflectScrolledClipView(contentView)
+        // New rows under a still pointer: the one under it lit, as after a scroll.
+        Hover.recheck(in: contentView)
     }
 }
 
