@@ -1054,6 +1054,17 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
 .pas-meta{--pas-h:22px;display:inline-flex;align-items:baseline;gap:7px;white-space:nowrap;margin-block:calc((1lh - var(--pas-h)) / 2)}
 .pas-meta .hs-seg{padding:2px;box-sizing:border-box;height:var(--pas-h);align-items:stretch}
 .pas-meta .seg{padding:0 9px;min-height:0;font-size:12px}
+/* When the switch does not fit after its label (four assistants on a phone;
+   app.js fitPas): "New sessions" on its own line, the switch the line's
+   width with equal segments and every name whole, the Model menu the line's
+   width under it. */
+#d-meta.pas-blk > .pas-meta{flex:1 0 100%;min-width:0;margin-block:0;--pas-h:30px}
+#d-meta.pas-blk > .pas-sw{flex-direction:column;align-items:stretch;gap:6px;white-space:normal}
+#d-meta.pas-blk #pas-l{line-height:1.2}
+#d-meta.pas-blk .pas-c{display:none}
+#d-meta.pas-blk .pas-sw .hs-seg{display:flex;width:100%}
+#d-meta.pas-blk .pas-sw .seg{flex:1 1 0;justify-content:center;padding:0 4px;font-size:12.5px;white-space:nowrap}
+#d-meta.pas-blk .pas-pm .pm-sel{width:100%;font-size:12.5px;padding:0 26px 0 10px;background-position:right 10px center}
 .pas-err{color:var(--bad)}
 /* New session's Model beside the switch (server/models.mjs): as tall as the switch, its words the switch's. */
 .pm-sel{-webkit-appearance:none;appearance:none;box-sizing:border-box;height:var(--pas-h,22px);margin:0;padding:0 22px 0 9px;border:0;border-radius:8px;font:inherit;font-size:12px;font-weight:500;color:var(--tx);cursor:pointer;background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2.5 4l2.5 2.5L7.5 4' fill='none' stroke='%238E8E93' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 7px center;align-self:center}

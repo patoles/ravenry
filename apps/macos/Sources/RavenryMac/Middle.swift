@@ -381,6 +381,8 @@ final class ProjectPageView: MiddleView {
     private var pas: (pid: String, want: String, until: Date)?
     /// The switch drawn last, for the self-test.
     private(set) weak var assistantSwitch: NSSegmentedControl?
+    /// The project drawn last (a redraw when the width moves the switch across, layout()).
+    private var drawn: HubProject?
     private var reviving = false
     /// A Continue the hub refused: said under the buttons, and the last conversation asked again (it may be open somewhere now).
     var error: String? { didSet { if error != nil { asked = .distantPast } } }
@@ -395,6 +397,7 @@ final class ProjectPageView: MiddleView {
     func gone(_ id: String) {
         guard projectId == id else { return }
         buttons = [:]
+        drawn = nil; pasBlock = nil
         let l = label(t("project.gone"), Fonts.pt(14, .semibold), "tx2")
         content.set(centred(vstack([l], spacing: 8)))
         setAccessibilityLabel(t("project.gone"))
@@ -425,13 +428,15 @@ final class ProjectPageView: MiddleView {
         v.translatesAutoresizingMaskIntoConstraints = false
         wrap.addSubview(v)
         let top = max(24, (bounds.height - 260) / 2)
-        NSLayoutConstraint.activate([v.centerXAnchor.constraint(equalTo: wrap.centerXAnchor), v.widthAnchor.constraint(equalToConstant: min(560, max(200, bounds.width - 48))),
+        NSLayoutConstraint.activate([v.centerXAnchor.constraint(equalTo: wrap.centerXAnchor), v.widthAnchor.constraint(equalToConstant: columnWidth),
                                      v.topAnchor.constraint(equalTo: wrap.topAnchor, constant: top), v.bottomAnchor.constraint(equalTo: wrap.bottomAnchor)])
         return [wrap]
     }
 
     func draw(_ p: HubProject) {
         buttons = [:]
+        drawn = p
+        pasBlock = nil
         let name = label(p.name, Fonts.pt(20, .bold))
         let facts = projectFacts(p)
         var head: [NSView?] = [name, folderView(p), factLine(facts.group, facts.text), assistantLine(p)]
@@ -562,10 +567,15 @@ final class ProjectPageView: MiddleView {
     }
 
     /// "New sessions:" a segment per assistant the hub lists, by its name (Claude Code | Codex), saved at once (POST /api/project/assistant).
+    /// When that does not fit the page's column (four assistants, a middle under about 490 points), "New sessions"
+    /// on a line of its own and the switch the column's width under it, its segments equal and named by their
+    /// short words (Claude | Codex | Antigravity | OpenCode), as the board's page has it (app.js fitPas).
     private func assistantLine(_ p: HubProject) -> NSView? {
         guard p.machine == nil, p.raw["unowned"] as? Bool != true else { return nil }
         let kinds = Assistants.list
-        let seg = NSSegmentedControl(labels: kinds.map(\.name), trackingMode: .selectOne, target: PopTarget.shared, action: #selector(PopTarget.segmented(_:)))
+        let block = !pasFitsInline(kinds, width: columnWidth)
+        pasBlock = block
+        let seg = NSSegmentedControl(labels: block ? kinds.map(\.short) : kinds.map(\.name), trackingMode: .selectOne, target: PopTarget.shared, action: #selector(PopTarget.segmented(_:)))
         seg.selectedSegment = kinds.firstIndex { $0.id == Assistants.kind(pasWant(p)) } ?? 0
         seg.controlSize = .small
         seg.setAccessibilityLabel(t("project.newSessions"))
@@ -575,9 +585,43 @@ final class ProjectPageView: MiddleView {
         }
         assistantSwitch = seg
         let note = (p.raw["assistantNote"] as? String).map { " " + $0 } ?? ""
-        let line = hstack([label(t("project.newSessions"), Fonts.pt(12.5), "tx3"), seg, spring()], spacing: 8)
+        let line: NSStackView
+        if block {
+            seg.segmentDistribution = .fillEqually
+            line = vstack([label(t("project.newSessionsLine"), Fonts.pt(12.5), "tx3"), seg], spacing: 6)
+        } else {
+            line = hstack([label(t("project.newSessions"), Fonts.pt(12.5), "tx3"), seg, spring()], spacing: 8)
+        }
         line.toolTip = t("project.assistantTip", ["name": p.name]) + note
         return line
+    }
+
+    /// The page's column: as wide as the middle less its margins, 200 to 560 points (centred).
+    private var columnWidth: CGFloat { min(560, max(200, bounds.width - 48)) }
+    /// The switch drawn last was the block form, for a redraw when the width moves it across.
+    private(set) var pasBlock: Bool?
+    private var pasInlineMemo: (key: String, width: CGFloat)?
+    /// Do the label and a segment per assistant by its name fit the column on one line?
+    private func pasFitsInline(_ kinds: [Assistant], width: CGFloat) -> Bool {
+        let key = kinds.map(\.name).joined(separator: "|")
+        if pasInlineMemo?.key != key {
+            let s = NSSegmentedControl(labels: kinds.map(\.name), trackingMode: .selectOne, target: nil, action: nil)
+            s.controlSize = .small
+            let l = label(t("project.newSessions"), Fonts.pt(12.5), "tx3")
+            pasInlineMemo = (key, ceil(l.fittingSize.width + 8 + s.fittingSize.width))
+        }
+        return pasInlineMemo!.width <= width
+    }
+
+    override func layout() {
+        super.layout()
+        // The width moved the switch across the line's room: draw the page again (once the layout is done).
+        guard let b = pasBlock, let p = drawn, b == pasFitsInline(Assistants.list, width: columnWidth) else { return }
+        pasBlock = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.projectId == p.id, self.drawn?.id == p.id else { return }
+            self.draw(self.drawn ?? p)
+        }
     }
 
     func setAssistant(_ p: HubProject, _ kind: String) {

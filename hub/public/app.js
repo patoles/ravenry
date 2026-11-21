@@ -977,6 +977,7 @@ ${openButton(p, s)}`);
 <div class="t3" id="d-why" style="font-size: 12px; line-height: 1.4; overflow-wrap: anywhere">${esc(why)}</div>
 ${psHeadTitle(p, `<h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">${esc(p.name)}</h1>`)}`);
   setHtml('d-meta', meta.join(''));
+  fitPas();
 
   // Shared folder card, or for a session that is not in a project the "Not
   // in a project" card (docs/design/CodexStage2.dc.html, section 1).
@@ -5390,8 +5391,35 @@ function pasHtml(p) {
   const tip = `The assistant ${p.name}'s new sessions start with (New session, Revive, a plan's start). Running sessions keep theirs.${!pa && p.assistantNote ? ' ' + p.assistantNote : ''}`;
   const btn = (k) => `<button type="button" class="seg ${on === k ? 'on' : ''}" data-pas="${escRaw(k)}" data-pid="${escRaw(p.id)}" aria-pressed="${on === k}">${esc(asShort(k))}</button>`;
   const pm = pmNow(p.id);
-  return `<span class="pas-meta" title="${esc(tip)}"><span id="pas-l">New sessions:</span><span class="hs-seg" role="group" aria-labelledby="pas-l">${asList().map((a) => btn(a.id)).join('')}</span></span>${pmHtml(p, on)}${pa && pa.err ? `<span class="pas-err" role="alert">${esc(pa.err)}</span>` : ''}${pm && pm.err ? `<span class="pas-err" role="alert">${esc(pm.err)}</span>` : ''}`;
+  return `<span class="pas-meta pas-sw" title="${esc(tip)}"><span id="pas-l">New sessions<span class="pas-c">:</span></span><span class="hs-seg" role="group" aria-labelledby="pas-l">${asList().map((a) => btn(a.id)).join('')}</span></span>${pmHtml(p, on)}${pa && pa.err ? `<span class="pas-err" role="alert">${esc(pa.err)}</span>` : ''}${pm && pm.err ? `<span class="pas-err" role="alert">${esc(pm.err)}</span>` : ''}`;
 }
+
+// When the switch does not fit after its label on the line (four
+// assistants on a phone), "New sessions" takes a line of its own, the
+// switch the width of the line with equal segments, and the Model menu the
+// width of the line under it (#d-meta.pas-blk in app.css). Two assistants
+// stay on the line as they are. Measured inline, as fitBar does, after each
+// draw and whenever the line's width changes.
+let pasRo = null;
+let pasRoEl = null;
+let pasRoW = -1;
+function fitPas() {
+  const m = $('#d-meta');
+  if (!m) return;
+  if (pasRoEl !== m && typeof ResizeObserver === 'function') {
+    if (pasRo) pasRo.disconnect();
+    pasRo = new ResizeObserver(() => { if (m.clientWidth !== pasRoW) fitPas(); });
+    pasRo.observe(m);
+    pasRoEl = m;
+  }
+  const sw = m.querySelector('.pas-sw');
+  if (!sw) { m.classList.remove('pas-blk'); return; }
+  if (!m.clientWidth) return;
+  pasRoW = m.clientWidth;
+  m.classList.remove('pas-blk');
+  if (sw.getBoundingClientRect().width > m.clientWidth + 0.5) m.classList.add('pas-blk');
+}
+window.addEventListener('resize', fitPas);
 
 // New session's Model (server/models.mjs): the model the project's next
 // session of that assistant starts with (Claude Code --model, Codex -m),
@@ -5408,7 +5436,7 @@ function pmHtml(p, kind) {
   const set = pm && pm.kind === kind && pm.want != null ? pm.want : (p.models && p.models[kind]) || '';
   const tip = `The model ${p.name}'s new ${asName(kind)} sessions start with. Remembered for this project. To switch during a session, type /model in it.`;
   // Its own item of the meta line, so a narrow line (the phone) wraps it under the switch rather than past the edge.
-  return `<span class="pas-meta"><select class="pm-sel" data-pm-pid="${escRaw(p.id)}" data-pm-kind="${kind}" aria-label="Model for new sessions" title="${esc(tip)}">${menu.map((o) => `<option value="${escRaw(o.id)}"${o.id === set ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></span>`;
+  return `<span class="pas-meta pas-pm"><select class="pm-sel" data-pm-pid="${escRaw(p.id)}" data-pm-kind="${kind}" aria-label="Model for new sessions" title="${esc(tip)}">${menu.map((o) => `<option value="${escRaw(o.id)}"${o.id === set ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></span>`;
 }
 
 async function pmChange(pid, kind, model) {

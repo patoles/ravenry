@@ -367,15 +367,6 @@ async function doctor() {
       if (cs.hooksOff) line('note', "Codex's hooks are turned off in its config.toml ([features] hooks = false).");
     } catch (e) { line('note', `Codex hooks: ${e.message}`); }
   }
-  if (hk.opencodePresent()) {
-    try {
-      const os0 = hk.opencodeStatus();
-      if (os0.state === 'ok') line('ok', `OpenCode plugin: ${tilde(os0.file)}, reporting through ${tilde(os0.ravenryd)}.`);
-      else if (os0.state === 'stale') line('note', `OpenCode plugin in ${tilde(os0.file)} is stale: ${os0.why}. Run ravenry setup, or set it up again in the app.`);
-      else if (os0.state === 'foreign') line('note', `${tilde(os0.file)} is not Ravenry's plugin; Ravenry leaves it alone.`);
-      else line('note', "OpenCode plugin: not installed, so the board shows an OpenCode session only from its screen. Run ravenry setup, or set it up in the app.");
-    } catch (e) { line('note', `OpenCode plugin: ${e.message}`); }
-  }
   if (hk.antigravityPresent()) {
     try {
       const as0 = hk.antigravityStatus();
@@ -385,6 +376,15 @@ async function doctor() {
       else if (as0.state === 'foreign') line('note', `${tilde(as0.file)} has a "ravenry" group that is not Ravenry's; Ravenry leaves it alone.`);
       else line('note', 'Antigravity CLI hooks: not installed, so the board shows an Antigravity CLI session only from its screen. Run ravenry setup, or set them up in the app.');
     } catch (e) { line('note', `Antigravity CLI hooks: ${e.message}`); }
+  }
+  if (hk.opencodePresent()) {
+    try {
+      const os0 = hk.opencodeStatus();
+      if (os0.state === 'ok') line('ok', `OpenCode plugin: ${tilde(os0.file)}, reporting through ${tilde(os0.ravenryd)}.`);
+      else if (os0.state === 'stale') line('note', `OpenCode plugin in ${tilde(os0.file)} is stale: ${os0.why}. Run ravenry setup, or set it up again in the app.`);
+      else if (os0.state === 'foreign') line('note', `${tilde(os0.file)} is not Ravenry's plugin; Ravenry leaves it alone.`);
+      else line('note', "OpenCode plugin: not installed, so the board shows an OpenCode session only from its screen. Run ravenry setup, or set it up in the app.");
+    } catch (e) { line('note', `OpenCode plugin: ${e.message}`); }
   }
 
   const home = await dataHome();

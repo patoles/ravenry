@@ -139,7 +139,7 @@ extension SelfTestBoard {
         none["assistants"] = asst.map { var x = $0; x["found"] = false; x["signedIn"] = false; return x }
         hub.testAnswers["/api/setup/start"] = none
         board.openStart(nil)
-        check("start_no_assistant", wait(5) { self.shows(st, "None of Claude Code, Codex or OpenCode is installed here yet") && st.go.title == "Open a shell in notes-app" }, st.go.title)
+        check("start_no_assistant", wait(5) { self.shows(st, "None of Claude Code, Codex, Antigravity CLI or OpenCode is installed here yet") && st.go.title == "Open a shell in notes-app" }, st.go.title)
         let tabs = board.ws.tabs.count
         n = hub.sentBodies.count
         click(st.go)
@@ -159,7 +159,7 @@ extension SelfTestBoard {
         let st = board.start
         guard let raw = ProcessInfo.processInfo.environment["RAVENRY_MAC_ASSISTANTS"], let d = raw.data(using: .utf8),
               let views = (try? JSONSerialization.jsonObject(with: d)) as? [[String: Any]] else { check("third_registry", false, "no RAVENRY_MAC_ASSISTANTS"); return }
-        check("third_registry", views.map { $0["id"] as? String ?? "" } == ["claude", "codex", "opencode"], "\(views.map { $0["id"] ?? "" })")
+        check("third_registry", views.map { $0["id"] as? String ?? "" } == ["claude", "codex", "antigravity", "opencode"], "\(views.map { $0["id"] ?? "" })")
         guard let oc = views.first(where: { $0["id"] as? String == "opencode" }) else { return }
         // New session's answer as the hub sends it: the registry's view with kind, found and signed in
         // (OpenCode has nothing to sign in to).
@@ -184,14 +184,16 @@ extension SelfTestBoard {
               "\(pop.map { p in (0..<p.numberOfItems).map { p.itemTitle(at: $0) } } ?? [])")
         pictures("start-third")
 
-        // The state lists three: the project's switch and Settings draw a segment each.
+        // The state lists four: the project's switch and Settings draw a segment each, OpenCode last.
         Assistants.take(["assistants": ["list": views]])
         board.pickProject("notes-app")
         let pp = board.projectPage
         if let p = hub.state?.project("notes-app") { pp.show(p) }
         let seg = pp.assistantSwitch
-        check("third_project_switch", seg?.segmentCount == 3 && seg?.label(forSegment: 0) == "Claude Code" && seg?.label(forSegment: 1) == "Codex" && seg?.label(forSegment: 2) == "OpenCode",
+        let segIds = seg.map { s in (0..<s.segmentCount).map { i in Assistants.list.first { $0.name == s.label(forSegment: i) || $0.short == s.label(forSegment: i) }?.id ?? "?" } } ?? []
+        check("third_project_switch", segIds == ["claude", "codex", "antigravity", "opencode"],
               "\(seg.map { s in (0..<s.segmentCount).map { s.label(forSegment: $0) ?? "" } } ?? [])")
+        projectSwitchWidths(views)
         let sw = board.settings
         sw.show("handoff")
         _ = wait(8) { sw.ho.cur != nil && sw.ho.assistant != nil }
@@ -202,5 +204,56 @@ extension SelfTestBoard {
         sw.window.orderOut(nil)
         if let r = hub.state?.raw { Assistants.take(r) }
         board.openStart(nil)
+    }
+
+    /// The project's "New sessions" switch with four assistants and with two, in a wide middle and a
+    /// narrow one (under about 490 points): when the four do not fit after the label, "New sessions"
+    /// takes a line of its own and the switch the column's width under it, equal segments by their
+    /// short words, every name whole; two stay on the line by their names, as before.
+    private func projectSwitchWidths(_ views: [[String: Any]]) {
+        let hub = board.hub
+        let pp = board.projectPage
+        // A project with no session, so its page is in front.
+        guard let idle = hub.state?.projects.first(where: { $0.mainSession == nil && $0.machine == nil && $0.raw["unowned"] as? Bool != true }) else { check("pas_idle_project", false, "none"); return }
+        board.pickProject(idle.id)
+        for (n, list) in [(4, views), (2, Array(views.prefix(2)))] {
+            // The state lists these (a hub's state would take the list back between pictures).
+            hub.testPatch = { r in var r = r; var a = r["assistants"] as? [String: Any] ?? [:]; a["list"] = list; r["assistants"] = a; return r }
+            for (tag, w) in [("wide", CGFloat(1280)), ("narrow", CGFloat(900))] {
+                Assistants.take(["assistants": ["list": list]])
+                size(w, 760)
+                // Narrow: the window made smaller until the middle is under 470 points (the panel takes its share).
+                var ww = w
+                while tag == "narrow" && pp.bounds.width >= 470 && ww > 560 { ww -= 40; size(ww, 760) }
+                if let p = hub.state?.project(idle.id) { pp.show(p) }
+                settle(0.4)
+                pp.layoutSubtreeIfNeeded()
+                let name = "pas_\(n)_\(tag)"
+                guard let seg = pp.assistantSwitch, let line = seg.superview else { check(name, false, "no switch"); continue }
+                let labels = (0..<seg.segmentCount).map { seg.label(forSegment: $0) ?? "" }
+                let block = pp.pasBlock == true
+                let middle = pp.bounds.width
+                let want = list.map { ($0[block ? "short" : "name"] as? String) ?? "" }
+                // Whole: the control is as wide as it needs, or wider; inside the page's column.
+                let whole = seg.frame.width + 0.5 >= seg.fittingSize.width
+                let inside = seg.frame.maxX <= line.bounds.width + 0.5
+                let detail = "middle \(Int(middle)) block \(block) labels \(labels) seg \(Int(seg.frame.width)) fits \(Int(seg.fittingSize.width)) line \(Int(line.bounds.width))"
+                if n == 4 && tag == "narrow" {
+                    check(name + "_block", block && middle < 490 && labels == want && seg.segmentDistribution == .fillEqually && abs(seg.frame.width - line.bounds.width) <= 1
+                          && line is NSStackView && (line as? NSStackView)?.orientation == .vertical, detail)
+                } else {
+                    check(name + "_inline", !block && labels == want && (line as? NSStackView)?.orientation == .horizontal, detail)
+                }
+                check(name + "_whole", whole && inside, detail)
+                for dark in [true, false] {
+                    NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                    settle(0.3)
+                    picture("native-project-switch-\(n)-\(tag)-\(dark ? "dark" : "light").png")
+                }
+                NSApp.appearance = NSAppearance(named: .darkAqua)
+            }
+        }
+        hub.testPatch = nil
+        Assistants.take(["assistants": ["list": views]])
     }
 }

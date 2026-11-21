@@ -122,7 +122,7 @@ check('startWith: codex not installed falls back to Claude Code and says so', c.
 c = asst.startChoice({ startWith: 'claude' }, null, { installed: { claude: false, codex: true } });
 check('startWith: Claude Code not installed falls back to Codex and says so', c.kind === 'codex' && c.fallback && /Claude Code is not installed/.test(c.note), JSON.stringify(c));
 c = asst.startChoice({ startWith: 'codex' }, null, { installed: { claude: false, codex: false } });
-check('startWith: neither installed runs the chosen one\'s command and says so', c.kind === 'codex' && !c.fallback && /None of Claude Code, Codex, OpenCode or Antigravity CLI was found/.test(c.note), JSON.stringify(c));
+check('startWith: neither installed runs the chosen one\'s command and says so', c.kind === 'codex' && !c.fallback && /None of Claude Code, Codex, Antigravity CLI or OpenCode was found/.test(c.note), JSON.stringify(c));
 c = asst.startChoice({ startWith: 'bogus' }, null, { installed: both });
 check('startWith: an unknown value is Claude Code', c.kind === 'claude', JSON.stringify(c));
 c = asst.startChoice({ startWith: 'claude' }, 'codex', { installed: both });
@@ -308,7 +308,7 @@ try {
   const pier = JSON.parse(fs.readFileSync(path.join(MC, 'projects.json'), 'utf8')).projects.find((x) => x.id === 'pier');
   check('New project: the form\'s Claude Code wins over startWith and is kept on the project', r.j && r.j.assistant === 'claude' && sentInWorkspace('Pier')[0] === "claude 'Read BRIEF.md and start on the first milestone.'" && pier && pier.assistant === 'claude', `${JSON.stringify(r.j)} ${JSON.stringify(nw)} ${JSON.stringify(sentInWorkspace('Pier'))} ${JSON.stringify(pier)}`);
   r = await b.post('/api/project/new', { name: 'Dock', goal: 'A dock.', assistant: 'gemini' });
-  check('New project: an unknown assistant is refused, nothing written', r.status === 400 && /claude, codex, opencode or antigravity/.test(r.j.error) && !fs.existsSync(P('dock')), JSON.stringify(r));
+  check('New project: an unknown assistant is refused, nothing written', r.status === 400 && /claude, codex, antigravity or opencode/.test(r.j.error) && !fs.existsSync(P('dock')), JSON.stringify(r));
 
   // ---- Plans and Ideas on Codex
   const n0 = bruns().length;
@@ -421,7 +421,7 @@ try {
   const millSt = (await b.state()).projects.find((x) => x.id === 'mill');
   check('project assistant: ...and /api/state\'s switch value says Claude too', millSt.assistant === 'claude' && millSt.assistantWants === 'claude', JSON.stringify({ assistant: millSt.assistant, wants: millSt.assistantWants }));
   const bad = [await b.post('/api/project/assistant', { projectId: 'mill', assistant: 'gemini' }), await b.post('/api/project/assistant', { projectId: 'nope', assistant: 'codex' }), await b.post('/api/project/assistant', { projectId: 'mill' })];
-  check('project assistant: an unknown assistant (400), an unknown project (404) and a missing value (400) are refused, nothing written', bad[0].status === 400 && /claude, codex, opencode or antigravity/.test(bad[0].j.error) && bad[1].status === 404 && bad[2].status === 400 && !('assistant' in millOf()), JSON.stringify(bad.map((x) => [x.status, x.j && x.j.error])));
+  check('project assistant: an unknown assistant (400), an unknown project (404) and a missing value (400) are refused, nothing written', bad[0].status === 400 && /claude, codex, antigravity or opencode/.test(bad[0].j.error) && bad[1].status === 404 && bad[2].status === 400 && !('assistant' in millOf()), JSON.stringify(bad.map((x) => [x.status, x.j && x.j.error])));
 } catch (e) {
   console.error(e);
   fails++;
@@ -482,7 +482,7 @@ async function noStartWithChecks() {
         return await pg.evaluate(() => [...document.querySelectorAll('#d-meta [data-pas]')].map((b) => b.textContent + (b.classList.contains('on') && b.getAttribute('aria-pressed') === 'true' ? '*' : '')).join(','));
       } finally { await browser.close(); }
     };
-    if (chromium) { const btns = await pageBtns('raven'); check('no startWith: the page\'s "New sessions:" switch shows Claude', btns === 'Claude*,Codex,OpenCode,Antigravity', btns); }
+    if (chromium) { const btns = await pageBtns('raven'); check('no startWith: the page\'s "New sessions:" switch shows Claude', btns === 'Claude*,Codex,Antigravity,OpenCode', btns); }
     // A project set to Codex starts Codex.
     st = (await nb.state()).projects.find((x) => x.id === 'owl');
     r = await nb.post('/api/project/revive', { projectId: 'owl' });
@@ -501,7 +501,7 @@ async function noStartWithChecks() {
     check('startWith codex: the switch (/api/state) shows Codex for the same project', st && st.assistant === 'codex' && st.assistantWants === 'codex', JSON.stringify(st && { assistant: st.assistant, wants: st.assistantWants }));
     r = await nb.post('/api/project/revive', { projectId: 'raven' });
     check('startWith codex: Revive starts Codex', r.status === 200 && r.j.assistant === 'codex' && /^codex 'Read BRIEF/.test(nsent(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(nsent(r.j && r.j.surfaceId))}`);
-    if (chromium) { const btns = await pageBtns('raven'); check('startWith codex: the page\'s "New sessions:" switch shows Codex', btns === 'Claude,Codex*,OpenCode,Antigravity', btns); }
+    if (chromium) { const btns = await pageBtns('raven'); check('startWith codex: the page\'s "New sessions:" switch shows Codex', btns === 'Claude,Codex*,Antigravity,OpenCode', btns); }
   } finally {
     nb.board.kill();
   }
@@ -563,6 +563,29 @@ function metaGeometry() {
   };
 }
 
+// The block form of the "New sessions" switch (app.js fitPas): where the
+// label, the switch and the Model menu are, each segment's width and any
+// name cut or past the line's edge.
+function blockGeometry() {
+  const meta = document.querySelector('#d-meta');
+  const mb = meta.getBoundingClientRect();
+  const lab = document.querySelector('#pas-l');
+  const sw = meta.querySelector('.pas-sw .hs-seg').getBoundingClientRect();
+  const sel = meta.querySelector('.pas-pm .pm-sel');
+  const sb = sel ? sel.getBoundingClientRect() : { top: 0, width: 0 };
+  const segs = [...meta.querySelectorAll('.pas-sw .seg')];
+  const r1 = (x) => Math.round(x * 10) / 10;
+  return {
+    blk: meta.classList.contains('pas-blk'),
+    label: lab.innerText.trim(),
+    labelBottom: r1(lab.getBoundingClientRect().bottom), swTop: r1(sw.top), swBottom: r1(sw.bottom), selTop: r1(sb.top),
+    metaW: r1(mb.width), swW: r1(sw.width), selW: r1(sb.width),
+    segW: segs.map((e) => r1(e.getBoundingClientRect().width)),
+    cut: segs.filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent),
+    over: [...meta.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().right > mb.right + 0.5).map((e) => e.className || e.tagName),
+  };
+}
+
 async function metaSwitchChecks(browser, pb, PMC, SH) {
   const boatOf = () => JSON.parse(fs.readFileSync(path.join(PMC, 'projects.json'), 'utf8')).projects.find((x) => x.id === 'boat');
   const read = (pg) => pg.evaluate(() => {
@@ -594,9 +617,20 @@ async function metaSwitchChecks(browser, pb, PMC, SH) {
       const words = g.wordDy.every(([, d]) => Math.abs(d) <= 1) && g.factDy.every((d) => Math.abs(d) <= 1);
       const same = !g.same || g.same.every(([, d]) => Math.abs(d) <= 1);
       if (theme === 'dark') {
-        check(`page ${tag}: the meta line ends on "New sessions:", the switch on Paper Boat's own Codex, and the Model menu`, st.label === 'New sessions:' && st.btns === 'Claude,Codex*,OpenCode,Antigravity' && st.groups === 2 && st.model === 'Model for new sessions', JSON.stringify(st));
-        check(`page ${tag}: the label's and the switch's words sit on the facts' baseline (within 1px)`, words && same, `${JSON.stringify(g.wordDy)} same row as "${g.sameWith}": ${JSON.stringify(g.same)}`);
-        check(`page ${tag}: the switch is centred on its line (within 1px), the label and the switch on one row`, Math.abs(g.centre) <= 1 && Math.abs(g.groupRowH - g.factRowH) <= 0.5 && Math.abs(g.labelTop - g.switchTop) < 6 && g.labelRight < g.switchLeft, `centre ${g.centre}, row ${g.groupRowH} vs ${g.factRowH}`);
+        check(`page ${tag}: the meta line ends on "New sessions:", the switch on Paper Boat's own Codex, and the Model menu`, st.label === 'New sessions:' && st.btns === 'Claude,Codex*,Antigravity,OpenCode' && st.groups === 2 && st.model === 'Model for new sessions', JSON.stringify(st));
+        if (tag === '1440') {
+          check(`page ${tag}: the four fit after the label, so the switch stays on the line`, !(await pg.evaluate(() => document.querySelector('#d-meta').classList.contains('pas-blk'))));
+          check(`page ${tag}: the label's and the switch's words sit on the facts' baseline (within 1px)`, words && same, `${JSON.stringify(g.wordDy)} same row as "${g.sameWith}": ${JSON.stringify(g.same)}`);
+          check(`page ${tag}: the switch is centred on its line (within 1px), the label and the switch on one row`, Math.abs(g.centre) <= 1 && Math.abs(g.groupRowH - g.factRowH) <= 0.5 && Math.abs(g.labelTop - g.switchTop) < 6 && g.labelRight < g.switchLeft, `centre ${g.centre}, row ${g.groupRowH} vs ${g.factRowH}`);
+        } else {
+          // Four do not fit after the label on a phone: "New sessions" on its
+          // own line, the switch the line's width with equal segments and
+          // every name whole, the Model menu the line's width under it.
+          const k = await pg.evaluate(blockGeometry);
+          console.log(`      block at ${tag}: ${JSON.stringify(k)}`);
+          check(`page ${tag}: four do not fit after the label: "New sessions" on its own line, then the switch, then the Model menu`, k.blk && k.label === 'New sessions' && k.labelBottom <= k.swTop && k.swBottom <= k.selTop, JSON.stringify(k));
+          check(`page ${tag}: the switch and the Model menu the line's width, the segments equal, every name whole`, Math.abs(k.swW - k.metaW) <= 1 && Math.abs(k.selW - k.metaW) <= 1 && Math.max(...k.segW) - Math.min(...k.segW) <= 1 && k.cut.length === 0 && k.over.length === 0, JSON.stringify(k));
+        }
         if (tag === '1440') check('page 1440: the meta line keeps its height with the switch', Math.abs(g.metaH - g.metaHWithout) <= 0.5 && g.metaHWithout === g.factRowH, `${g.metaHWithout} without, ${g.metaH} with`);
       }
       if (SH) {
@@ -610,11 +644,11 @@ async function metaSwitchChecks(browser, pb, PMC, SH) {
         await pg.click('#d-meta [data-pas="claude"]');
         const shown = await read(pg);
         for (let i = 0; i < 20 && boatOf().assistant !== 'claude'; i++) await sleep(100);
-        check('page: Claude saves Paper Boat\'s assistant through POST /api/project/assistant, shown at once', boatOf().assistant === 'claude' && shown.btns === 'Claude*,Codex,OpenCode,Antigravity', `${boatOf().assistant} ${shown.btns}`);
+        check('page: Claude saves Paper Boat\'s assistant through POST /api/project/assistant, shown at once', boatOf().assistant === 'claude' && shown.btns === 'Claude*,Codex,Antigravity,OpenCode', `${boatOf().assistant} ${shown.btns}`);
         await sleep(1500);
         const st2 = await pb.state();
         const after = await read(pg);
-        check('page: the board\'s state agrees and the switch stays on Claude', st2.projects.find((x) => x.id === 'boat').assistantWants === 'claude' && after.btns === 'Claude*,Codex,OpenCode,Antigravity', `${JSON.stringify(st2.projects.find((x) => x.id === 'boat').assistantWants)} ${after.btns}`);
+        check('page: the board\'s state agrees and the switch stays on Claude', st2.projects.find((x) => x.id === 'boat').assistantWants === 'claude' && after.btns === 'Claude*,Codex,Antigravity,OpenCode', `${JSON.stringify(st2.projects.find((x) => x.id === 'boat').assistantWants)} ${after.btns}`);
         check('page: the running session keeps its tag', !!tag0 && after.lvTag === tag0, `${tag0} -> ${after.lvTag}`);
         await pg.click('#d-meta [data-pas="codex"]');
         for (let i = 0; i < 20 && boatOf().assistant !== 'codex'; i++) await sleep(100);
@@ -625,7 +659,7 @@ async function metaSwitchChecks(browser, pb, PMC, SH) {
         await pg.click('#d-meta [data-pas="claude"]');
         await pg.waitForSelector('#d-meta .pas-err', { timeout: 3000 }).catch(() => {});
         const failed = await read(pg);
-        check('page: a failed save snaps back to Codex with the error where the switch is', failed.btns === 'Claude,Codex*,OpenCode,Antigravity' && failed.err === 'Not saved: Could not write projects.json (the disk is full).' && boatOf().assistant === 'codex', JSON.stringify(failed));
+        check('page: a failed save snaps back to Codex with the error where the switch is', failed.btns === 'Claude,Codex*,Antigravity,OpenCode' && failed.err === 'Not saved: Could not write projects.json (the disk is full).' && boatOf().assistant === 'codex', JSON.stringify(failed));
         if (SH) {
           const box = await pg.evaluate(() => { const b = document.querySelector('#d-headbox').getBoundingClientRect(); return { x: b.left - 16, y: b.top + window.scrollY - 12, width: b.width + 32, height: b.height + 24 }; });
           await pg.screenshot({ path: path.join(SH, 'meta-switch-1440-dark-error.png'), clip: box });
@@ -635,7 +669,7 @@ async function metaSwitchChecks(browser, pb, PMC, SH) {
         await pg.evaluate(() => { location.hash = '#kite'; });
         await pg.waitForFunction(() => /Kite/.test(document.querySelector('#d-head h1').textContent));
         const kite = await read(pg);
-        check('page: Kite\'s switch shows its own Claude', kite.btns === 'Claude*,Codex,OpenCode,Antigravity' && !kite.err, JSON.stringify(kite));
+        check('page: Kite\'s switch shows its own Claude', kite.btns === 'Claude*,Codex,Antigravity,OpenCode' && !kite.err, JSON.stringify(kite));
       }
       await ctx.close();
     }
@@ -699,14 +733,14 @@ async function pageChecks() {
         });
         if (first) {
           check('page: the Settings card opens on its Assistant section, before Hand-off', card.first.startsWith('Assistant') && card.secs[0] === 'Assistant' && card.secs[1] === 'Hand-off', JSON.stringify(card));
-          check('page: "Start new sessions with" and a two-way switch, Claude (on, the default) and Codex', card.label === 'Start new sessions with' && card.btns.join(',') === 'Claude*,Codex,OpenCode,Antigravity', JSON.stringify(card.btns));
+          check('page: "Start new sessions with" and a two-way switch, Claude (on, the default) and Codex', card.label === 'Start new sessions with' && card.btns.join(',') === 'Claude*,Codex,Antigravity,OpenCode', JSON.stringify(card.btns));
         }
         if (SH) await pg.screenshot({ path: path.join(SH, `settings-${tag}-${theme}.png`) });
         if (first) {
           await pg.click('#hs-pop [data-as="codex"]');
           await pg.waitForFunction(() => /New sessions start with Codex/.test(document.querySelector('#hs-foot').textContent));
           const after = await pg.evaluate(() => [...document.querySelectorAll('#hs-pop [data-as]')].map((b) => b.textContent + (b.classList.contains('on') ? '*' : '')).join(','));
-          check('page: Codex saves startWith codex at once and says so', regStart() === 'codex' && after === 'Claude,Codex*,OpenCode,Antigravity', `${regStart()} ${after}`);
+          check('page: Codex saves startWith codex at once and says so', regStart() === 'codex' && after === 'Claude,Codex*,Antigravity,OpenCode', `${regStart()} ${after}`);
           const ctxw = await pg.evaluate(() => [...document.querySelectorAll('#hs-pop [data-hs="w200"], #hs-pop [data-hs="w1m"]')].some((b) => b.classList.contains('on')));
           check('page: the context window switch still shows its value', ctxw);
           await pg.click('#hs-pop [data-as="claude"]');
@@ -725,11 +759,11 @@ async function pageChecks() {
         await pg.fill('input[name="name"]', 'Garden planner');
         const np = await pg.evaluate(() => ({ prev: document.querySelector('#m-asst-row').previousElementSibling.id, btns: [...document.querySelectorAll('#m-asst-row [data-asst]')].map((b) => b.textContent + (b.classList.contains('on') ? '*' : '')).join(','), hint: document.querySelector('#m-asst-row .as-hint').textContent, foot: document.querySelector('#m-foot').textContent }));
         if (first) {
-          check('page: New project has an Assistant row right under Folder, defaulting from Settings (Codex)', np.prev === 'm-folder-row' && np.btns === 'Claude,Codex*,OpenCode,Antigravity' && /From Settings \(Start new sessions with\)/.test(np.hint) && /with Codex reading it/.test(np.foot), JSON.stringify(np));
+          check('page: New project has an Assistant row right under Folder, defaulting from Settings (Codex)', np.prev === 'm-folder-row' && np.btns === 'Claude,Codex*,Antigravity,OpenCode' && /From Settings \(Start new sessions with\)/.test(np.hint) && /with Codex reading it/.test(np.foot), JSON.stringify(np));
           await pg.click('#m-asst-row [data-asst="claude"]');
           const foot2 = await pg.textContent('#m-foot');
           check('page: picking Claude for this project changes the foot to Claude', /with Claude reading it/.test(foot2), foot2);
-        } else if (tag === 'desktop') check('page: with Settings on Claude the row defaults to Claude', np.btns === 'Claude*,Codex,OpenCode,Antigravity', np.btns);
+        } else if (tag === 'desktop') check('page: with Settings on Claude the row defaults to Claude', np.btns === 'Claude*,Codex,Antigravity,OpenCode', np.btns);
         if (SH) {
           await pg.evaluate(() => { const r = document.querySelector('#m-folder-row'); r.scrollIntoView({ block: 'start' }); const m = document.querySelector('.modal-back'); if (m) m.scrollTop = Math.max(0, m.scrollTop - 90); });
           await pg.screenshot({ path: path.join(SH, `newproject-${tag}-${theme}.png`) });

@@ -60,7 +60,7 @@ const homeDir = (n) => { const h = path.join(T, n); fs.mkdirSync(h, { recursive:
   const f = fl.findProjectFolders(home);
   check('folders that look like projects, from ~/code, said with ~', f.root === path.join(home, 'code') && f.folders.map((x) => x.name).sort().join() === 'app,site' && f.folders[0].short.startsWith('~/code/'), JSON.stringify(f));
   const none = fl.findAssistants({ PATH: '' }, home);
-  check('no assistant: all four listed, none found', JSON.stringify(none.map((a) => [a.kind, a.found])) === '[["claude",false],["codex",false],["opencode",false],["antigravity",false]]');
+  check('no assistant: all four listed, none found', JSON.stringify(none.map((a) => [a.kind, a.found])) === '[["claude",false],["codex",false],["antigravity",false],["opencode",false]]');
   const bin = path.join(home, '.local', 'bin');
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'claude'), '#!/bin/sh\n', { mode: 0o755 });
@@ -199,7 +199,7 @@ try {
   check('GET /api/setup/start?folder=: that folder first', w.j.folders[0].path === path.join(bhome, 'other'), JSON.stringify(w.j.folders));
   check('GET /api/setup/start: no folder busy with no session working (sidebar.busyIn, sidebar-test.mjs)', s.j.folders.every((f) => !('busy' in f)), JSON.stringify(s.j.folders));
   const g = await get('/api/setup/skills');
-  check('GET /api/setup/skills: the four assistants, said with ~, none installed', g.status === 200 && g.j.skills.length === 4 && g.j.skills[2].dir === '~/.config/opencode/skills/ravenry' && g.j.skills[3].dir === '~/.gemini/antigravity-cli/skills/ravenry' && g.j.skills[0].dir === '~/.claude/skills/ravenry' && g.j.skills[0].name === 'Claude Code' && g.j.skills[0].found && !g.j.skills[0].installed && !g.j.skills[1].found, JSON.stringify(g.j));
+  check('GET /api/setup/skills: the four assistants, said with ~, none installed', g.status === 200 && g.j.skills.length === 4 && g.j.skills[2].dir === '~/.gemini/antigravity-cli/skills/ravenry' && g.j.skills[3].dir === '~/.config/opencode/skills/ravenry' && g.j.skills[0].dir === '~/.claude/skills/ravenry' && g.j.skills[0].name === 'Claude Code' && g.j.skills[0].found && !g.j.skills[0].installed && !g.j.skills[1].found, JSON.stringify(g.j));
   const gh = await get(`/api/setup/skills?ravenryd=${encodeURIComponent(ravenryd)}`);
   check('GET /api/setup/skills?ravenryd=: each row says its hooks (off before set up, unavailable with no file to write), as Settings, Skills shows them', gh.status === 200 && gh.j.skills.length === 4 && ['on', 'off', 'unavailable'].includes(gh.j.skills[0].hooks) && gh.j.skills.every((r) => (r.hooks === 'unavailable') === (r.hooksFile === null)), JSON.stringify(gh.j.skills.map((r) => [r.kind, r.hooks, r.hooksFile])));
   const i = await post('/api/setup/skills', { kind: 'claude', on: true, ravenryd, version: '0.1.23' });

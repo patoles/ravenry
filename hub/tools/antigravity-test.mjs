@@ -76,7 +76,7 @@ const SCREEN = {
 };
 {
   const a = reg.get('antigravity');
-  check('registered: Antigravity CLI, fourth, with its own words', reg.IDS.join() === 'claude,codex,opencode,antigravity' && a && a.name === 'Antigravity CLI' && a.short === 'Antigravity' && a.bin === 'agy' && a.hooks === 'antigravity' && a.caps.resume && a.caps.model && a.caps.handoff && a.caps.permission && !a.caps.print && a.limits.length >= 3, reg.IDS.join());
+  check('registered: Antigravity CLI, third, with its own words', reg.IDS.join() === 'claude,codex,antigravity,opencode' && a && a.name === 'Antigravity CLI' && a.short === 'Antigravity' && a.bin === 'agy' && a.hooks === 'antigravity' && a.caps.resume && a.caps.model && a.caps.handoff && a.caps.permission && !a.caps.print && a.limits.length >= 3, reg.IDS.join());
   check('its first message goes after -i, a dash one as -i=', JSON.stringify(reg.promptArgs('antigravity', 'Read BRIEF.md')) === '["-i","Read BRIEF.md"]' && JSON.stringify(reg.promptArgs('antigravity', '-x')) === '["-i=-x"]');
   check('resume and model words; its ids are UUIDs', JSON.stringify(reg.words('antigravity', 'resume', 'u')) === '["--conversation","u"]' && JSON.stringify(reg.words('antigravity', 'model', 'gemini-3.8-flash-low')) === '["--model","gemini-3.8-flash-low"]' && reg.sessionIdOf('0F0F0F0F-0000-4000-8000-0000000000A2', 'antigravity') === '0f0f0f0f-0000-4000-8000-0000000000a2');
   check('its Stop carries on with "continue"; the others keep "block"', JSON.stringify(reg.stopReply('antigravity', { decision: 'block', reason: 'r' })) === '{"decision":"continue","reason":"r"}' && reg.stopReply('claude', { decision: 'block', reason: 'r' }).decision === 'block' && reg.stopReply('opencode', { decision: 'block' }).decision === 'block');
@@ -232,7 +232,7 @@ const capture = (id, history = 0) => pane(['capture', id, ...(history ? ['--hist
 const first = await until(async () => { const r = await get('/api/state'); return r.body && r.body.generatedAt ? r.body : null; }, 20000);
 check('the board answers', !!first, boardLog.slice(-800));
 if (!first) process.exit(1);
-check('state lists Antigravity CLI fourth', (first.assistants.list || []).map((a) => a.id).join() === 'claude,codex,opencode,antigravity' && first.assistants.list[3].limits.length >= 3);
+check('state lists Antigravity CLI third', (first.assistants.list || []).map((a) => a.id).join() === 'claude,codex,antigravity,opencode' && first.assistants.list[2].limits.length >= 3);
 
 // Set up: Ravenry's group in its hooks file, and the doctor's row.
 const su = await post('/api/setup/hooks', { ravenryd: BIN, only: 'antigravity' });

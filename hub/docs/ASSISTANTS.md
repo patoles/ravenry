@@ -1,7 +1,7 @@
 # Assistants
 
 The board follows the AI coding assistants its registry lists (below):
-Claude Code, OpenAI Codex, OpenCode and Antigravity CLI. Everything particular to one assistant goes
+Claude Code, OpenAI Codex, Antigravity CLI and OpenCode. Everything particular to one assistant goes
 through one interface,
 `server/assistant.mjs`, the way every terminal call goes through
 `server/terminal.mjs` (docs/TERMINALS.md); nothing else imports an

@@ -172,9 +172,13 @@ const ENV = typeof process !== 'undefined' && process.env ? process.env : {};
 /** Is the test assistant asked for, in a test's process? */
 export const testAssistantOn = (env = ENV) => env.TEST_RAVENRY === '1' && env.TEST_RAVENRY_ASSISTANT === 'fake';
 
-/** Every registered assistant, in the order clients list them: Claude Code first. */
+/**
+ * Every registered assistant, in the order every client lists them (New
+ * session's cards, Settings, the doctor's rows, a project's "New sessions"
+ * switch): Claude Code, Codex, Antigravity CLI, OpenCode last.
+ */
 export function list(env = ENV) {
-  return testAssistantOn(env) ? [CLAUDE, CODEX, OPENCODE, ANTIGRAVITY, FAKE] : [CLAUDE, CODEX, OPENCODE, ANTIGRAVITY];
+  return testAssistantOn(env) ? [CLAUDE, CODEX, ANTIGRAVITY, OPENCODE, FAKE] : [CLAUDE, CODEX, ANTIGRAVITY, OPENCODE];
 }
 
 // Read once for the process: the env a hub starts with decides.
