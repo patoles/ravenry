@@ -258,7 +258,9 @@ try {
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto(`${BASE}/#itproj`);
-    await page.waitForSelector('#d-strip [data-act="open"]', { timeout: 15000 });
+    // The page is drawn once the iTerm2 session's row is: the project opens
+    // on its latest session, the one whose tab is gone, which has no Open.
+    await page.waitForSelector(`[data-act="session"][data-surface="iterm:${C}"]`, { timeout: 15000 });
     await page.click(`[data-act="session"][data-surface="iterm:${C}"]`);
     await page.waitForFunction(() => /Open in iTerm2/.test(document.querySelector('#d-strip [data-act="open"]').textContent), null, { timeout: 5000 }).catch(() => {});
     const btn = await page.textContent('#d-strip [data-act="open"]');

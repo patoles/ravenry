@@ -54,6 +54,15 @@ if (!process.env.RAVENRY_HOME && !process.env.MC_HOME) {
 
 export const GUARD_HOME = process.env.RAVENRY_HOME || process.env.MC_HOME;
 
+// The terminal the test was started from is never the one it tests: a
+// server module the test imports reads its terminal from this process's
+// environment (server/terminal.mjs takes TERM_PROGRAM=ravenry and
+// RAVENRY_PANE for a board in a Ravenry pane). On 2026-11-21, run from a
+// Ravenry pane, iterm-test found cmux not drivable in its own process.
+// withTestHome already leaves them out of a child's environment; this
+// leaves them out of the test's own.
+for (const k of paneVarsIn(process.env)) delete process.env[k];
+
 guardSpawns();
 
 // A scratch HOME for what the test starts: .tmp/<test>/home.

@@ -117,7 +117,10 @@ check('a session tab with a cmux surface id: --workspace and --surface both name
 const G = (n_, q) => ({ plan: { title: 'Long notes', started: '2026-11-03 09:00' }, planGate: { n: n_, question: q, short: q.toLowerCase(), choices: ['Go ahead', 'Not yet'] } });
 obs([proj('g', 'work', sess('sg', 'working'))], 40);
 out = obs([proj('g', 'you', sess('sg', 'idle'), { gate: G(2, 'Show me a picture?') })], 41);
-check('gate: "Plan gate: <short question>"', out.desktop.length === 1 && out.desktop[0].body === 'Plan gate: show me a picture?', JSON.stringify(out.desktop));
+// The trigger's record keeps the words in clear ("Plan gate", since the
+// alerts in clear carry no agent words); the Mac's own notification says the
+// short question (localKindText), checked on what reached it below.
+check('gate: one notification for the gate', out.desktop.length === 1 && out.desktop[0].kind === 'gate' && out.desktop[0].body === 'Plan gate', JSON.stringify(out.desktop));
 obs([proj('g', 'work', sess('sg', 'working'))], 41.5);
 out = obs([proj('g', 'you', sess('sg', 'idle'), { gate: G(4, 'Install it?') })], 42);
 check('gate: a second gate a minute later is notified too (no cooldown for gates)', out.desktop.length === 1);
@@ -126,7 +129,7 @@ out = obs([proj('g', 'you', sess('sg', 'idle'), { gate: G(4, 'Install it?') })],
 check('gate: the same gate again is not notified twice', out.desktop.length === 0);
 await settle(6, 0);
 const gn = notes().filter((x) => /^Plan gate: /.test(x.body));
-check('gate: two notify calls, one per gate, the gate\'s short question and nothing else', gn.length === 2 && gn.every((x) => x.title === 'G needs you' && !x.body.includes(SECRET)), JSON.stringify(gn.map((x) => x.body)));
+check('gate: two notify calls, one per gate, the gate\'s short question and nothing else', gn.length === 2 && gn.every((x) => x.title === 'G needs you' && !x.body.includes(SECRET)) && gn.map((x) => x.body).sort().join('|') === 'Plan gate: install it?|Plan gate: show me a picture?', JSON.stringify(gn.map((x) => x.body)));
 
 // Fallbacks.
 obs([proj('h', 'work', sess('sh', 'working', { wsId: null }), { noWs: true })], 70);

@@ -100,6 +100,9 @@ const OTHER = 'AAAAAAAA-1111-4222-8333-444444444444';
 setFake({ running: true, profiles: [tool.pageName(TOOL_PORT)], sessions: [{ uuid: OTHER, windowId: '7', tab: 1, title: '✳ Someone else' }], screens: {} });
 const cmd = tool.startCommand();
 check('tab: the start command goes to this repo with PORT and the RAVENRY_/MC_ variables, quoted, test hooks left out', cmd === `cd '${ROOT}' && PORT='${TOOL_PORT}' RAVENRY_HOME='${path.join(T, 'scratch home')}' RAVENRY_ITERM_PYTHON='${FAKE_BIN}' npm start`, cmd);
+// Run from a Ravenry pane: the pane's own variables stay behind.
+const fromPane = tool.startCommand({ ...process.env, RAVENRY_PANE: 'pabcdefg', RAVENRY_SOCKET: '/tmp/ravenryd-0.1.74.sock' });
+check('tab: run from a Ravenry pane, the start command leaves RAVENRY_PANE and RAVENRY_SOCKET out', fromPane === cmd, fromPane);
 check('tab: the page profile is named for the port', tool.pageName(4600) === 'Ravenry board' && tool.pageName(4602) === 'Ravenry board :4602');
 let out = [];
 const say = (s) => out.push(s);
@@ -277,7 +280,10 @@ try {
 
   const calls = fs.existsSync(TRIP_LOG) ? fs.readFileSync(TRIP_LOG, 'utf8').trim() : '';
   check('board: cmux was never run, not once', calls === '', calls.split('\n').slice(0, 3).join(' | '));
-  check('board: no cmux error in its output', !/cmux/i.test(log), log.split('\n').filter((l) => /cmux/i.test(l)).slice(0, 2).join(' | '));
+  // The start's timing lines name every phase of a tick, "cmux workspaces"
+  // too (0 ms in iTerm2 mode, server/startlog.mjs): a name, not an error.
+  const cmuxLines = log.split('\n').filter((l) => /cmux/i.test(l) && !/^tick \d+ phases \(ms\): /.test(l));
+  check('board: no cmux error in its output', cmuxLines.length === 0, cmuxLines.slice(0, 2).join(' | '));
 } finally {
   if (browser) await browser.close();
   srv.kill();
