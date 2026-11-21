@@ -430,10 +430,12 @@ function uninstall(purge: boolean): object {
   const left: string[] = [];
   const mcHome = process.env.RAVENRY_HOME || process.env.MC_HOME || path.join(os.homedir(), '.ravenry');
   const tilde = (p: string) => sayPath(p, os.homedir());
-  // The hooks, Claude Code's and Codex's: put back as they were, else only ours out (backed up).
+  // The hooks, Claude Code's and Codex's: put back as they were, else only ours out (backed up);
+  // OpenCode's plugin file, when it is Ravenry's.
   try {
-    const r = setupWithRavenryd({ remove: true, undoFile: path.join(mcHome, 'setup-undo.json') }) as { ok: boolean; error?: string; claude?: { file: string; changes: string[]; restored?: boolean; backup?: string | null } | null; codex?: { file: string; changes: string[]; restored?: boolean; backups?: string[] } | null };
+    const r = setupWithRavenryd({ remove: true, undoFile: path.join(mcHome, 'setup-undo.json') }) as { ok: boolean; error?: string; claude?: { file: string; changes: string[]; restored?: boolean; backup?: string | null } | null; codex?: { file: string; changes: string[]; restored?: boolean; backups?: string[] } | null; opencode?: { file: string; changes: string[]; backups?: string[] } | null };
     if (!r.ok) left.push(`the hooks: ${r.error}`);
+    if (r.opencode && r.opencode.changes.length) did.push(`OpenCode's plugin: ${tilde(r.opencode.file)} taken out`);
     for (const [name, x] of [['Claude Code', r.claude], ['Codex', r.codex]] as const) {
       if (!x) continue;
       if (x.restored) did.push(`${name}'s hooks: ${tilde(x.file)} put back as it was before Ravenry`);

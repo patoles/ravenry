@@ -124,5 +124,5 @@ test('Move to Ravenry and Keep it there send the session and which copy stays', 
 
 test('the + menu\'s and the page\'s own words are in the shared strings', () => {
   for (const k of ['pstart.plus', 'pstart.menuSession', 'pstart.menuSessionSub', 'pstart.menuProject', 'pstart.menuProjectSub', 'pstart.button', 'pstart.loading', 'pstart.noProject', 'psess.moving', 'psess.minAgo', 'psess.justNow', 'psess.todayAt', 'psess.yesterdayAt', 'psess.dayAt', 'psess.onDate']) assert.ok(E[k], k);
-  assert.equal(S('pstart.menuSessionSub'), 'Claude Code or Codex, in a project');
+  assert.equal(S('pstart.menuSessionSub'), 'Claude Code, Codex or OpenCode, in a project');
 });
