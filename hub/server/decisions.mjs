@@ -47,6 +47,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { RAVENRY_HOME, assertDataWrite } from './home.mjs';
+import { t } from './strings.mjs';
 
 export const FILE = path.join(RAVENRY_HOME, 'decisions.json');
 export const MAX_QUOTE = 4000;
@@ -263,7 +264,20 @@ function whenSaid(iso, now) {
 export function view(d, { now = new Date() } = {}) {
   const r = d.reads || {};
   const until = Date.parse(d.at) + UNDO_MS;
-  return { ...d, reads_today: r[today(now)] || 0, reads_total: Object.values(r).reduce((a, b) => a + b, 0), ...(until > now.getTime() ? { undo_until: new Date(until).toISOString() } : {}) };
+  return { ...d, words: toastWords(d), reads_today: r[today(now)] || 0, reads_total: Object.values(r).reduce((a, b) => a + b, 0), ...(until > now.getTime() ? { undo_until: new Date(until).toISOString() } : {}) };
+}
+
+// What the person is told when an agent saves one, the same in every
+// client: "Saved your decision: the sails.", "Decision replaced: the hull
+// tilt.", or the quote's start when it has no scope. The words say "the
+// {scope}", and an agent's scope often starts with its own "the" (the
+// guide's "the menus"), so that one is dropped.
+export function toastWords(d) {
+  const scope = d.scope ? d.scope.replace(/^the\s+/i, '') : '';
+  const q = String(d.quote || '');
+  const quote = q.length > 48 ? `${q.slice(0, 47).replace(/\s+\S*$/, '')}...` : q;
+  if ((d.overrides || []).length) return scope ? t('dec.replacedScope', { scope }) : t('dec.replacedToast');
+  return scope ? t('dec.savedScope', { scope }) : t('dec.savedQuote', { quote });
 }
 
 // What the Decisions page shows (GET /api/decisions?page=1), worked out

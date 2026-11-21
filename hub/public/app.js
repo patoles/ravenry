@@ -478,12 +478,12 @@ function showKept() {
   t.classList.add('wide');
   t.hidden = false;
 }
-// "Decision replaced: the hull tilt." or "Saved your decision: ...", with
-// Undo until its minute is over (POST /api/decisions/undo, the person's).
+// "Decision replaced: the hull tilt." or "Saved your decision: ...", the
+// hub's words (`words`, server/decisions.mjs toastWords()), with Undo until
+// its minute is over (POST /api/decisions/undo, the person's).
 function decisionToast(d, undoUntil) {
   const t = $('#toast');
-  const what = d.scope ? `: the ${d.scope}.` : `: "${String(d.quote || '').slice(0, 60)}${String(d.quote || '').length > 60 ? '...' : ''}"`;
-  t.textContent = undash(`${(d.overrides || []).length ? 'Decision replaced' : 'Saved your decision'}${what}`);
+  t.textContent = undash(d.words || '');
   const left = undoUntil ? Date.parse(undoUntil) - Date.now() : 0;
   if (left > 0) {
     const u = document.createElement('button');

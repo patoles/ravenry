@@ -26,6 +26,8 @@ export interface Decision {
   reads_total?: number;
   last_read_at?: string | null;
   undo_until?: string | null;
+  /** What the toast says when an agent saved it (the hub's toastWords()). */
+  words?: string;
 }
 
 export interface DecisionsHost {
@@ -83,11 +85,13 @@ export class Decisions {
     if (changed) { if (this.host.onScreen()) this.render(); this.host.rerender(); }
   }
 
-  /** An agent saved one: said at once, with Undo for its minute. */
+  /** An agent saved one: said at once, in the hub's words, with Undo for its minute. */
   private saved(d: Decision): void {
     const replaced = (d.overrides || []).length > 0;
-    const what = d.scope ? `: the ${d.scope}.` : '.';
-    const text = replaced ? `Decision replaced${what}` : `Saved your decision${what === '.' ? `: "${short(d.quote, 48)}"` : what}`;
+    // An older hub sends no words: the same ones, a scope's own "the" dropped ("the the sails").
+    const scope = d.scope ? d.scope.replace(/^the\s+/i, '') : '';
+    const what = scope ? `: the ${scope}.` : '.';
+    const text = d.words || (replaced ? `Decision replaced${what}` : `Saved your decision${what === '.' ? `: "${short(d.quote, 48)}"` : what}`);
     const links = [] as { label: string; run: () => void }[];
     if (d.undo_until && Date.parse(d.undo_until) > this.host.now()) links.push({ label: 'Undo', run: () => void this.undo(d) });
     links.push({ label: 'Show', run: () => { this.lit = d.id; this.filter = 'now'; this.host.show(); } });

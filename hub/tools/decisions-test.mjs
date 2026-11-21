@@ -11,7 +11,8 @@
 //   - on a real board (no ravenryd here: every person row is the
 //     person's), POST /api/decisions/record counts at once, from outside
 //     every pane as by "client", refuses a body that names who recorded it,
-//     and tells the board's stream "saved" with its undo time; the person's
+//     and tells the board's stream "saved" with its undo time and the
+//     toast's words (a scope's own "the" said once); the person's
 //     add, edit, undo and remove; GET /api/decisions counts a read only
 //     with agent=1.
 // From inside a real pane, /record is marked with that pane and the person
@@ -103,6 +104,10 @@ D.countReads([e1.entry.id], { file: F, now: new Date('2026-12-20T10:00:00.000Z')
 check('reads older than 30 days are dropped', Object.keys(D.load(F).find((x) => x.id === e1.entry.id).reads).join() === '2026-12-20');
 const fresh = D.view({ ...e1.entry, at: new Date().toISOString() });
 check('undo_until while the minute lasts', !!fresh.undo_until && !D.view(e1.entry, { now: new Date(Date.parse(e1.entry.at) + 70000) }).undo_until);
+// The toast's words, made here for every client: a scope's own "the" said once (bf7c2cb).
+const tw = (x) => D.view({ id: 'dwwwwwww', at: new Date().toISOString(), project: null, overrides: [], by: 'agent', ...x }).words;
+check('the toast\'s words: a scope with its own "the" says it once', tw({ quote: 'x', scope: 'the sails' }) === 'Saved your decision: the sails.' && tw({ quote: 'x', scope: 'The hull' }) === 'Saved your decision: the hull.' && tw({ quote: 'x', scope: 'theme colours' }) === 'Saved your decision: the theme colours.', JSON.stringify([tw({ quote: 'x', scope: 'the sails' }), tw({ quote: 'x', scope: 'theme colours' })]));
+check('the toast\'s words: replaced, and the quote\'s start without a scope', tw({ quote: 'x', scope: 'the hull tilt', overrides: ['daaaaaaa'] }) === 'Decision replaced: the hull tilt.' && tw({ quote: 'y', overrides: ['daaaaaaa'] }) === 'Decision replaced.' && tw({ quote: 'Use the phone width for every test shot, 390 px wide.' }) === 'Saved your decision: "Use the phone width for every test shot, 390..."', tw({ quote: 'Use the phone width for every test shot, 390 px wide.' }));
 const { decisionMessage } = await import('../server/push.mjs');
 const dm = decisionMessage(D.load(F).find((x) => x.id === e1.entry.id), { project: { id: 'proj', name: 'Proj' } });
 check('the phone\'s alert: "Saved your decision", the quote, Undo', dm.id === `dec:${e1.entry.id}` && dm.kind === 'decision' && dm.title === 'Saved your decision' && dm.body.endsWith('390 px.') && dm.actions.length === 1 && dm.actions[0].id === 'undo' && !!dm.decision.undo_until, JSON.stringify(dm));
@@ -191,7 +196,7 @@ check('/record refuses a body that names who recorded it', forged.status === 400
 const rec = await post('/api/decisions/record', { quote: 'The menu opens on the left.', project: 'proj', replaces: add1.body.decision.id });
 check('/record counts at once; from outside every pane it is by "client", with no pane', rec.status === 200 && rec.body.decision.by === 'client' && !rec.body.decision.recorded_by && rec.body.decision.overrides[0] === add1.body.decision.id && !!rec.body.decision.undo_until && (await get('/api/decisions?project=proj')).body.decisions.map((x) => x.id).join() === rec.body.decision.id, rec.text);
 const said = await until(async () => events.join('').includes(rec.body.decision.id) && events.join(''));
-check('the board\'s stream says it was saved, with the undo time', !!said && /event: decision\ndata: \{"type":"saved"/.test(said) && said.includes('"undo_until"'), (said || '').slice(-400));
+check('the board\'s stream says it was saved, with the undo time and the toast\'s words', !!said && /event: decision\ndata: \{"type":"saved"/.test(said) && said.includes('"undo_until"') && said.includes('"words":"Decision replaced."'), (said || '').slice(-400));
 const noCount = await get('/api/decisions?project=proj');
 const counted = await get('/api/decisions?project=proj&agent=1');
 const pg = await get('/api/decisions?page=1&show=all');
