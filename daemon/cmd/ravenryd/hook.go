@@ -175,7 +175,10 @@ func hookGiveUp(err error) error {
 }
 
 // hookSpecFor is what each event of Claude Code and Codex means. Events
-// not listed are recorded without changing the state.
+// not listed are recorded without changing the state. Every other
+// assistant (the hub's registry, hub/server/assistants.mjs, `hooks:
+// 'state'`) says its state in its hook command with --state and --need,
+// and needs no table here.
 func hookSpecFor(assistant, event string, in map[string]any) hookSpec {
 	str := func(k string) string { s, _ := in[k].(string); return s }
 	switch assistant {

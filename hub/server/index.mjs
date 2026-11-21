@@ -4441,7 +4441,19 @@ async function handleRequest(req, res) {
     }
     if (req.method === 'GET' && p === '/api/checkpoints') return sendJson(res, 200, { ok: true, checkpoints: checkpointsView(snapshot.projects || []).concat(url.searchParams.has('all') ? checkpoints.list({ all: true }).filter((c) => !['open', 'running'].includes(c.state)).map(({ daemon: _d, ...c }) => cpWords(c)) : []) });
     // `on`: the same answer the skills rows give (hookinstall.hooksOn).
-    if (req.method === 'GET' && p === '/api/setup/hooks') return sendJson(res, 200, { ok: true, claude: safe(() => ({ ...hookinstall.status(hookinstall.readSettings().json), on: hookinstall.hooksOn('claude').on })), codex: hookinstall.codexInstalled() ? safe(() => ({ ...hookinstall.codexStatus(), on: hookinstall.hooksOn('codex').on })) : null });
+    if (req.method === 'GET' && p === '/api/setup/hooks') {
+      const claude = safe(() => ({ ...hookinstall.status(hookinstall.readSettings().json), on: hookinstall.hooksOn('claude').on }));
+      const codex = hookinstall.codexInstalled() ? safe(() => ({ ...hookinstall.codexStatus(), on: hookinstall.hooksOn('codex').on })) : null;
+      // rows: one per registered assistant whose hooks Ravenry installs (the
+      // registry's `hooks`, server/assistants.mjs), in order, for `ravenry
+      // doctor` and any client to list: { kind, name, state, on, file, daemon }.
+      const rows = asst.KINDS.filter((k) => hookinstall.installerOf(k) && (k !== 'codex' || codex)).map((k) => {
+        const st = k === 'claude' ? claude : k === 'codex' ? codex : null;
+        const on = safe(() => hookinstall.hooksOn(k));
+        return { kind: k, name: asst.nameOf(k), state: (st && st.state) || (on && on.state) || null, on: !!(on && on.on), file: (on && on.file) || null, daemon: (st && st.ravenryd && st.ravenryd.state) || (on && on.daemon) || null };
+      });
+      return sendJson(res, 200, { ok: true, claude, codex, rows });
+    }
     if (req.method === 'GET' && p === '/api/live') {
       const r = await liveScreen(url.searchParams.get('surface') || '', url.searchParams.get('v'));
       return sendJson(res, r.status, r.body);

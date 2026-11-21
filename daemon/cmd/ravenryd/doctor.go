@@ -93,6 +93,46 @@ func serviceLabel() string {
 	return "dev.ravenry.hub"
 }
 
+// hookRow is one assistant's hooks as the board says them (GET
+// /api/setup/hooks `rows`, one per assistant of its registry whose hooks
+// Ravenry installs).
+type hookRow struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	State  string `json:"state"`
+	On     bool   `json:"on"`
+	File   string `json:"file"`
+	Daemon string `json:"daemon"`
+}
+
+// hookLines is the doctor's line for each assistant's hooks, in the
+// board's order.
+func hookLines(rows []hookRow) []doctorLine {
+	var out []doctorLine
+	add := func(kind, f string, a ...any) { out = append(out, doctorLine{kind, fmt.Sprintf(f, a...)}) }
+	for _, r := range rows {
+		if r.Kind == "claude" {
+			// Claude Code's also count the daemon's hook beside its own.
+			if r.On && (r.Daemon == "" || r.Daemon == "ok") {
+				add("ok", "Claude Code's hooks are set up")
+			} else {
+				state := r.State
+				if state == "ok" && r.Daemon != "" {
+					state = r.Daemon
+				}
+				add("fix", "Claude Code's hooks are %s (~/.claude/settings.json): Ravenry's Settings, Skills, Set up puts them right.", state)
+			}
+			continue
+		}
+		if r.On {
+			add("ok", "%s's hooks are set up", r.Name)
+		} else {
+			add("fix", "%s's hooks are %s (%s): Ravenry's Settings, Skills, Set up puts them right.", r.Name, r.State, tildePath(r.File))
+		}
+	}
+	return out
+}
+
 func getJSON(url string, v any) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
@@ -201,6 +241,9 @@ func doctorLines() []doctorLine {
 		add("note", "The hooks and the skill are read from the board: run ravenry doctor again once it answers.")
 		return out
 	}
+	// Each assistant's hooks, one row per assistant the board's registry
+	// lists with hooks Ravenry installs (`rows`, in its order); a board
+	// from before the registry sends only `claude` and `codex`.
 	var hooks struct {
 		Claude *struct {
 			State    string `json:"state"`
@@ -214,30 +257,23 @@ func doctorLines() []doctorLine {
 			On    bool   `json:"on"`
 			File  string `json:"file"`
 		} `json:"codex"`
+		Rows []hookRow `json:"rows"`
 	}
 	getJSON(url+"/api/setup/hooks", &hooks)
-	if c := hooks.Claude; c != nil {
-		rd := ""
-		if c.Ravenryd != nil {
-			rd = c.Ravenryd.State
-		}
-		if c.On && (rd == "" || rd == "ok") {
-			add("ok", "Claude Code's hooks are set up")
-		} else {
-			state := c.State
-			if state == "ok" && rd != "" {
-				state = rd
+	rows := hooks.Rows
+	if rows == nil {
+		if c := hooks.Claude; c != nil {
+			rd := ""
+			if c.Ravenryd != nil {
+				rd = c.Ravenryd.State
 			}
-			add("fix", "Claude Code's hooks are %s (~/.claude/settings.json): Ravenry's Settings, Skills, Set up puts them right.", state)
+			rows = append(rows, hookRow{Kind: "claude", Name: "Claude Code", State: c.State, On: c.On, Daemon: rd})
+		}
+		if c := hooks.Codex; c != nil {
+			rows = append(rows, hookRow{Kind: "codex", Name: "Codex", State: c.State, On: c.On, File: c.File})
 		}
 	}
-	if c := hooks.Codex; c != nil {
-		if c.On {
-			add("ok", "Codex's hooks are set up")
-		} else {
-			add("fix", "Codex's hooks are %s (%s): Ravenry's Settings, Skills, Set up puts them right.", c.State, tildePath(c.File))
-		}
-	}
+	out = append(out, hookLines(rows)...)
 	var skills struct {
 		Skills []struct {
 			Name      string `json:"name"`
