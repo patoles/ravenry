@@ -1,12 +1,12 @@
 # Assistants
 
 The board follows the AI coding assistants its registry lists (below):
-Claude Code and OpenAI Codex. Everything particular to one assistant goes
+Claude Code, OpenAI Codex and OpenCode. Everything particular to one assistant goes
 through one interface,
 `server/assistant.mjs`, the way every terminal call goes through
 `server/terminal.mjs` (docs/TERMINALS.md); nothing else imports an
-adapter. The adapters are `server/claude.mjs` (Claude Code, the first) and
-`server/codex.mjs` (Codex). Which assistant a session is comes from its hook
+adapter. The adapters are `server/claude.mjs` (Claude Code, the first),
+`server/codex.mjs` (Codex) and `server/opencode.mjs` (OpenCode, below). Which assistant a session is comes from its hook
 events, as its terminal does. A session or event that names none is Claude
 Code, so everything recorded before there was a second assistant reads as
 it did.
@@ -17,16 +17,17 @@ Which assistants there are is data the hub owns: `server/assistants.mjs`,
 sent to every client, so a client draws the list it is sent and never
 types a second one (docs/FEATURES.md SESS-057). Each entry:
 
-| Field | What | Claude Code | Codex |
-| --- | --- | --- | --- |
-| `id` | the kind stored everywhere: projects.json `assistant`, `startWith`, `models`, an event's `assistant` | `claude` | `codex` |
-| `name`, `short`, `chip` | what people call it ("Start Claude Code in ..."), a switch's word, the session tag | Claude Code, Claude, Claude | Codex, Codex, Codex |
-| `bin`, `home` | its command, found on the PATH or the usual install folders; its own folder | `claude`, `CLAUDE_CONFIG_DIR` or `~/.claude` | `codex`, `CODEX_HOME` or `~/.codex` |
-| `signIn` | signed in when a key is in the environment or its login file is there | `ANTHROPIC_API_KEY`, `~/.claude.json` with `oauthAccount` | `OPENAI_API_KEY`, `<home>/auth.json` |
-| `command` | `start`, and the words `resume` and `model` add | `claude`, `--resume <id>`, `--model <m>` | `codex`, `resume <id>`, `-m <m>` |
-| `hooks` | how its hooks report, and so which installer `server/hookinstall.mjs` uses: `claude` (settings.json), `codex` (hooks.json and trust entries), `state` (`ravenryd hook --assistant <id> --state <state>`, no installer yet) | `claude` | `codex` |
-| `skill`, `rules` | where the Ravenry skill goes under its folder; the rules file it reads | `skills/ravenry`, CLAUDE.md | `skills/ravenry`, AGENTS.md |
-| `caps` | `resume` (Continue, Move here, Resume all), `model` (New session's Model), `permission`, `context`, `handoff`, `print` (Plans, Ideas) | all | all |
+| Field | What | Claude Code | Codex | OpenCode |
+| --- | --- | --- | --- | --- |
+| `id` | the kind stored everywhere: projects.json `assistant`, `startWith`, `models`, an event's `assistant` | `claude` | `codex` | `opencode` |
+| `name`, `short`, `chip` | what people call it ("Start Claude Code in ..."), a switch's word, the session tag | Claude Code, Claude, Claude | Codex, Codex, Codex | OpenCode (all three) |
+| `bin`, `home` | its command, found on the PATH or the usual install folders; its own folder | `claude`, `CLAUDE_CONFIG_DIR` or `~/.claude` | `codex`, `CODEX_HOME` or `~/.codex` | `opencode` (also `~/.opencode/bin`), `OPENCODE_CONFIG_DIR`, else `XDG_CONFIG_HOME/opencode`, else `~/.config/opencode` |
+| `signIn` | signed in when a key is in the environment or its login file is there | `ANTHROPIC_API_KEY`, `~/.claude.json` with `oauthAccount` | `OPENAI_API_KEY`, `<home>/auth.json` | none: it ships free models |
+| `command` | `start`, and the words `resume`, `model` and `prompt` add | `claude`, `--resume <id>`, `--model <m>`, the prompt as a word | `codex`, `resume <id>`, `-m <m>`, the prompt as a word | `opencode`, `--session <id>`, `-m <provider/model>`, `--prompt <text>` |
+| `sessionId` | its session ids' pattern when they are not UUIDs | | | `ses_...`, case kept |
+| `hooks` | how its hooks report, and so which installer `server/hookinstall.mjs` uses: `claude` (settings.json), `codex` (hooks.json and trust entries), `opencode` (a plugin file), `state` (`ravenryd hook --assistant <id> --state <state>`, no installer yet) | `claude` | `codex` | `opencode` |
+| `skill`, `rules` | where the Ravenry skill goes under its folder; the rules file it reads | `skills/ravenry`, CLAUDE.md | `skills/ravenry`, AGENTS.md | `skills/ravenry`, AGENTS.md |
+| `caps` | `resume` (Continue, Move here, Resume all), `model` (New session's Model), `permission`, `context`, `handoff`, `print` (Plans, Ideas) | all | all | all but `print` |
 
 Where clients read it: `assistants.list` in `GET /api/state` and `GET
 /api/settings/assistant` (the switches, the tag, the words that name an
@@ -62,15 +63,16 @@ you, the hand-back and the end with its tag, Set up refuses to write
 Claude Code's or Codex's hooks for it, and the board page at 390 px shows
 its New session card and "Start Stand-in Agent in <project>".
 
-**Adding an assistant** (OpenCode, SESS-054): its entry in
+**Adding an assistant** (as OpenCode was, SESS-054): its entry in
 `server/assistants.mjs`; an adapter when the board should read its screen
 or transcript (else the hook-only one serves); its hooks (an installer,
 doctor state and uninstall in `server/hookinstall.mjs`, or `--state` in
 the hook commands it is given); its skill path; its model menu
 (`server/models.mjs startMenus`); resume words that take its session ids
 (`server/sessionstart.mjs` refuses a resume id that is not a UUID); the
-hand-off Stop hook when `caps.handoff`. The copy that names both
-assistants ("Claude Code or Codex, in a project") is said again then.
+hand-off Stop hook when `caps.handoff`. Session ids that are not UUIDs
+are the registry's `sessionId` pattern (`sessionIdOf`), and a first
+message that is not a word of its own is its `prompt` words (`promptArgs`).
 
 ## What works for each
 
@@ -512,3 +514,85 @@ hook for Codex. Touches only `.tmp/`.
 Measured live on 2026-11-04 (Codex 0.166.0, GPT-5.6-Luna at low effort, a
 throwaway `mc-test-codex` cmux workspace, a scratch CODEX_HOME and a scratch
 board on :4699; docs/DEVELOPING.md has the steps).
+
+## OpenCode
+
+Measured on OpenCode 1.19.6 (`opencode-ai` on npm, 2026-11-21), with a
+scratch HOME and its free model `opencode/deepseek-v4.1-flash-free`
+(`node tools/opencode-test.mjs`, below).
+
+- **Starting**: its full-screen interface takes the model as `-m
+  provider/model`, the first message as `--prompt <text>` (a bare word is
+  the folder to open; one that starts with a dash goes as
+  `--prompt=<text>`) and a session to continue as `--session <id>`. Its
+  ids are `ses_` and 26 letters and digits whose case matters, so the
+  board keeps them as they are (a UUID is still lower-cased).
+- **Its plugin** is its hooks: OpenCode loads every file in
+  `<its folder>/plugins/`, so Set up writes `plugins/ravenry.js` there
+  (`hooks/opencode-plugin.js` with the path of ravenryd in it; ours by its
+  first line, `ravenry-opencode-plugin`), Remove deletes it, the doctor's
+  row is `opencodeStatus` (missing, ok, stale when its ravenryd is gone or
+  it is an older plugin, foreign when that file is someone else's), and
+  the app's hub brings a stale one up to date at start. OpenCode installs
+  its plugin package (`@opencode-ai/plugin`) beside it on its next start;
+  that is OpenCode's own `package.json` and `node_modules` in its folder.
+  The plugin runs in the interface's own process (measured: its pid is the
+  pane's, and RAVENRY_PANE is the pane's), and does nothing outside a
+  Ravenry pane. It reports with `ravenryd hook --assistant opencode
+  --state ...` on its events: a session first seen (SessionStart, idle),
+  `session.status` busy (working), `permission.asked` (needs_you,
+  permission, "Run <command>"), `permission.replied` (working again unless
+  refused), `session.idle` (Stop, idle; the hub may answer it with the
+  hand-off), `session.deleted` (ended); a subagent's sessions are left out.
+  When the pane's program ends, the daemon reports the session ended.
+- **A permission from the board**: the screen shows "△ Permission
+  required" and "Allow once   Allow always   Reject" in place of the prompt
+  box, which `server/opencode.mjs` reads as a dialog with those three
+  options, so it is Needs you with three answers. The plugin then asks the
+  hub what to answer (`ravenryd hook --event PermissionWait --decide`, 25 s
+  at a time, again until it is answered); the hub holds that wait and,
+  when the person picks an option on the board, gives it "once", "always"
+  or "reject", which the plugin sends through OpenCode's own API
+  (`permission.reply`, `POST /permission/<id>/reply`, else the older
+  `/session/<id>/permissions/<id>`). No key is pressed. An answer given in
+  OpenCode itself ends the wait.
+- **Its session file**: the plugin keeps one JSON file per session under
+  `<XDG_STATE_HOME or ~/.local/state>/ravenry/opencode/<id>.json` (model,
+  its display name, the context in use: the last reply's tokens with the
+  cache, the model's own window from OpenCode's provider list, the last
+  message, the prompts, the hand-off's reason kept apart from the person's
+  prompts) and names it as `transcript_path` in every report, so the model
+  chip, the context bar, the last turn and the hand-off read it as they read
+  a transcript (`server/opencodesession.mjs`).
+- **The hand-off**: at its Stop the hub's answer (`{"decision":"block",
+  "reason"}`) becomes the session's next prompt (the plugin sends it with
+  OpenCode's API), and the next Stop carries `stop_hook_active`; its words
+  name OpenCode, and the fresh session is `opencode --prompt '<read the
+  hand-off>'`. Hand off now types the request at its prompt as for the
+  others.
+- **Its models**: New session's Model lists OpenCode's default, then what
+  `opencode models` prints (read in the background, at most every 10
+  minutes; OpenRouter's `openrouter/...` among them once OpenCode has its
+  key, through OPENROUTER_API_KEY or `opencode auth login`), then any other
+  it ran. The chip says the model without its provider.
+- **The skill**: `<its folder>/skills/ravenry`, as for the others. OpenCode
+  also reads `~/.claude/skills`, so with Claude Code's installed too it
+  sees the same skill twice, with the same words.
+- **Not done**: Plans and Ideas never run on OpenCode (`caps.print` off:
+  they use the first installed assistant that has a print mode); an
+  OpenCode session outside a Ravenry pane (cmux, iTerm2, Rex) is not
+  followed, since its plugin reports only through a pane's daemon; a remote
+  machine gets no plugin. OpenCode 2, installed by its own installer and not
+  on npm yet, has a new plugin interface that does not load this one: the
+  plugin will need its V2 form then.
+
+`node tools/opencode-test.mjs [--keep]` runs all of it on the real
+`opencode` (skipped when it is not installed): the registry's words, the
+screen reading, then a scratch board with a real ravenryd and a scratch
+HOME (OpenCode's config asks before every shell command), Set up and the
+doctor's row, New session's card and Model menu, a session started with its
+model and first message, Working, the permission as Needs you answered
+from the board (Allow once), the turn's end with its model chip, context
+and last message, Hand off now (the brief's Hand-off written, its commit
+allowed from the board, the fresh OpenCode session started), Continue by
+its id in a new pane, and Remove.
