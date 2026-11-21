@@ -68,12 +68,18 @@ export function target(v, st) {
   return f ? { folder: f.path, name: f.name, projectId: f.projectId || null } : null;
 }
 
-/** The two assistant cards: each one's name, its line and whether it can be picked. */
+/**
+ * The assistant cards: one per assistant the hub lists (GET /api/setup/start
+ * `assistants`, the registry's order, server/assistants.mjs), each one's
+ * name, its line and whether it can be picked. An older hub that sends none
+ * gets Claude Code and Codex, not found.
+ */
 export function assistantCards(v, st, w) {
   const asst = (v && v.assistants) || [];
-  return ['claude', 'codex'].map((kind) => {
+  const kinds = asst.length ? asst.map((a) => a.kind) : ['claude', 'codex'];
+  return kinds.map((kind) => {
     const a = asst.find((x) => x.kind === kind) || { kind, found: false, signedIn: false };
-    const name = (w.names && w.names[kind]) || kind;
+    const name = (w.names && w.names[kind]) || a.name || kind;
     if (st.machine) return { kind, name, sub: fill(w.onMachine, { machine: st.machine }), ok: true, dot: 'ok', on: st.assistant === kind };
     const sub = !a.found ? w.notFound : a.signedIn ? w.signedIn : w.notSignedIn;
     return { kind, name, sub, ok: !!a.found, dot: !a.found ? 'off' : a.signedIn ? 'ok' : 'you', on: st.assistant === kind };

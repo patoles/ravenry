@@ -305,18 +305,27 @@ function cpOf(p, s) {
   return (s && open.find((c) => c.surfaceId === s.surfaceId)) || open.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))[0] || null;
 }
 
+// The assistants are the hub's (server/assistants.mjs): the list it sends in
+// the state (assistants.list), in order, each with its name ("Claude
+// Code"), its short word for a switch ("Claude") and its tag ("Claude").
+// Before the first state, and from an older hub, Claude Code and Codex.
+const AS_BUILTIN = [{ id: 'claude', name: 'Claude Code', short: 'Claude', chip: 'Claude' }, { id: 'codex', name: 'Codex', short: 'Codex', chip: 'Codex' }];
+const asList = () => { const l = ui.snap && ui.snap.assistants && ui.snap.assistants.list; return Array.isArray(l) && l.length ? l : AS_BUILTIN; };
+const asEntry = (k) => asList().find((a) => a.id === k) || null;
+// A kind the hub does not list (none, an older record) is Claude Code.
+const asKind = (k) => (asEntry(k) ? k : 'claude');
 // The assistant tag (docs/design/CodexStage2.dc.html, section 2, A): one small
-// neutral word on every session, the same style for both. "Claude", not
+// neutral word on every session, the same style for each. "Claude", not
 // "Claude Code", which takes more room.
-const AS_WORD = { claude: 'Claude', codex: 'Codex' };
-const AS_NAME = { claude: 'Claude Code', codex: 'Codex' };
-const asKind = (k) => (k === 'codex' ? 'codex' : 'claude');
+const asWord = (k) => (asEntry(asKind(k)) || AS_BUILTIN[0]).chip;
+const asShort = (k) => (asEntry(asKind(k)) || AS_BUILTIN[0]).short;
+const asName = (k) => (asEntry(asKind(k)) || AS_BUILTIN[0]).name;
 // With the session (`s`), the model its transcript last named in place of
 // the word ("Opus 5.5", "gpt-5.4"; server/models.mjs), the id in the tip.
 function asTag(kind, cls = '', s = null) {
   const k = asKind(kind);
   const m = s && s.modelName;
-  return `<span class="as-tag${cls ? ' ' + cls : ''}" title="${AS_NAME[k]} session${m ? esc(', ' + s.model) : ''}">${m ? esc(m) : AS_WORD[k]}</span>`;
+  return `<span class="as-tag${cls ? ' ' + cls : ''}" title="${esc(asName(k))} session${m ? esc(', ' + s.model) : ''}">${m ? esc(m) : esc(asWord(k))}</span>`;
 }
 // A session that is not in a project (section 1, C) is shown by its folder
 // name with a folder glyph.
@@ -1051,11 +1060,11 @@ ${psHeadTitle(p, `<h1 style="margin: 0; font-size: 28px; font-weight: 700; lette
   const sendWord = ns ? 'Start session' : 'Send';
   if ($('#send').textContent !== sendWord) $('#send').textContent = sendWord;
   $('#composer').classList.toggle('ns-mode', ns);
-  // In a project that continues on Codex, the switch's line says so.
+  // In a project that continues on another assistant than Claude Code, the switch's line says so.
   const hint = $('#ns-hint');
-  const nsCodex = ns && canStart && p.assistant === 'codex';
-  const hintHtml = nsCodex ? `Opens a new ${esc(boardTerm())} tab${p.folderShort ? ` in ${esc(p.folderShort)}` : ''} running <span class="as-tag" title="Codex session">Codex</span>, this project's assistant.` : '';
-  if (hint.hidden !== !nsCodex) hint.hidden = !nsCodex;
+  const nsOther = ns && canStart && !!p.assistant && asKind(p.assistant) !== 'claude';
+  const hintHtml = nsOther ? `Opens a new ${esc(boardTerm())} tab${p.folderShort ? ` in ${esc(p.folderShort)}` : ''} running <span class="as-tag" title="${esc(asName(p.assistant))} session">${esc(asWord(p.assistant))}</span>, this project's assistant.` : '';
+  if (hint.hidden !== !nsOther) hint.hidden = !nsOther;
   if (hint.innerHTML !== hintHtml) hint.innerHTML = hintHtml;
   const tg = $('#ns');
   tg.classList.toggle('on', ns);
@@ -1336,7 +1345,7 @@ function renderFresh() {
     const f = freshWords(form);
     kind = f.kind;
     el.className = 'fresh ' + f.kind;
-    el.title = lv.watch ? lv.empty : `The board reads ${lv.asst === 'codex' ? "Codex's" : "Claude's"} screen every 2 s`;
+    el.title = lv.watch ? lv.empty : `The board reads ${asWord(lv.asst)}'s screen every 2 s`;
     const t = el.querySelector('span');
     if (t.textContent !== f.text) t.textContent = f.text;
     el.hidden = !!lv.empty && !lv.watch;
@@ -1688,8 +1697,8 @@ function renderLive(p, s, state) {
   if (tagEl) {
     tagEl.hidden = !s;
     // "Claude Opus 5.5": the assistant and the model it runs (server/models.mjs).
-    const word = s ? s.modelTitle || AS_WORD[lv.asst] : '';
-    if (s && tagEl.textContent !== word) { tagEl.textContent = word; tagEl.title = AS_NAME[lv.asst] + ' session' + (s.model ? ', ' + s.model : ''); }
+    const word = s ? s.modelTitle || asWord(lv.asst) : '';
+    if (s && tagEl.textContent !== word) { tagEl.textContent = word; tagEl.title = asName(lv.asst) + ' session' + (s.model ? ', ' + s.model : ''); }
   }
   const sid = s && s.terminal !== false ? s.surfaceId : null;
   const watch = !!s && s.terminal === false;
@@ -3850,7 +3859,7 @@ function slugify(s) {
 async function openModal({ mode, projectId, ideaId, prefill = {}, from = null }) {
   const meta = await loadMeta();
   const p = projectId ? project(projectId) : null;
-  const asDefault = asView().startWith === 'codex' ? 'codex' : 'claude';
+  const asDefault = asKind(asView().startWith);
   ui.modal = { mode, projectId, ideaId, kind: prefill.kind || (mode === 'new' ? 'Web game' : null), stage: prefill.stage || null, folderMode: from ? 'existing' : 'new', pick: null, finder: [], showAll: false, known: null, choosing: false, parent: null, parentWaiting: false, from, asDefault, assistant: from && from.assistant ? asKind(from.assistant) : asDefault };
   const title = mode === 'brief' ? `Brief for ${p ? p.name : ''}` : 'New project';
   const briefWhere = p ? (p.briefExpected || (p.shared.length ? `${p.folderShort}/BRIEF-${p.id}.md` : `${p.folderShort}/BRIEF.md`)) : '';
@@ -3860,7 +3869,7 @@ async function openModal({ mode, projectId, ideaId, prefill = {}, from = null })
 <form id="modal-form" style="padding: 8px 20px 20px; display: flex; flex-direction: column; gap: 14px">
 ${mode === 'new' ? `<label class="inp">Name<input name="name" placeholder="e.g. Garden planner" autocomplete="off" required></label>
 <div class="inp" id="m-folder-row">Folder<div class="fseg" role="group" aria-label="Folder"><button type="button" class="seg on" data-fmode="new" aria-pressed="true">New folder</button><button type="button" class="seg" data-fmode="existing" aria-pressed="false">Existing</button></div><div id="m-folder" class="fbody"></div></div>
-<div class="inp" id="m-asst-row">Assistant<div class="fseg as-f" role="group" aria-label="Assistant">${['claude', 'codex'].map((k) => `<button type="button" class="seg ${ui.modal.assistant === k ? 'on' : ''}" data-asst="${k}" aria-pressed="${ui.modal.assistant === k}">${k === 'codex' ? 'Codex' : 'Claude'}</button>`).join('')}</div><span class="t3 as-hint">${ui.modal.from ? "The session's, from this folder." : 'From Settings (Start new sessions with).'} This project's sessions, Revive and hand-offs use it.</span></div>` : ''}
+<div class="inp" id="m-asst-row">Assistant<div class="fseg as-f" role="group" aria-label="Assistant">${asList().map(({ id: k }) => `<button type="button" class="seg ${ui.modal.assistant === k ? 'on' : ''}" data-asst="${escRaw(k)}" aria-pressed="${ui.modal.assistant === k}">${esc(asShort(k))}</button>`).join('')}</div><span class="t3 as-hint">${ui.modal.from ? "The session's, from this folder." : 'From Settings (Start new sessions with).'} This project's sessions, Revive and hand-offs use it.</span></div>` : ''}
 <div class="inp">Kind
 <div style="display: flex; flex-wrap: wrap; gap: 6px" id="kinds" role="group" aria-label="Kind">${(meta.kinds || KINDS).map((k) => `<button type="button" class="btn sm ${ui.modal.kind === k ? 'on' : ''}" data-kind="${escRaw(k)}" aria-pressed="${ui.modal.kind === k}">${esc(k)}</button>`).join('')}</div>
 <input name="kindText" aria-label="Describe the kind in your own words" placeholder="Or in your own words, e.g. a Mac menu-bar app, a music practice tool">
@@ -3943,7 +3952,7 @@ function idFor(name) {
 }
 
 // The assistant the New project form starts, by its short name.
-const modalWho = () => (ui.modal && ui.modal.assistant === 'codex' ? 'Codex' : 'Claude');
+const modalWho = () => asShort(ui.modal && ui.modal.assistant);
 
 function renderFolder() {
   const m = ui.modal;
@@ -4100,7 +4109,7 @@ async function submitModal() {
       notePick(r.id);
       setView('projects');
       history.replaceState(null, '', '#' + encodeURIComponent(r.id));
-      toast(r.partial ? r.error : r.message || `${v.name.trim()} is in ${r.folder}. ${r.assistant === 'codex' ? 'Codex' : 'Claude'} is reading the brief in cmux ${r.workspaceRef}.`);
+      toast(r.partial ? r.error : r.message || `${v.name.trim()} is in ${r.folder}. ${asShort(r.assistant)} is reading the brief in cmux ${r.workspaceRef}.`);
     } else {
       const r = await post('/api/project/brief', { ...v, projectId: m.projectId, kind: m.kind });
       closeModal();
@@ -5351,17 +5360,17 @@ function hsSwitch(id) {
 }
 
 // docs/design/CodexStage2.dc.html, section 3, variant A: an Assistant
-// section first, "Start new sessions with" and a two-way switch (short
-// labels, Claude and Codex, so it takes less space), saved through
-// /api/settings/assistant.
+// section first, "Start new sessions with" and a switch of every assistant
+// the hub lists (short labels, Claude and Codex, so it takes less space),
+// saved through /api/settings/assistant.
 const AS_HINT = 'New project, New session and Revive start it; Plans and Ideas run on it. A project set to the other one, and work carried on (a hand-off, Revive), keep theirs.';
 const asView = () => (ui.snap && ui.snap.assistants) || { startWith: 'claude' };
 // Who a line names: the assistant Plans, Ideas and rule suggestions run on
 // (assistants.print), the one a running job started on (its `who`; none was
 // Claude), and a project's own (the one its next session starts).
-const printWho = () => (asView().print === 'codex' ? 'Codex' : 'Claude');
-const jobWho = (j) => (j && j.who === 'codex' ? 'Codex' : 'Claude');
-const projWho = (p) => (p && p.assistant === 'codex' ? 'Codex' : 'Claude');
+const printWho = () => asShort(asView().print);
+const jobWho = (j) => asShort(j && j.who);
+const projWho = (p) => asShort(p && p.assistant);
 
 // A project's own assistant for its NEW sessions (docs/design/
 // ProjectAssistant.dc.html, round 2, A1): "New sessions:" and the Settings
@@ -5379,9 +5388,9 @@ function pasHtml(p) {
   const pa = pasNow(p.id);
   const on = pa && pa.want ? pa.want : pasSet(p);
   const tip = `The assistant ${p.name}'s new sessions start with (New session, Revive, a plan's start). Running sessions keep theirs.${!pa && p.assistantNote ? ' ' + p.assistantNote : ''}`;
-  const btn = (k) => `<button type="button" class="seg ${on === k ? 'on' : ''}" data-pas="${k}" data-pid="${escRaw(p.id)}" aria-pressed="${on === k}">${AS_WORD[k]}</button>`;
+  const btn = (k) => `<button type="button" class="seg ${on === k ? 'on' : ''}" data-pas="${escRaw(k)}" data-pid="${escRaw(p.id)}" aria-pressed="${on === k}">${esc(asShort(k))}</button>`;
   const pm = pmNow(p.id);
-  return `<span class="pas-meta" title="${esc(tip)}"><span id="pas-l">New sessions:</span><span class="hs-seg" role="group" aria-labelledby="pas-l">${btn('claude')}${btn('codex')}</span></span>${pmHtml(p, on)}${pa && pa.err ? `<span class="pas-err" role="alert">${esc(pa.err)}</span>` : ''}${pm && pm.err ? `<span class="pas-err" role="alert">${esc(pm.err)}</span>` : ''}`;
+  return `<span class="pas-meta" title="${esc(tip)}"><span id="pas-l">New sessions:</span><span class="hs-seg" role="group" aria-labelledby="pas-l">${asList().map((a) => btn(a.id)).join('')}</span></span>${pmHtml(p, on)}${pa && pa.err ? `<span class="pas-err" role="alert">${esc(pa.err)}</span>` : ''}${pm && pm.err ? `<span class="pas-err" role="alert">${esc(pm.err)}</span>` : ''}`;
 }
 
 // New session's Model (server/models.mjs): the model the project's next
@@ -5397,7 +5406,7 @@ function pmHtml(p, kind) {
   if (!Array.isArray(menu) || !menu.length) return '';
   const pm = pmNow(p.id);
   const set = pm && pm.kind === kind && pm.want != null ? pm.want : (p.models && p.models[kind]) || '';
-  const tip = `The model ${p.name}'s new ${AS_NAME[kind]} sessions start with. Remembered for this project. To switch during a session, type /model in it.`;
+  const tip = `The model ${p.name}'s new ${asName(kind)} sessions start with. Remembered for this project. To switch during a session, type /model in it.`;
   // Its own item of the meta line, so a narrow line (the phone) wraps it under the switch rather than past the edge.
   return `<span class="pas-meta"><select class="pm-sel" data-pm-pid="${escRaw(p.id)}" data-pm-kind="${kind}" aria-label="Model for new sessions" title="${esc(tip)}">${menu.map((o) => `<option value="${escRaw(o.id)}"${o.id === set ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></span>`;
 }
@@ -5441,7 +5450,7 @@ async function pasChange(pid, kind) {
 function asHtml() {
   return `<div class="hs-sec">Assistant<span>every project</span></div>
 <div class="hs-row" style="padding-top: 0"><div class="hs-l"><div id="as-l">Start new sessions with</div><div class="hs-tok">${AS_HINT}</div></div></div>
-<div class="as-sw"><span class="hs-seg" role="group" aria-labelledby="as-l"><button class="seg" data-as="claude" aria-pressed="false">Claude</button><button class="seg" data-as="codex" aria-pressed="false">Codex</button></span></div>
+<div class="as-sw"><span class="hs-seg" role="group" aria-labelledby="as-l">${asList().map((a) => `<button class="seg" data-as="${escRaw(a.id)}" aria-pressed="false">${esc(a.short)}</button>`).join('')}</span></div>
 <div class="hs-tok as-note" id="as-note" hidden></div>
 <div class="as-div"></div>`;
 }
@@ -5449,7 +5458,7 @@ function asHtml() {
 function asPaint() {
   const v = asView();
   for (const b of document.querySelectorAll('#hs-pop [data-as]')) {
-    const on = b.dataset.as === (v.startWith === 'codex' ? 'codex' : 'claude');
+    const on = b.dataset.as === asKind(v.startWith);
     b.classList.toggle('on', on);
     b.setAttribute('aria-pressed', String(on));
   }
@@ -5533,7 +5542,7 @@ function hsPaint() {
   const f = $('#hs-foot');
   f.className = 'hs-foot' + (hs.foot === 'saved' || hs.foot === 'saved-as' ? ' ok' : hs.foot === 'error' ? ' bad' : '');
   if (hs.foot === 'saved') f.innerHTML = HS_CHECK + 'Saved. Applies at each session\'s next stop.';
-  else if (hs.foot === 'saved-as') f.innerHTML = HS_CHECK + `Saved. New sessions start with ${AS_NAME[asView().startWith] || 'Claude Code'}.`;
+  else if (hs.foot === 'saved-as') f.innerHTML = HS_CHECK + `Saved. New sessions start with ${esc(asName(asView().startWith))}.`;
   else if (hs.foot === 'error') f.textContent = 'Not saved: ' + hs.err;
   else f.textContent = 'Applies to every project. Saves as you change it.';
 }
