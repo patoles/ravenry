@@ -160,6 +160,10 @@ final class OutsideView: MiddleView {
         case "connecting":
             let l = label(t("mach.liveConnecting", ["machine": lt.machine]), Fonts.pt(12.5), "tx3"); l.textColor = termTx3
             rows.append(l)
+        case "reconnecting":
+            // The last screen stays under it; it connects again by itself (MACH-011).
+            let l = label(lt.why, Fonts.pt(12.5), "tx3", lines: 2); l.textColor = termTx3
+            rows.append(l)
         case "failed", "ended":
             let l = label(lt.why, Fonts.pt(12.5), "you", lines: 3)
             let again = RButton(t("mach.liveAgain"), .normal) { [weak self] in self?.liveAgain() }
@@ -169,7 +173,7 @@ final class OutsideView: MiddleView {
         }
         noteText = nil
         content.set(rows)
-        lt.view?.isHidden = lt.state != "live"
+        lt.view?.isHidden = lt.state != "live" && lt.state != "reconnecting"
         needsLayout = true
     }
 
