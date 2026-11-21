@@ -1072,7 +1072,12 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   for its daemon under each guard and the daemon's Go guard connect to
   neither; a child given the person's socket or board is refused, and so
   is a connection to them from the test itself. A control with no guard
-  must reach the stand-ins.
+  must reach the stand-ins. Whose a socket or board is goes by its value,
+  not its name: a test, or a program a test runs in its own daemon's
+  pane, keeps its test's own socket, pane and board, and a folder in one
+  of the tool's own test roots (RAVENRY_TEST_ROOT) is a test's in a
+  child's environment too. The check's stand-ins are marked as the
+  person's with RAVENRY_TEST_LIVE_SOCKETS and RAVENRY_TEST_LIVE_PORTS.
 - `node tools/iterm-mode-test.mjs`: iTerm2 mode and `npm run iterm`
   (above, "The board in iTerm2"): which terminal the board drives from
   where it was started, the Ravenry tab against `tools/fake-iterm.mjs`

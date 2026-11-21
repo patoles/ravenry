@@ -105,9 +105,16 @@ function realOr(p) {
 const inside = (p, dir) => { const r = path.relative(dir, p); return r === '' || (!!r && !r.startsWith('..') && !path.isAbsolute(r)); };
 const within = (p, dir) => inside(path.resolve(p), path.resolve(dir)) || inside(realOr(p), realOr(dir));
 
-/** The explicit test roots: RAVENRY_TEST_ROOT (absolute folders joined with ":"). */
+/** The explicit test roots: RAVENRY_TEST_ROOT (absolute folders joined
+ * with ":") of `env` and of this tool's own environment. A child's
+ * environment built from scratch rarely names the roots, and the tool's
+ * still count for it: on 2026-11-22 CI's runner folder (a root, inside the
+ * runner's home) was taken for the person's own in the app's environment,
+ * so the first-run check's stand-in Claude Code there read as the person's
+ * and the guard put its own stand-in first, which draws no prompt. */
 export function testRoots(env = process.env) {
-  return String(env.RAVENRY_TEST_ROOT || '').split(':').filter((d) => d && path.isAbsolute(d));
+  const own = env === process.env ? '' : String(process.env.RAVENRY_TEST_ROOT || '');
+  return [...new Set(`${env.RAVENRY_TEST_ROOT || ''}:${own}`.split(':').filter((d) => d && path.isAbsolute(d)))];
 }
 
 /** Inside a `.tmp` folder of this repository (the repo's own, or a package's). */
@@ -490,10 +497,15 @@ export function paneVarsIn(env) {
 //
 // So guardSpawns():
 // - takes out of the tool's own environment, before it reads it, every
-//   variable that points a client at a running daemon or board (LIVE_VARS,
-//   and TERM_PROGRAM with TERM_PROGRAM_VERSION when they say ravenry). A
-//   tool only inherits them from the shell it runs in; one that needs one
-//   sets its own (its test daemon's socket, its test board's address).
+//   variable that would point a client at the person's daemon or board
+//   (liveDrops): RAVENRY_SOCKET naming the person's socket, the board's
+//   address naming the person's board, and the pane's own variables
+//   (RAVENRY_PANE, TERM_PROGRAM with TERM_PROGRAM_VERSION when they say
+//   ravenry) unless a test's own socket stays beside them. Told by the
+//   value, as for a child below, not by the name: a tool a test starts
+//   with its own daemon's socket or board keeps them (on 2026-11-22 the
+//   Go twin, dropping them by name, left every program the daemon's tests
+//   run in their own panes with no daemon to dial).
 // - refuses a child whose environment names the person's daemon (a
 //   RAVENRY_SOCKET outside a test's folders) or the person's board (an
 //   address on this machine at the board's port: 4600, or the one their
@@ -505,9 +517,15 @@ export function paneVarsIn(env) {
 export const LIVE_VARS = ['RAVENRY_SOCKET', 'RAVENRY_PANE', 'RAVENRY_HUB_URL', 'MC_BOARD_URL'];
 export const BOARD_PORT = 4600;
 
-// The check's own stand-ins for the person's daemon and board (markLive).
+// The check's own stand-ins for the person's daemon and board (markLive),
+// in this process; LIVE_SOCKETS_VAR and LIVE_PORTS_VAR mark them for a
+// child too (they can only add refusals; daemon/internal/testenv reads the
+// same two).
 const markedSockets = new Set();
 const markedPorts = new Set();
+export const LIVE_SOCKETS_VAR = 'RAVENRY_TEST_LIVE_SOCKETS';
+export const LIVE_PORTS_VAR = 'RAVENRY_TEST_LIVE_PORTS';
+const marks = (env, k, sep) => [env, process.env].flatMap((e) => String((e && e[k]) || '').split(sep)).map((x) => x.trim()).filter(Boolean);
 /** Treats this socket or port as the person's, in this process: for hub/tools/live-guard-test.mjs only. */
 export function markLive({ socket = null, port = null } = {}) {
   if (socket) markedSockets.add(path.resolve(socket));
@@ -528,10 +546,10 @@ let boardPorts = null;
 const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|::1|\[::1\]|0\.0\.0\.0|::|\[::\]|::ffff:127\.\d+\.\d+\.\d+)$/i;
 
 /** Whether this address is the person's board on this machine (no host is localhost). */
-export function personBoard(host, port) {
+export function personBoard(host, port, env = process.env) {
   const p = Number(port);
   if (!(!host || LOOPBACK.test(String(host)))) return false;
-  if (markedPorts.has(p)) return true;
+  if (markedPorts.has(p) || marks(env, LIVE_PORTS_VAR, ',').map(Number).includes(p)) return true;
   return (boardPorts || (boardPorts = liveBoardPorts())).has(p);
 }
 
@@ -539,13 +557,14 @@ export function personBoard(host, port) {
 export function personSocket(p, env = process.env) {
   if (typeof p !== 'string' || !p || p.startsWith('\0')) return false;
   const abs = path.resolve(p);
-  return markedSockets.has(abs) || !isTestPath(abs, env);
+  if (markedSockets.has(abs) || marks(env, LIVE_SOCKETS_VAR, ':').some((m) => path.resolve(m) === abs || realOr(m) === realOr(abs))) return true;
+  return !isTestPath(abs, env);
 }
 
-function boardUrlLive(u) {
+function boardUrlLive(u, env = process.env) {
   try {
     const x = new URL(String(u));
-    return personBoard(x.hostname, x.port || (x.protocol === 'https:' ? 443 : 80));
+    return personBoard(x.hostname, x.port || (x.protocol === 'https:' ? 443 : 80), env);
   } catch { return false; }
 }
 
@@ -553,14 +572,29 @@ function boardUrlLive(u) {
 export function liveProblem(env) {
   if (!env) return null;
   if (env.RAVENRY_SOCKET && personSocket(env.RAVENRY_SOCKET, env)) return `RAVENRY_SOCKET names the person's own daemon (${env.RAVENRY_SOCKET})`;
-  for (const k of ['RAVENRY_HUB_URL', 'MC_BOARD_URL']) if (env[k] && boardUrlLive(env[k])) return `${k} names the person's own board (${env[k]})`;
+  for (const k of ['RAVENRY_HUB_URL', 'MC_BOARD_URL']) if (env[k] && boardUrlLive(env[k], env)) return `${k} names the person's own board (${env[k]})`;
   return null;
 }
 
-/** Takes LIVE_VARS (and TERM_PROGRAM when it says ravenry) out of env, this process's by default: the names taken. */
+/** The variables of env that would reach the person's own daemon or board:
+ * RAVENRY_SOCKET naming their socket, the board's address naming their
+ * board, and the pane's own variables unless a test's own socket stays
+ * beside them (without one a client finds its daemon from HOME). */
+export function liveDrops(env = process.env) {
+  const own = !!env.RAVENRY_SOCKET && !personSocket(env.RAVENRY_SOCKET, env);
+  const out = [];
+  if ('RAVENRY_SOCKET' in env && !own) out.push('RAVENRY_SOCKET');
+  if (!own) {
+    if ('RAVENRY_PANE' in env) out.push('RAVENRY_PANE');
+    if (env.TERM_PROGRAM === 'ravenry') out.push(...['TERM_PROGRAM', 'TERM_PROGRAM_VERSION'].filter((k) => k in env));
+  }
+  for (const k of ['RAVENRY_HUB_URL', 'MC_BOARD_URL']) if (env[k] && boardUrlLive(env[k], env)) out.push(k);
+  return out;
+}
+
+/** Takes liveDrops(env) out of env, this process's by default: the names taken. */
 export function dropLiveVars(env = process.env) {
-  const out = LIVE_VARS.filter((k) => k in env);
-  if (env.TERM_PROGRAM === 'ravenry') out.push(...['TERM_PROGRAM', 'TERM_PROGRAM_VERSION'].filter((k) => k in env));
+  const out = liveDrops(env);
   for (const k of out) delete env[k];
   return out;
 }

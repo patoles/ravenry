@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -45,15 +46,14 @@ func TestTheRealHomeIsRefused(t *testing.T) {
 
 // Run from a Ravenry pane, a test binary keeps none of the pane's
 // variables, and an environment naming the person's daemon or board is
-// refused (hub/tools/live-guard-test.mjs runs this with them set).
+// refused (hub/tools/live-guard-test.mjs runs this with them set, its
+// stand-ins marked as the person's).
 func TestThePersonsDaemonAndBoardAreOutOfReach(t *testing.T) {
-	for _, k := range LiveVars {
-		if v, ok := os.LookupEnv(k); ok {
-			t.Fatalf("%s=%s is still set", k, v)
-		}
+	if left := liveDrops(os.LookupEnv); len(left) > 0 {
+		t.Fatalf("still set, naming the person's daemon or board: %q", left)
 	}
-	if os.Getenv("TERM_PROGRAM") == "ravenry" {
-		t.Fatal("TERM_PROGRAM=ravenry is still set")
+	if s := os.Getenv("RAVENRY_SOCKET"); s != "" && PersonSocket(s, nil) {
+		t.Fatalf("RAVENRY_SOCKET=%s is still set", s)
 	}
 	tmp := t.TempDir()
 	live := filepath.Join(realHome(), "Library", "Application Support", "Ravenry", "run", "ravenryd-1.0.0.sock")
@@ -70,5 +70,47 @@ func TestThePersonsDaemonAndBoardAreOutOfReach(t *testing.T) {
 	}
 	if p := Problems([]string{"HOME=" + tmp, "RAVENRY_HUB_URL=http://127.0.0.1:9", "MC_BOARD_URL=http://192.168.1.50:4600"}); len(p) != 0 {
 		t.Fatalf("a test's board: %q", p)
+	}
+	// A stand-in marked as the person's reads as theirs.
+	mark := filepath.Join(tmp, "marked.sock")
+	if p := Problems([]string{"HOME=" + tmp, "RAVENRY_SOCKET=" + mark, LiveSocketsVar + "=" + mark, "RAVENRY_HUB_URL=http://127.0.0.1:4719", LivePortsVar + "=4719"}); len(p) != 2 {
+		t.Fatalf("marked stand-ins: %q", p)
+	}
+}
+
+// What a test binary drops at its start is told by the value: the person's
+// socket and board go, with the pane's own variables; a test's own socket,
+// pane and board stay, as a program a test runs in its own daemon's pane
+// (internal/testprog) is started with them.
+func TestOnlyThePersonsVariablesAreDropped(t *testing.T) {
+	tmp := t.TempDir()
+	drops := func(env ...string) string {
+		m := map[string]string{}
+		for _, kv := range env {
+			k, v, _ := strings.Cut(kv, "=")
+			m[k] = v
+		}
+		out := liveDrops(func(k string) (string, bool) { v, ok := m[k]; return v, ok })
+		sort.Strings(out)
+		return strings.Join(out, " ")
+	}
+	live := filepath.Join(realHome(), "Library", "Application Support", "Ravenry", "run", "ravenryd-1.0.0.sock")
+	own := filepath.Join(tmp, "run", "ravenryd-1.0.0.sock")
+	pane := []string{"RAVENRY_PANE=pabc1234", "TERM_PROGRAM=ravenry", "TERM_PROGRAM_VERSION=0.1.0"}
+	for _, c := range []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{"the person's pane", append([]string{"RAVENRY_SOCKET=" + live, "RAVENRY_HUB_URL=http://127.0.0.1:4600", "MC_BOARD_URL=http://localhost:4600"}, pane...), "MC_BOARD_URL RAVENRY_HUB_URL RAVENRY_PANE RAVENRY_SOCKET TERM_PROGRAM TERM_PROGRAM_VERSION"},
+		{"a test's own pane", append([]string{"RAVENRY_SOCKET=" + own, "RAVENRY_HUB_URL=http://127.0.0.1:4719"}, pane...), ""},
+		{"a pane with no socket", pane, "RAVENRY_PANE TERM_PROGRAM TERM_PROGRAM_VERSION"},
+		{"a test's socket marked as the person's", append([]string{"RAVENRY_SOCKET=" + own, LiveSocketsVar + "=" + own}, pane...), "RAVENRY_PANE RAVENRY_SOCKET TERM_PROGRAM TERM_PROGRAM_VERSION"},
+		{"a test's board marked as the person's", []string{"RAVENRY_HUB_URL=http://127.0.0.1:4719", LivePortsVar + "=1,4719"}, "RAVENRY_HUB_URL"},
+		{"another terminal", []string{"TERM_PROGRAM=ghostty", "TERM_PROGRAM_VERSION=1.3"}, ""},
+	} {
+		if got := drops(c.env...); got != c.want {
+			t.Errorf("%s: dropped %q, want %q", c.name, got, c.want)
+		}
 	}
 }

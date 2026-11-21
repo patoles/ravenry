@@ -17,10 +17,16 @@
 // - a child given the person's socket or board is not refused;
 // - the tool's own connection to the person's socket or board is not
 //   refused (net, http, fetch, the client), or one to a test's socket is;
+// - a test, or a program a test starts, given its test's own socket, pane
+//   and board, loses them (told by the value, not the name: on 2026-11-22
+//   the Go guard dropped them by name and every program the daemon's tests
+//   run in their own panes lost its daemon);
 // - a test under packages/*/test that talks to a daemon does not import
 //   a guard first.
 // A control run with no guard must reach the stand-in, or the check
-// proves nothing.
+// proves nothing. The stand-ins live in the system's temporary folder, so
+// the children are told they are the person's (RAVENRY_TEST_LIVE_SOCKETS,
+// RAVENRY_TEST_LIVE_PORTS), as the real ones in the person's folders are.
 //
 // Usage: node tools/live-guard-test.mjs
 // The real ravenryd: RAVENRYD_BIN, RAVENRYD, else ../daemon/ravenryd when
@@ -34,7 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { LIVE_VARS, markLive, personBoard, personSocket, REAL_HOME } from '../../tools/test-env.mjs';
+import { LIVE_PORTS_VAR, LIVE_SOCKETS_VAR, LIVE_VARS, liveProblem, markLive, personBoard, personSocket, REAL_HOME, testRoots, isTestPath } from '../../tools/test-env.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const REPO = path.dirname(ROOT);
@@ -60,7 +66,7 @@ await new Promise((r) => board.listen(0, '127.0.0.1', r));
 const BOARD = `http://127.0.0.1:${board.address().port}`;
 // What a shell in a Ravenry pane has, pointing at the stand-ins.
 const SHELL_VARS = { RAVENRY_SOCKET: LIVE_SOCK, RAVENRY_PANE: 'plive001', TERM_PROGRAM: 'ravenry', TERM_PROGRAM_VERSION: '0.1.0', RAVENRY_HUB_URL: BOARD, MC_BOARD_URL: BOARD };
-const fromPane = { ...process.env, ...SHELL_VARS };
+const MARKS = { [LIVE_SOCKETS_VAR]: LIVE_SOCK, [LIVE_PORTS_VAR]: String(board.address().port) };
 const hits = () => sockHits + boardHits;
 
 // Children run while this process keeps answering for the stand-ins.
@@ -74,6 +80,10 @@ const run = (cmd, args, opts = {}) => new Promise((resolve) => {
   c.on('close', (code) => { clearTimeout(timer); resolve({ code, out, err }); });
 });
 const settle = () => new Promise((r) => setTimeout(r, 300));
+// A child run as from that shell. This tool's own guard refuses a child
+// given the person's socket or board, so the shell's variables are set by
+// env(1) on its command line, the marks in its environment.
+const fromPane = (cmd, args, opts = {}) => run('/usr/bin/env', [...Object.entries({ ...SHELL_VARS, ...(opts.more || {}) }).map(([k, v]) => `${k}=${v}`), cmd, ...args], { ...opts, env: { ...process.env, ...MARKS } });
 
 // ------------------------------------------------------------ this test's own process
 check('this test, run from a pane, keeps none of the pane\'s variables', VARS.every((k) => !(k in process.env) || (k.startsWith('TERM_PROGRAM') && process.env.TERM_PROGRAM !== 'ravenry')), VARS.filter((k) => k in process.env).join(' '));
@@ -103,7 +113,7 @@ if (url) { try { await fetch(url + '/api/state'); reached = 'reached'; } catch (
 console.log(JSON.stringify({ left, child, found, reached }));
 process.exit(0);
 `);
-  return run(process.execPath, [file], { cwd: T, env: fromPane, timeout: 30000 });
+  return fromPane(process.execPath, [file], { cwd: T, timeout: 30000 });
 };
 const parse = (r) => { try { return JSON.parse(r.out.trim().split('\n').pop()); } catch { return null; } };
 
@@ -130,9 +140,41 @@ for (const g of GUARDS) {
   check(`${g.label}: nothing connected to the stand-ins`, hits() === 0, JSON.stringify({ sockHits, boardHits }));
 }
 
+// ------------------------------------------------------------ a test's own socket, pane and board are kept
+// A program a test starts in its own daemon's pane, or with its own board,
+// is given them; the guard it runs under leaves them (the hub's guard also
+// takes the pane's variables out by name, for its own reason: a test hub
+// never takes the terminal it runs in for the one it tests).
+const OWN_SOCK = path.join(SHORT, 'own-9.9.9.sock');
+const OWN_VARS = { RAVENRY_SOCKET: OWN_SOCK, RAVENRY_PANE: 'pown0001', TERM_PROGRAM: 'ravenry', TERM_PROGRAM_VERSION: '0.1.0', RAVENRY_HUB_URL: 'http://127.0.0.1:4719', MC_BOARD_URL: 'http://127.0.0.1:4719' };
+for (const g of GUARDS) {
+  const file = path.join(T, `own-${g.name}.mjs`);
+  fs.writeFileSync(file, `${g.head}
+import { spawnSync } from 'node:child_process';
+const vars = ${JSON.stringify(Object.keys(OWN_VARS))};
+const env = Object.fromEntries(spawnSync('/bin/sh', ['-c', 'env'], { encoding: 'utf8' }).stdout.split('\\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+console.log(JSON.stringify({ own: Object.fromEntries(vars.map((k) => [k, process.env[k]])), child: Object.fromEntries(vars.map((k) => [k, env[k]])) }));
+`);
+  const res = await run(process.execPath, [file], { cwd: T, env: { ...process.env, ...OWN_VARS }, timeout: 30000 });
+  const r = parse(res);
+  const want = g.name === 'hub' ? ['RAVENRY_HUB_URL', 'MC_BOARD_URL'] : Object.keys(OWN_VARS);
+  check(`${g.label}: given its test's own ${g.name === 'hub' ? 'board' : 'socket, pane and board'}, the test and its children keep them`, !!r && want.every((k) => r.own[k] === OWN_VARS[k] && r.child[k] === OWN_VARS[k]), JSON.stringify(r) + res.err.slice(-400));
+}
+{
+  // The tool's own test roots count for a child's environment that names
+  // none (CI's runner folder is a root inside the runner's home): a
+  // test's socket there is not the person's.
+  const was = process.env.RAVENRY_TEST_ROOT;
+  const root = path.join(REAL_HOME, 'rv-live-guard-made-up-root');
+  process.env.RAVENRY_TEST_ROOT = [was, root].filter(Boolean).join(':');
+  const env = { PATH: '/usr/bin:/bin', HOME: path.join(root, 'home'), RAVENRY_SOCKET: path.join(root, 'run', 'ravenryd-1.0.0.sock') };
+  check('a socket in one of the tool\'s own test roots, given to a child whose environment names no root, is a test\'s', testRoots(env).includes(root) && isTestPath(env.HOME, env) && !personSocket(env.RAVENRY_SOCKET, env) && liveProblem(env) === null, JSON.stringify({ roots: testRoots(env), problem: liveProblem(env) }));
+  if (was === undefined) delete process.env.RAVENRY_TEST_ROOT; else process.env.RAVENRY_TEST_ROOT = was;
+}
+
 // ------------------------------------------------------------ the client's own test, from a pane
 if (BIN) {
-  const r = await run(process.execPath, ['--test', '--test-reporter=tap', path.join('test', 'node.test.ts')], { cwd: path.join(REPO, 'packages', 'client'), env: { ...fromPane, RAVENRYD: BIN }, timeout: 120000 });
+  const r = await fromPane(process.execPath, ['--test', '--test-reporter=tap', path.join('test', 'node.test.ts')], { cwd: path.join(REPO, 'packages', 'client'), more: { RAVENRYD: BIN }, timeout: 120000 });
   await settle();
   const n = (k) => Number((r.out.match(new RegExp(`^# ${k} (\\d+)`, 'm')) || [])[1]);
   check(`packages/client node.test.ts against ${path.relative(REPO, BIN) || BIN}, run from a pane: passes, the real daemon's test included (${n('pass')} passed, ${n('skipped')} skipped)`, r.code === 0 && n('fail') === 0 && n('skipped') === 0 && n('pass') > 0, r.out.slice(-1200) + r.err.slice(-400));
@@ -142,9 +184,9 @@ if (BIN) {
 // ------------------------------------------------------------ the daemon's Go tests
 const GO = spawnSync('/bin/sh', ['-c', 'command -v go'], { encoding: 'utf8' }).stdout.trim();
 if (GO) {
-  const r = await run(GO, ['test', '-count=1', '-run', 'TestThePersonsDaemonAndBoardAreOutOfReach', './internal/testenv'], { cwd: path.join(REPO, 'daemon'), env: fromPane, timeout: 300000 });
+  const r = await fromPane(GO, ['test', '-count=1', '-run', 'TestThePersonsDaemonAndBoardAreOutOfReach|TestOnlyThePersonsVariablesAreDropped', './internal/testenv'], { cwd: path.join(REPO, 'daemon'), timeout: 300000 });
   await settle();
-  check('daemon/internal/testenv, run from a pane: a Go test keeps none of the pane\'s variables and refuses the person\'s socket and board', r.code === 0 && /^ok\s/m.test(r.out), r.out.slice(-800) + r.err.slice(-800));
+  check('daemon/internal/testenv, run from a pane: a Go test keeps none of the pane\'s variables, refuses the person\'s socket and board, and keeps a test\'s own', r.code === 0 && /^ok\s/m.test(r.out), r.out.slice(-800) + r.err.slice(-800));
   check('and it reached neither stand-in', hits() === 0, JSON.stringify({ sockHits, boardHits }));
 } else console.log('SKIP  the Go guard: no go on the PATH');
 

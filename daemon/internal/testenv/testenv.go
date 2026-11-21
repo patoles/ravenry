@@ -38,30 +38,109 @@ import (
 // 2026-11-21 a client test run from a shell in a Ravenry pane opened a
 // pane in the person's daemon through the RAVENRY_SOCKET it inherited. So
 // every test binary that imports this package unsets, before its tests
-// run, the variables that point a client at a running daemon or board
-// (LiveVars), and Problems refuses an environment that names the person's
-// daemon socket or board.
+// run, each variable of LiveVars that would reach the person's daemon or
+// board (liveDrops), and Problems refuses an environment that names them.
+//
+// What is the person's is told by its value, not by its name, the same
+// rule as Problems: a socket outside a test's folders (PersonSocket), an
+// address of this machine at the board's port (PersonBoard). A test's own
+// socket and board stay: the test binary is also each program its tests
+// run in their own daemon's panes (internal/testprog), started with the
+// pane's RAVENRY_SOCKET, RAVENRY_PANE and TERM_PROGRAM=ravenry, and on
+// 2026-11-22 dropping them by name left every such program with no daemon
+// to dial ("dial unix: missing address").
 
 // LiveVars point a client at a running daemon or board.
 var LiveVars = []string{"RAVENRY_SOCKET", "RAVENRY_PANE", "RAVENRY_HUB_URL", "MC_BOARD_URL"}
 
+// LiveSocketsVar and LivePortsVar name stand-ins a check treats as the
+// person's daemon sockets (paths joined with ":") and board ports (joined
+// with ","), as if they were the real ones: hub/tools/live-guard-test.mjs
+// only. They can only add refusals.
+const (
+	LiveSocketsVar = "RAVENRY_TEST_LIVE_SOCKETS"
+	LivePortsVar   = "RAVENRY_TEST_LIVE_PORTS"
+)
+
 func init() { DropLiveVars() }
 
-// DropLiveVars unsets LiveVars in this process, and TERM_PROGRAM with
-// TERM_PROGRAM_VERSION when they say ravenry. It returns the names unset.
+// DropLiveVars unsets, in this process, what liveDrops names. It returns
+// the names unset.
 func DropLiveVars() []string {
-	names := append([]string{}, LiveVars...)
-	if os.Getenv("TERM_PROGRAM") == "ravenry" {
-		names = append(names, "TERM_PROGRAM", "TERM_PROGRAM_VERSION")
+	out := liveDrops(os.LookupEnv)
+	for _, k := range out {
+		os.Unsetenv(k)
 	}
+	return out
+}
+
+// liveDrops names the variables of an environment that would reach the
+// person's own daemon or board: RAVENRY_SOCKET when it is the person's
+// socket, the board's address when it is the person's board, and the
+// pane's own variables (RAVENRY_PANE, TERM_PROGRAM and
+// TERM_PROGRAM_VERSION when they say ravenry) unless a test's own socket
+// stays beside them (without one a client finds its daemon from HOME).
+func liveDrops(get func(string) (string, bool)) []string {
+	val := func(k string) string { v, _ := get(k); return v }
+	has := func(k string) bool { _, ok := get(k); return ok }
 	var out []string
-	for _, k := range names {
-		if _, ok := os.LookupEnv(k); ok {
-			os.Unsetenv(k)
+	sock := val("RAVENRY_SOCKET")
+	own := sock != "" && !PersonSocket(sock, val)
+	if has("RAVENRY_SOCKET") && !own {
+		out = append(out, "RAVENRY_SOCKET")
+	}
+	if !own {
+		if has("RAVENRY_PANE") {
+			out = append(out, "RAVENRY_PANE")
+		}
+		if val("TERM_PROGRAM") == "ravenry" {
+			for _, k := range []string{"TERM_PROGRAM", "TERM_PROGRAM_VERSION"} {
+				if has(k) {
+					out = append(out, k)
+				}
+			}
+		}
+	}
+	for _, k := range []string{"RAVENRY_HUB_URL", "MC_BOARD_URL"} {
+		if u := val(k); u != "" && PersonBoard(u, val) {
 			out = append(out, k)
 		}
 	}
 	return out
+}
+
+// marked is the list in this environment's variable k, and this
+// process's, split on sep.
+func marked(k, sep string, get func(string) string) []string {
+	var out []string
+	for _, v := range []string{get(k), os.Getenv(k)} {
+		for _, x := range strings.Split(v, sep) {
+			if x = strings.TrimSpace(x); x != "" {
+				out = append(out, x)
+			}
+		}
+	}
+	return out
+}
+
+// PersonSocket reports whether this daemon socket is the person's own: one
+// outside a test's folders, or one LiveSocketsVar marks. get reads the
+// environment it was given in (RAVENRY_TEST_ROOT, the marks); nil is this
+// process's.
+func PersonSocket(p string, get func(string) string) bool {
+	if get == nil {
+		get = os.Getenv
+	}
+	for _, m := range marked(LiveSocketsVar, ":", get) {
+		if filepath.Clean(m) == filepath.Clean(p) || resolved(m) == resolved(p) {
+			return true
+		}
+	}
+	roots := get("RAVENRY_TEST_ROOT")
+	if r := os.Getenv("RAVENRY_TEST_ROOT"); r != "" {
+		roots += ":" + r
+	}
+	return !IsTestPath(p, roots)
 }
 
 // BoardPort is the person's board's port, besides the one their board
@@ -71,8 +150,12 @@ const BoardPort = 4600
 var loopback = regexp.MustCompile(`^(localhost|127\.\d+\.\d+\.\d+|::1|0\.0\.0\.0|::)$`)
 
 // PersonBoard reports whether this address is the person's own board on
-// this machine.
-func PersonBoard(raw string) bool {
+// this machine: the board's port, the one their board wrote, or one
+// LivePortsVar marks. get reads the marks; nil is this process's.
+func PersonBoard(raw string, get func(string) string) bool {
+	if get == nil {
+		get = os.Getenv
+	}
 	u, err := url.Parse(raw)
 	if err != nil || !loopback.MatchString(u.Hostname()) {
 		return false
@@ -86,6 +169,11 @@ func PersonBoard(raw string) bool {
 	}
 	if port == BoardPort {
 		return true
+	}
+	for _, m := range marked(LivePortsVar, ",", get) {
+		if n, err := strconv.Atoi(m); err == nil && n == port {
+			return true
+		}
 	}
 	var b struct {
 		Port int `json:"port"`
@@ -255,11 +343,11 @@ func Problems(env []string) []string {
 		}
 	}
 	get := lookup(env)
-	if s := get("RAVENRY_SOCKET"); s != "" && !IsTestPath(s, roots) {
+	if s := get("RAVENRY_SOCKET"); s != "" && PersonSocket(s, get) {
 		out = append(out, fmt.Sprintf("RAVENRY_SOCKET is %s, the person's own daemon", s))
 	}
 	for _, k := range []string{"RAVENRY_HUB_URL", "MC_BOARD_URL"} {
-		if u := get(k); u != "" && PersonBoard(u) {
+		if u := get(k); u != "" && PersonBoard(u, get) {
 			out = append(out, fmt.Sprintf("%s is %s, the person's own board", k, u))
 		}
 	}
