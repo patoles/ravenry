@@ -1169,7 +1169,7 @@ function serverNow() { return Date.now() - (ui.skew || 0); }
 
 function buildLive() {
   if (lv.full) closeFull({ back: false });
-  lv.sid = null; lv.key = null; lv.watch = false; lv.at = null; lv.ver = null; lv.keys = []; lv.base = []; lv.counts = []; lv.follow = true; lv.fresh = 0; lv.empty = '';
+  lv.sid = null; lv.key = null; lv.watch = false; lv.at = null; lv.away = null; lv.ver = null; lv.keys = []; lv.base = []; lv.counts = []; lv.follow = true; lv.fresh = 0; lv.empty = '';
   const card = document.createElement('div');
   card.className = 'card lv-card';
   card.id = 'lv-card';
@@ -1232,6 +1232,7 @@ function renderJump() {
 // it promises no read: "Watch only" in every form.
 function freshWords(form) {
   if (lv.watch) return { kind: 'watch', text: 'Watch only' };
+  if (lv.away) return { kind: 'stale', text: form === 'tiny' ? 'Reconnecting' : form === 'short' ? `Reconnecting to ${lv.away.machine}` : lv.away.words };
   if (lv.at == null) return { kind: 'stale', text: form === 'tiny' ? 'No read' : 'Not read yet' };
   const age = Math.max(0, serverNow() - lv.at) / 1000;
   const n = Math.max(1, Math.round(age));
@@ -1545,6 +1546,8 @@ async function fetchLive(sid) {
     if (!r.ok) { lv.empty = j.error || `${lv.term} could not read this tab.`; showEmpty(); return; }
     lv.at = j.at;
     lv.ver = j.ver;
+    // Its machine is not reached now: the last screen stays, the chip says so (MACH-011).
+    lv.away = j.away || null;
     if (!j.same) {
       lv.status = j.status;
       if (!j.entries.length) { lv.empty = j.at == null ? `${lv.term} has not read this tab yet.` : 'Nothing on screen yet.'; showEmpty(); }
@@ -1610,10 +1613,13 @@ function renderLive(p, s, state) {
   // "Not read yet" it would never keep.
   const key = sid || (watch ? 'watch:' + (s.sessionId || s.surfaceId) : 'none:' + p.id);
   if (key !== lv.key) {
-    lv.key = key; lv.sid = sid; lv.watch = watch; lv.at = null; lv.ver = null; lv.keys = []; lv.base = []; lv.counts = []; lv.follow = true; lv.fresh = 0; lv.status = null; lv.term = termOf(s);
+    lv.key = key; lv.sid = sid; lv.watch = watch; lv.at = null; lv.away = null; lv.ver = null; lv.keys = []; lv.base = []; lv.counts = []; lv.follow = true; lv.fresh = 0; lv.status = null; lv.term = termOf(s);
     lv.empty = !s ? 'No live session in this project.' : watch ? why : 'Reading the screen...';
     showEmpty();
   } else if (watch && lv.empty !== why) { lv.empty = why; showEmpty(); }
+  // Its machine not reached now (MACH-011): the last screen stays, the chip says so.
+  const away = (s && s.away) || null;
+  if (!!away !== !!lv.away) { lv.away = away; if (!away && sid) fetchLive(sid); }
   if (sid && (s.screenAt !== lv.at || !lv.keys.length)) fetchLive(sid);
   renderLiveStatus(p);
   renderFresh();

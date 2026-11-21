@@ -1052,7 +1052,7 @@
   "mach.liveSub": "Runs on {machine}{folder}.",
   "mach.liveConnecting": "Connecting to {machine} through the board",
   "mach.liveAgain": "Connect again",
-  "mach.liveLost": "The connection to that machine closed.",
+  "mach.liveAway": "Lost the connection to {machine}. Connecting again.",
   "mach.liveEnded": "That session's pane has closed.",
   "mach.liveNoView": "This Mac could not draw the terminal.",
   "mach.liveGone": "That pane is closed, or the board no longer reaches its machine.",

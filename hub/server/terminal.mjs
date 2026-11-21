@@ -317,6 +317,7 @@ export const ravenryStatus = (o) => ravenry.startStatus(o);
 export const ravenryDecider = (report, where) => ravenry.handoffDecider(report, where);
 // Remote machines, sessions started through the hub, checkpoint answers.
 export const ravenryMachineOf = (surfaceId) => ravenry.machineOfTab(surfaceId);
+export const ravenryMachineUnlisted = (name) => ravenry.machineUnlisted(name);
 export const ravenryStart = (o) => ravenry.startSession(o);
 export const ravenryClose = (id) => ravenry.close(id);
 export const ravenryAnswer = (daemon, params) => ravenry.answerCheckpoint(daemon, params);

@@ -144,6 +144,7 @@ export class Client extends EventEmitter {
     this._have = 0;
     this._parts = null; // a fragmented message being gathered
     this._open = false;
+    this._pings = new Map(); // a ping's payload (hex) -> its answer
   }
 
   // Whether the daemon has this method (hello's methods, section 10).
@@ -177,6 +178,26 @@ export class Client extends EventEmitter {
         opts.signal.addEventListener('abort', abort, { once: true });
       }
       this._send(msg);
+    });
+  }
+
+  // A WebSocket ping (RFC 6455 section 5.5.2): resolves to the round trip
+  // in ms when the daemon's pong comes back, rejects when it does not
+  // within timeoutMs or the connection ends. A connection left half-open
+  // (a laptop that slept, a network that changed) never answers, and
+  // nothing else would say so until TCP gives up.
+  ping(timeoutMs = 5000) {
+    if (this.closed) return Promise.reject(new RavenryError('disconnected', 'the connection is closed'));
+    const token = crypto.randomBytes(8);
+    const t0 = Date.now();
+    return new Promise((resolve, reject) => {
+      const done = (fn, v) => { clearTimeout(timer); this._pings.delete(key); this.off('close', onClose); fn(v); };
+      const key = token.toString('hex');
+      const onClose = () => done(reject, new RavenryError('disconnected', 'the connection is closed'));
+      const timer = setTimeout(() => done(reject, new RavenryError('timeout', `no pong in ${timeoutMs} ms`)), timeoutMs);
+      this._pings.set(key, () => done(resolve, Date.now() - t0));
+      this.once('close', onClose);
+      this._write(9, token);
     });
   }
 
@@ -321,7 +342,7 @@ export class Client extends EventEmitter {
       const payload = this._take(at + n).subarray(at);
       if (op === 8) { this.close(); return; }
       if (op === 9) { this._write(10, payload); continue; }
-      if (op === 10) continue;
+      if (op === 10) { const k = payload.toString('hex'); const p = this._pings.get(k); if (p) p(); continue; }
       if (op === 0) {
         if (!this._parts) { this._fail('a continuation with nothing to continue'); return; }
         this._parts.chunks.push(Buffer.from(payload));

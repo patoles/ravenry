@@ -72,6 +72,9 @@ c.on('event', (e) => {
   mark, data }`, a pane stream's binary frame), `'close'`.
 - `client.input(channel, bytes)`, `client.ack(channel, bytes)`,
   `client.close()`.
+- `client.ping(timeoutMs)`: a WebSocket ping; resolves to the round trip in
+  ms, rejects with `timeout` when no pong comes back in time (a connection
+  left half-open by a sleep or a network change answers nothing else).
 - `runtimeDir()`, `stateDir()`, `daemonSockets(dir)` (newest version
   first), `compareVersions(a, b)`.
 

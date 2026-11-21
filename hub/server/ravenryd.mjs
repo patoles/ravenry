@@ -209,18 +209,45 @@ export async function check() {
 // "ravenry:<id>", paneId, title, name, labels, cwd, agent, shell, daemon,
 // machine }. Throws when no daemon answers, so the board
 // shows the sessions there watch only, with the reason.
+// The machines whose last listing did not answer (a connection that
+// stopped answering, before its ping finds it): their panes are missing
+// from that listing, not closed.
+const unlisted = new Set();
+export const machineUnlisted = (name) => unlisted.has(name);
+
+// A machine's panes as its daemons last listed them (daemon id -> { machine,
+// tabs }). While the hub does not reach that machine (down, or its listing
+// did not answer: a sleep, a network change; MACH-011) they stay listed,
+// marked `away`, so each session keeps its pane and surface instead of
+// turning watch only, and comes back as it was. They go once the machine
+// is listed again, or is no longer one of the hub's.
+const machineTabs = new Map();
+const isAway = (name) => machines.isUp(name) === false || unlisted.has(name);
+
 export async function listTabs() {
   const live = await daemons();
-  if (!live.length) throw new Error(held() ? 'Ravenry: a test board does not reach the real ravenryd' : 'Ravenry: ravenryd is not running');
+  if (!live.length && !machineTabs.size) throw new Error(held() ? 'Ravenry: a test board does not reach the real ravenryd' : 'Ravenry: ravenryd is not running');
   const tabs = [];
+  const listed = new Set();
   for (const d of live) {
     let panes = [];
-    try { ({ panes } = await d.c.request('pane.list', {}, { timeoutMs: 3000 })); } catch { continue; }
+    try { ({ panes } = await d.c.request('pane.list', {}, { timeoutMs: 3000 })); } catch { if (d.machine) unlisted.add(d.machine); continue; }
+    if (d.machine) unlisted.delete(d.machine);
+    const mine = [];
     for (const p of panes) {
       where.set(p.id, d.id);
-      tabs.push({ id: PREFIX + p.id, paneId: p.id, title: p.title || p.name || '', name: p.name || '', labels: p.labels || {}, cwd: p.cwd, state: p.state, agent: p.agent || null, shell: p.shell || null, daemon: d.version, machine: d.machine });
+      mine.push({ id: PREFIX + p.id, paneId: p.id, title: p.title || p.name || '', name: p.name || '', labels: p.labels || {}, cwd: p.cwd, state: p.state, agent: p.agent || null, shell: p.shell || null, daemon: d.version, machine: d.machine });
     }
+    tabs.push(...mine);
+    if (d.machine) { machineTabs.set(d.id, { machine: d.machine, tabs: mine }); listed.add(d.id); }
   }
+  for (const [id, x] of machineTabs) {
+    if (listed.has(id)) continue;
+    if (machines.isUp(x.machine) === null || !isAway(x.machine)) { machineTabs.delete(id); continue; }
+    for (const t of x.tabs) if (!tabs.some((y) => y.id === t.id)) tabs.push({ ...t, away: true });
+  }
+  // Only a machine's panes kept while it is away, and no daemon answers here.
+  if (!live.length && !tabs.length) throw new Error(held() ? 'Ravenry: a test board does not reach the real ravenryd' : 'Ravenry: ravenryd is not running');
   return tabs;
 }
 

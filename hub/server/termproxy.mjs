@@ -159,9 +159,16 @@ function openStream(home) {
 
 // ------------------------------------------------------------ the upgrade
 
-function refuse(sock, status, text) {
-  try { sock.end(`HTTP/1.1 ${status}\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\nContent-Length: ${Buffer.byteLength(text)}\r\n\r\n${text}`); } catch { /* gone */ }
+function refuse(sock, status, text, extra = '') {
+  try { sock.end(`HTTP/1.1 ${status}\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n${extra}Content-Length: ${Buffer.byteLength(text)}\r\n\r\n${text}`); } catch { /* gone */ }
 }
+
+// A machine the hub has lost (a sleep, a network change): its panes are
+// still there, so the stream is refused as away for now (503, try again),
+// never as gone (404). The client tries again until the hub reaches the
+// machine (server/machines.mjs dials it again by itself).
+export const AWAY_RETRY_S = 2;
+export const awayWords = (machine) => `${machine} is not reached right now. Ravenry connects to it again by itself.`;
 
 // Joins the phone's upgrade to the pane's daemon. The person check is the
 // caller's (server/index.mjs), done before this.
@@ -175,12 +182,18 @@ export async function handle(req, sock, head, url) {
   if (!PANE_RE.test(pane)) return refuse(sock, '400 Bad Request', 'Name a Ravenry pane: ?pane=p and seven characters.');
   const home = await paneHome(pane).catch(() => null);
   if (!home) return refuse(sock, '404 Not Found', 'That pane is closed, or no daemon this hub reaches has it.');
+  if (home.machine && machines.isUp(home.machine) === false) return refuse(sock, '503 Service Unavailable', awayWords(home.machine), `Retry-After: ${AWAY_RETRY_S}\r\n`);
   const up = openStream(home);
   if (!up) return refuse(sock, '404 Not Found', 'That machine is not set up on this hub.');
   up.on('error', () => { try { sock.destroy(); } catch { /* gone */ } });
   up.write(`GET /v1 HTTP/1.1\r\nHost: ravenryd\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Protocol: ravenry.v1\r\n\r\n`);
   let closed = false;
+  // The machine's connection dropped or stopped answering: this stream
+  // went the same way (one network under both), so it ends now rather
+  // than when its own ssh notices, and the client connects again.
+  const offDown = home.machine ? machines.onMachineDown((name) => { if (name === home.machine) kill(1001, `lost the connection to ${name}`); }) : () => {};
   const kill = (code, why) => {
+    offDown();
     if (closed) return;
     closed = true;
     try { sock.end(closeFrame(code, why)); } catch { /* gone */ }
@@ -207,5 +220,6 @@ export async function handle(req, sock, head, url) {
   up.on('data', (d) => { if (!closed) sock.write(d); });
   up.on('end', () => { closed = true; try { sock.end(); } catch { /* gone */ } });
   up.on('close', () => { closed = true; try { sock.destroy(); } catch { /* gone */ } });
-  sock.on('close', () => { closed = true; try { up.destroy(); } catch { /* gone */ } });
+  sock.on('close', () => { closed = true; offDown(); try { up.destroy(); } catch { /* gone */ } });
+  up.on('close', offDown);
 }

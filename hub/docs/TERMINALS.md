@@ -466,8 +466,18 @@ in the registry's `settings.machines` (`[{ name, host, command }]`), with
 `ssh -T -o BatchMode=yes <host> -- <command> proxy`: ssh does the login and
 reads ~/.ssh/config (aliases, jump hosts), nothing listens on the machine,
 and ssh never asks a question (BatchMode) since nobody would answer. A
-dropped connection is tried again after 1, 2, 5, 10, then every 30
-seconds; the daemon there keeps its panes. Those daemons join the local
+dropped connection is tried again after 1, 2 and 3 seconds, then every 3
+seconds for two minutes, then every 30 seconds; the daemon there keeps its
+panes. A connection that only stops answering (left half-open by a laptop
+that slept or a network that changed) is found by a WebSocket ping every 4
+seconds that must come back within 4, then closed and dialed again; this
+Mac waking or its network addresses changing pings every connection and
+dials every down machine at once. Meanwhile that machine's panes stay
+listed, marked `away`: each session keeps its pane and surface, the Live
+screen keeps its last read with `away` and its words, `GET /api/term` to
+one of them answers 503 (try again) rather than 404, and its open streams
+end with the connection so their clients connect again (MACH-011,
+hub/tools/remote-reconnect-test.mjs). Those daemons join the local
 ones here: their panes keep the `ravenry:<id>` tab ids, the status
 channel, hook decisions and checkpoints work the same, and every pane,
 record, session, project and checkpoint says its `machine` (null on this

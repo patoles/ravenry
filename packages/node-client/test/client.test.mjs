@@ -46,7 +46,7 @@ function reader(onFrame) {
 }
 
 // A fake daemon: answers hello, then hands every other message to script.
-function fakeDaemon(script) {
+function fakeDaemon(script, { pong = false } = {}) {
   const dir = tmp();
   const sock = path.join(dir, 'ravenryd-9.9.9.sock');
   const seen = [];
@@ -65,6 +65,7 @@ function fakeDaemon(script) {
       const send = (m) => s.write(frame(1, Buffer.from(JSON.stringify(m))));
       s.on('data', reader((op, p) => {
         seen.push({ op, p });
+        if (op === 9 && pong) s.write(frame(10, p));
         if (op !== 1) return;
         const m = JSON.parse(p.toString());
         if (m.type === 'hello') send({ v: 1, type: 'result', id: m.id, method: 'hello', result: { protocol: 1, daemon: { version: '9.9.9' }, methods: ['hello', 'pane.list'] } });
@@ -167,4 +168,21 @@ test('finding daemons', () => {
   fs.writeFileSync(path.join(dir, 'other.sock'), '');
   assert.deepEqual(daemonSockets(dir).map((s) => s.version), ['0.10.0', '0.2.0-dev', '0.1.0']);
   assert.deepEqual(daemonSockets(path.join(dir, 'missing')), []);
+});
+
+test('ping: the pong comes back, or a connection that stopped answering is told', async () => {
+  const d = await fakeDaemon(() => {}, { pong: true });
+  const c = await connectSocket(d.sock, { name: 'test' });
+  const ms = await c.ping(1000);
+  assert.ok(ms >= 0 && ms < 1000);
+  c.close();
+  d.close();
+  // A daemon that never answers a ping (a half-open connection).
+  const q = await fakeDaemon(() => {});
+  const c2 = await connectSocket(q.sock, { name: 'test' });
+  await assert.rejects(c2.ping(100), (e) => e instanceof RavenryError && e.code === 'timeout');
+  // A ping on a closed connection fails at once.
+  c2.close();
+  await assert.rejects(c2.ping(100), (e) => e.code === 'disconnected');
+  q.close();
 });

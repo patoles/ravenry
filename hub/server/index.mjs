@@ -427,22 +427,43 @@ function tabAssistant(surfaceId) {
 // trimmed (server/assistant.mjs, trimScreen), with the time of its last good
 // read. When the page already has that version, only the time comes back. Asking marks the surface wanted, so the next ticks read 200 lines;
 // the first ask reads at once.
+// { machine, words } when a surface is a pane on a machine this hub does
+// not reach now (down, or its last listing did not answer, or reached
+// again a moment ago, its panes not listed yet) and the board has read it
+// before; else null.
+const LIVE_AWAY_SETTLE_MS = 10000;
+function liveAway(surfaceId, listed) {
+  if (term.kindOf(surfaceId) !== 'ravenry' || !screens.get(surfaceId)) return null;
+  const machine = term.ravenryMachineOf(surfaceId);
+  if (!machine) return null;
+  const m = machines.status().find((x) => x.name === machine);
+  if (!m) return null;
+  const up = m.state === 'connected';
+  if (up && (listed || (Date.now() - Date.parse(m.since || 0) > LIVE_AWAY_SETTLE_MS && !term.ravenryMachineUnlisted(machine)))) return null;
+  return { machine, words: word('mach.liveAway', { machine }) };
+}
+
+// A pane on a machine the hub has lost (a sleep, a network change; MACH-011)
+// is not closed: its last read stays, with `away` saying so, until the
+// machine is reached again (server/machines.mjs dials it by itself) and
+// its panes are listed again.
 async function liveScreen(surfaceId, ver) {
   const tab = tabOf(surfaceId);
-  if (!tab) return { status: 404, body: { error: `That tab is not open in ${term.nameOf(term.kindOf(surfaceId))}.` } };
+  const away = liveAway(surfaceId, !!tab && !tab.away);
+  if (!tab && !away) return { status: 404, body: { error: `That tab is not open in ${term.nameOf(term.kindOf(surfaceId))}.` } };
   const first = Date.now() - (liveWant.get(surfaceId) || 0) >= LIVE_WANT_MS || !screens.get(surfaceId)?.full;
   liveWant.set(surfaceId, Date.now());
-  if (first) await readSurface(tab);
+  if (first && tab && !away) await readSurface(tab);
   const x = screens.get(surfaceId);
   const now = Date.now();
-  if (!x || x.okAt == null) return { status: 200, body: { ok: true, surfaceId, at: null, now, live: false, entries: [], status: null } };
+  if (!x || x.okAt == null) return { status: 200, body: { ok: true, surfaceId, at: null, now, live: false, entries: [], status: null, ...(away ? { away } : {}) } };
   const bt = boardTabs.find((b) => b.s.surfaceId === surfaceId);
   // Code spans come from a Claude Code transcript's text (server/codespans.mjs).
   const tp = (bt && asst.supports(bt.s.assistant, 'codeSpans') && bt.s.transcript && bt.s.transcript.path) || null;
   const vkey = `${x.ver}\u0000${tp}\u0000${spansGen(tp)}`;
   let lvv = liveVers.get(surfaceId);
   if (!lvv || lvv.key !== vkey) { lvv = { key: vkey, ver: lvv ? lvv.ver + 1 : 1 }; liveVers.set(surfaceId, lvv); }
-  if (ver && Number(ver) === lvv.ver) return { status: 200, body: { ok: true, surfaceId, at: x.okAt, now, ver: lvv.ver, same: true } };
+  if (ver && Number(ver) === lvv.ver) return { status: 200, body: { ok: true, surfaceId, at: x.okAt, now, ver: lvv.ver, same: true, ...(away ? { away } : {}) } };
   const src = x.full ?? x.text;
   const t0 = performance.now();
   if (liveTrim.text !== src || liveTrim.kind !== x.assistant) liveTrim = { text: src, kind: x.assistant, value: asst.trimScreen(src, x.assistant) };
@@ -451,7 +472,7 @@ async function liveScreen(surfaceId, ver) {
   // (server/codespans.mjs, keepPersonTurns).
   if (liveMarked.key !== mkey || liveMarked.src !== src) liveMarked = { key: mkey, src, entries: keepPersonTurns(markEntries(liveTrim.value.entries, tp), tp) };
   const trimMs = performance.now() - t0;
-  const body = { ok: true, surfaceId, at: x.okAt, now, ver: lvv.ver, lines: src ? src.split('\n').length - 1 : 0, ...liveTrim.value, entries: liveMarked.entries };
+  const body = { ok: true, surfaceId, at: x.okAt, now, ver: lvv.ver, lines: src ? src.split('\n').length - 1 : 0, ...liveTrim.value, entries: liveMarked.entries, ...(away ? { away } : {}) };
   if (process.env.MC_LIVE_LOG === '1') console.log('live trim', JSON.stringify({ surfaceId, ms: +trimMs.toFixed(2), entries: body.entries.length }));
   return { status: 200, body };
 }
@@ -540,7 +561,7 @@ function tabOf(surfaceId, workspaces = lastWorkspaces) {
     return t ? { kind, workspaceId: t.workspaceId, surfaceId, title: t.title } : null;
   }
   const o = otherTabs[kind];
-  return o && o.tabs.has(surfaceId) ? { kind, surfaceId, title: o.tabs.get(surfaceId).title } : null;
+  return o && o.tabs.has(surfaceId) ? { kind, surfaceId, title: o.tabs.get(surfaceId).title, ...(o.tabs.get(surfaceId).away ? { away: true } : {}) } : null;
 }
 
 // A fresh look at one non-cmux tab, right before a write: the terminal is
@@ -977,6 +998,8 @@ function buildProject(project, wsById, hooks, settings, now) {
     st = handedState(st, marker);
     sessions.push({
       marker, paneId: null, cwd: e.cwd || (t && t.cwd) || project.folder, terminal: !!tab, term: tkind, assistant: kind,
+      // Its pane is on a machine the hub does not reach now (MACH-011): kept, with the words.
+      away: tab && tab.away && tab.machine ? { machine: tab.machine, words: word('mach.liveAway', { machine: tab.machine }) } : null,
       // A cmux tab followed from Ravenry mode is shown, never typed into.
       cannot: tab ? (tkind === 'cmux' && !term.canDrive('cmux') ? { why: null, short: term.cannotType('cmux') } : null) : cannotFor(tkind),
       surfaceId: tab ? tab.id : 'ev:' + e.sessionId, surfaceRef: tab ? term.nameOf(tkind) + ' tab' : null, workspaceId: (tab && tab.workspaceId) || e.workspaceId, workspaceRef: (tab && tab.workspaceRef) || null,
@@ -1109,6 +1132,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       // Done after its hand-off (handedState): a session that wrote one and
       // works on is listed like any other.
       handed: s.st.state === 'handed',
+      away: s.away || null,
       // Its fresh session after a hand-off: the tab it started in, and its
       // session id once seen. Every client moves what it shows from this
       // session to that one (hub/docs/HANDOFF.md, Where the hand-off lands).

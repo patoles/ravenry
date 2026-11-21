@@ -244,11 +244,13 @@ fs.writeFileSync(DOWN, '');
 for (const pid of pids()) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
 const down = await until(() => machines.status().find((m) => m.name === 'devbox' && m.state === 'down' && /Connection refused/.test(m.error || '')), 8000);
 check('a dropped connection shows down, with ssh\'s reason while it cannot reconnect', !!down, JSON.stringify(machines.status()));
-check('meanwhile its panes are not listed', !(await rv.listTabs().catch(() => [])).some((t) => t.paneId === PANE));
+// Not closed, only not reached: its panes stay listed, marked away (MACH-011).
+const awayTab = (await rv.listTabs().catch(() => [])).find((t) => t.paneId === PANE);
+check('meanwhile its panes stay listed, marked away', !!awayTab && awayTab.away === true && awayTab.machine === 'devbox', JSON.stringify(awayTab));
 fs.rmSync(DOWN);
 const back = await until(() => machines.status().find((m) => m.name === 'devbox' && m.state === 'connected'), 10000);
 check('it comes back by itself', !!back, JSON.stringify(machines.status()));
-const again = await until(async () => (await rv.listTabs()).find((t) => t.paneId === PANE));
+const again = await until(async () => (await rv.listTabs()).find((t) => t.paneId === PANE && !t.away));
 check('and its pane, which the daemon kept, lists again', !!again && again.machine === 'devbox');
 const h2 = await hook({ session_id: 'sess-remote-2', hook_event_name: 'UserPromptSubmit', cwd: RPROJ });
 check('its hooks reach the board again', h2.code === 0 && !!(await until(() => records.find((r) => r.session_id === 'sess-remote-2'))));

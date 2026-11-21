@@ -24,8 +24,17 @@
 // that way shows its error; the user fixes it with ssh in a terminal.
 //
 // A connection that drops (the network, a sleeping laptop, the remote
-// daemon updating) is tried again after 1, 2, 5, 10, then every 30
-// seconds; the remote daemon keeps its panes meanwhile.
+// daemon updating) is tried again after 1, 2 and 3 seconds, then every 3
+// seconds for two minutes, then every 30 seconds; the remote daemon keeps
+// its panes meanwhile. A connection that only stops answering (left
+// half-open by a laptop that slept or a Wi-Fi that changed: no error, no
+// close, ssh's own check takes 45 s or more) is found by a WebSocket ping
+// every 4 seconds that must come back within 4 seconds; it is then closed
+// and dialed again. When this Mac wakes (a timer that fired far too late)
+// or its network addresses change, every connection is pinged at once and
+// every machine that is down is dialed at once. The terminal streams to a
+// machine (server/termproxy.mjs) end with its connection (`onMachineDown`),
+// so their clients connect again too.
 //
 // Versions (PROTOCOL.md section 9). `proxy` reaches the newest daemon
 // there. After an update (server/remoteinstall.mjs) an older daemon keeps
@@ -50,7 +59,13 @@ import { answerKey } from './person.mjs';
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 // A host as ssh takes it: an alias, user@host, host:port is not ssh's form.
 const HOST_RE = /^(?!-)[A-Za-z0-9._@%+-]{1,255}$/;
-const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
+const BACKOFF_MS = [1000, 2000, 3000];
+const RETRY_FAST_MS = 3000; // after the steps, for the first two minutes down
+const RETRY_FAST_FOR_MS = 120000;
+const RETRY_SLOW_MS = 30000;
+const PING_EVERY_MS = Number(process.env.RAVENRY_MACHINE_PING_MS) || 4000;
+const PING_WAIT_MS = Number(process.env.RAVENRY_MACHINE_PING_WAIT_MS) || 4000;
+const NET_EVERY_MS = 2000;
 
 export const sshBin = (env = process.env) => env.RAVENRY_SSH || 'ssh';
 
@@ -135,12 +150,90 @@ let opts = null;
 export function start(o) {
   opts = { list: configured, ...o };
   sync();
+  watchStart();
 }
 
 export function stop() {
   opts = null;
+  watchStop();
   for (const l of links.values()) close(l, true);
   links.clear();
+}
+
+// ---------------------------------------------------------------- noticing a dead connection
+
+// Who wants to hear that a machine's connection dropped: fn(name).
+const downListeners = new Set();
+export function onMachineDown(fn) { downListeners.add(fn); return () => downListeners.delete(fn); }
+
+// Whether a machine's connection is up now: true, false, or null for a
+// machine this hub does not have.
+export function isUp(name) {
+  const l = links.get(name);
+  return l ? l.state === 'connected' && !!l.c && !l.c.closed : null;
+}
+
+// Pings one connection; closes it when the pong does not come back, which
+// drops it (down) and dials again.
+function pingLink(l, wait = PING_WAIT_MS) {
+  if (l.state !== 'connected' || !l.c || l.c.closed || l.pinging || typeof l.c.ping !== 'function') return;
+  const c = l.c;
+  l.pinging = true;
+  c.ping(wait).then(() => { l.pinging = false; }, () => {
+    l.pinging = false;
+    if (l.c !== c || c.closed) return;
+    l.lostWhy = `${l.m.name} stopped answering.`;
+    // ssh may hang on a dead connection: it is ended for good.
+    const child = l.child;
+    c.close();
+    if (child) { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+  });
+}
+
+// Every link and the older daemons it reaches.
+function allLinks() { const out = []; for (const l of links.values()) { out.push(l); for (const s of l.subs.values()) out.push(s); } return out; }
+
+// Something changed under every connection (this Mac woke, the network
+// changed): ping the live ones now, dial the down ones now.
+export function nudge(why = 'the network changed') {
+  for (const l of allLinks()) {
+    if (l.state === 'connected') pingLink(l, Math.min(PING_WAIT_MS, 3000));
+    else if (l.state === 'down' && !l.removed && !l.held && !l.parent) { clearTimeout(l.timer); l.tries = 0; l.downSince = Date.now(); l.nudged = why; dial(l); }
+  }
+}
+
+// The network addresses of this machine, as one string: a Wi-Fi joined or
+// left, a VPN up or down, an address renewed.
+function netSignature() {
+  const out = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) if (!a.internal) out.push(`${name}=${a.address}`);
+  return out.sort().join(',');
+}
+
+let watch = null;
+function watchStart() {
+  if (watch) return;
+  let lastTick = Date.now();
+  let lastNet = netSignature();
+  const ping = setInterval(() => {
+    const now = Date.now();
+    // A timer that fired far too late: this Mac slept.
+    const slept = now - lastTick > PING_EVERY_MS * 3;
+    lastTick = now;
+    if (slept) { nudge('this Mac woke'); return; }
+    for (const l of allLinks()) pingLink(l);
+  }, PING_EVERY_MS);
+  const net = setInterval(() => {
+    const sig = netSignature();
+    if (sig !== lastNet) { lastNet = sig; nudge('the network changed'); }
+  }, NET_EVERY_MS);
+  ping.unref(); net.unref();
+  watch = { ping, net };
+}
+function watchStop() {
+  if (!watch) return;
+  clearInterval(watch.ping); clearInterval(watch.net);
+  watch = null;
 }
 
 // Connects new machines and drops removed ones.
@@ -196,6 +289,8 @@ function dial(l) {
     l.remote = null;
     l.asked = false;
     l.since = new Date().toISOString();
+    l.lostWhy = null;
+    l.downSince = null;
     l.version = c.hello && c.hello.daemon ? c.hello.daemon.version : l.version || null;
     l.os = c.hello && c.hello.daemon ? c.hello.daemon.os || null : null;
     l.arch = c.hello && c.hello.daemon ? c.hello.daemon.arch || null : null;
@@ -207,7 +302,7 @@ function dial(l) {
       if (settled) return;
       settled = true;
       try { child.kill('SIGTERM'); } catch { /* gone */ }
-      down(l, sshError(err) || 'the connection dropped');
+      down(l, l.lostWhy || sshError(err) || 'the connection dropped');
     });
     if (opts.onUp) opts.onUp(l);
     if (!sub) findOlder(l);
@@ -347,12 +442,16 @@ function down(l, why) {
   l.state = l.removed ? 'removed' : 'down';
   l.error = why;
   l.since = new Date().toISOString();
-  if (was === 'connected' && opts && opts.onDown) opts.onDown(l);
+  if (was === 'connected') {
+    if (opts && opts.onDown) opts.onDown(l);
+    for (const fn of downListeners) { try { fn(l.m.name, l.version || null); } catch { /* a listener's own trouble */ } }
+  }
   // A connection to an older daemon is not tried again: that daemon exits
   // once its panes end, and the next connection finds the ones still there.
   if (l.parent) { l.removed = true; if (l.parent.subs.get(l.version) === l) l.parent.subs.delete(l.version); return; }
   if (l.removed || l.held || !opts) return;
-  const wait = BACKOFF_MS[Math.min(l.tries, BACKOFF_MS.length - 1)];
+  if (was === 'connected' || l.downSince == null) l.downSince = Date.now();
+  const wait = l.tries < BACKOFF_MS.length ? BACKOFF_MS[l.tries] : Date.now() - l.downSince < RETRY_FAST_FOR_MS ? RETRY_FAST_MS : RETRY_SLOW_MS;
   l.tries++;
   l.timer = setTimeout(() => dial(l), Number(process.env.RAVENRY_MACHINE_RETRY_MS) || wait);
   l.timer.unref();
