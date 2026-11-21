@@ -95,6 +95,7 @@ import * as sessionNames from './sessionnames.mjs';
 import { openApp } from './openapp.mjs';
 import * as launch from './launch.mjs';
 import * as sessionenv from './sessionenv.mjs';
+import * as restart from './restart.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -214,6 +215,13 @@ const reopening = new Set();
 // and the pane each was resumed in (sessionId -> { at, surfaceId, pane }).
 const resumeBusy = new Set();
 const resumed = new Map();
+// Resume after a restart (server/restart.mjs, SESS-053): the running
+// sessions' file and the card's offer; the card's sessions waiting their
+// turn (in order), the one resuming now, and the grid to start them at.
+const restartKeep = restart.keeper();
+const restartQueue = [];
+let restartBusy = null;
+let restartGrid = {};
 // Move here / Keep it in <terminal> (POST /api/sessions/move): a move asked
 // while the assistant was mid-turn, done by the tick once the turn ends
 // (sessionId -> { body, since, name }), and the last move done for each
@@ -501,6 +509,19 @@ function mapSession(surface, hook, binding, folder, taken, kind = 'claude') {
 function handedState(st, marker) {
   if (!marker || !(marker.state === 'written' || marker.state === 'resumed') || ['working', 'dialog', 'draft', 'none'].includes(st.state)) return st;
   return { state: 'handed', since: marker.writtenAt || st.since, reasons: [...(st.reasons || []), 'wrote its hand-off; a fresh session carries on'] };
+}
+
+// A session resumed after the restart that had stopped mid-turn waits for
+// the person in Needs you, "Stopped mid-turn by the restart. Tell it to go
+// on.", until they write to it (its next prompt, by its events or its
+// transcript), SESS-053.
+function restartWaits(st, sid, e, t) {
+  const at = sid ? restartKeep.midTurnSince(sid) : null;
+  if (!at) return st;
+  const wrote = [e && e.lastPromptAt, t && t.lastPersonPromptAt, t && t.lastQueuedAt].some((x) => x && Date.parse(x) > Date.parse(at));
+  if (wrote) { restartKeep.midTurnDone(sid); return st; }
+  if (['dialog', 'asked', 'draft'].includes(st.state)) return st;
+  return { state: 'handback', since: at, reasons: [...(st.reasons || []), 'stopped mid-turn by the restart'], source: st.source || 'events', say: word('restart.needsYou'), sayLong: word('restart.needsYouLong') };
 }
 
 // The transcript a hook event names, else the one found by session id.
@@ -950,6 +971,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       if (!st) st = { ...sessionState({ screen, title, transcript: t, hook, who: asst.of(kind).SHORT }, settings, now), source: 'screen' };
       const marker = map ? markers.get(map.sessionId) || null : null;
       st = handedState(st, marker);
+      st = restartWaits(st, map ? map.sessionId : null, evs, t);
       sessions.push({
         marker, paneId: s.paneId, cwd: (evs && evs.cwd) || (hook && hook.cwd) || (t && t.cwd) || (map && map.cwd) || project.folder, terminal: true, term: 'cmux', cannot: null, assistant: kind,
         surfaceId: s.id, surfaceRef: s.ref, workspaceId: w.id, workspaceRef: w.ref,
@@ -996,6 +1018,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     taken.add(e.sessionId);
     const marker = markers.get(e.sessionId) || null;
     st = handedState(st, marker);
+    st = restartWaits(st, e.anon ? null : e.sessionId, e, t);
     sessions.push({
       marker, paneId: null, cwd: e.cwd || (t && t.cwd) || project.folder, terminal: !!tab, term: tkind, assistant: kind,
       // Its pane is on a machine the hub does not reach now (MACH-011): kept, with the words.
@@ -1502,6 +1525,8 @@ async function tick() {
       pv.models = { claude: models.projectModel(rp, 'claude'), codex: models.projectModel(rp, 'codex') };
     }
     snapshot.startModels = startModels();
+    // Resume after a restart (SESS-053): what runs now, written down, and the card.
+    try { restartObserve(now); } catch (e) { console.error('restart:', e.message); }
     // Where every client opens (server/openon.mjs): the project of the
     // session the person used last (typed to, answered a card of, opened on
     // any device), else the one active last.
@@ -1529,6 +1554,130 @@ async function tick() {
     for (const res of clients) res.write(`event: state\ndata: ${j}\n\n`);
   }
   if (wantTick) { wantTick = false; setTimeout(tick, 50); }
+}
+
+// ------------------------------------------------------------ resume after a restart
+// server/restart.mjs, SESS-053. Each tick: the sessions a process holds on
+// this computer now, with what the card needs to resume each in its folder
+// with its assistant and model, written to running.json; the card itself
+// from restart.json while it has rows.
+
+const restartMachine = () => word(process.platform === 'darwin' ? 'restart.machineMac' : 'restart.machineOther');
+const restartView = () => (procState.at ? restart.cardView(restartKeep.offer, { queue: restartQueue, busy: restartBusy, machine: restartMachine() }) : null);
+
+function restartObserve(now) {
+  if (procState.at) {
+    const iso = new Date(now).toISOString();
+    const prev = new Map(restartKeep.sessions.map((e) => [e.sessionId, e]));
+    const live = [];
+    for (const [sid, h] of heldConversations()) {
+      let row = null, pr = null;
+      for (const q of snapshot.projects || []) { const x = (q.sessions || []).find((y) => y.sessionId === sid); if (x) { row = x; pr = q; break; } }
+      if ((row && row.machine) || (pr && pr.machine)) continue;
+      const e = ev.all.get(sid) || null;
+      const was = prev.get(sid) || {};
+      const own = pr && !pr.unowned ? { id: pr.id, name: pr.name, folder: pr.folder } : h.project ? { id: h.project.id, name: h.project.name, folder: h.project.folder } : null;
+      const folder = h.cwd || (e && e.cwd) || (own && own.folder) || was.folder || null;
+      const working = row ? row.state === 'working' : !!was.working;
+      live.push({
+        sessionId: sid, assistant: h.kind, model: (row && row.model) || was.model || null, folder,
+        projectId: own ? own.id : was.projectId || null, project: own ? own.name : was.project || (folder ? path.basename(folder) : null),
+        topic: (row && row.topic) || was.topic || null,
+        startedAt: was.startedAt || h.proc.startedAt || (e && e.startedAt) || iso, lastSeenAt: iso,
+        working, doing: working ? (row && row.words && row.words.headline) || was.doing || null : null,
+      });
+    }
+    restartKeep.observe(live, { now, ended: (sid) => { const e = ev.all.get(sid); return e && e.endedAt ? e.endReason || 'other' : null; }, resuming: restartBusy });
+  }
+  snapshot.restart = restartView();
+}
+
+// The card's state to every client at once (a resume moved on), between ticks.
+function pushRestart() {
+  snapshot.restart = restartView();
+  const j = JSON.stringify(snapshot);
+  if (j !== snapshotJson) {
+    snapshotJson = j;
+    for (const res of clients) res.write(`event: state\ndata: ${j}\n\n`);
+  }
+}
+
+// Resume, and Resume all (POST /api/restart/resume { sessionId?, cols, rows }):
+// each through the resume path every Continue takes (resumeSession: never a
+// second copy of a conversation open somewhere), one at a time, in the
+// card's order, each in its folder with its assistant and model.
+function restartResume(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const rows = restartKeep.rows;
+  if (!rows.length) return { ok: false, status: 404, error: 'There is nothing to resume.' };
+  const size = (n) => (Number.isInteger(n) && n >= 1 && n <= 4096 ? n : null);
+  if (size(b.cols) && size(b.rows)) restartGrid = { cols: b.cols, rows: b.rows };
+  let want;
+  if (b.sessionId != null) {
+    const sid = String(b.sessionId).toLowerCase();
+    const r = rows.find((x) => x.sessionId === sid);
+    if (!r) return { ok: false, status: 404, error: 'That session is not on the card.' };
+    want = [r];
+  } else want = rows;
+  const added = [];
+  for (const r of want) {
+    if (r.state === 'back' || restartBusy === r.sessionId || restartQueue.includes(r.sessionId)) continue;
+    restartQueue.push(r.sessionId);
+    added.push(r.sessionId);
+  }
+  console.log(`restart: resume ${b.sessionId ? 'one' : 'all'}: ${added.length} queued (${restartQueue.length} waiting)`);
+  void restartRun();
+  pushRestart();
+  return { ok: true, queued: added, restart: snapshot.restart };
+}
+
+async function restartRun() {
+  if (restartBusy) return;
+  while (restartQueue.length) {
+    const sid = restartQueue.shift();
+    const row = restartKeep.row(sid);
+    if (!row || row.state === 'back') continue;
+    restartBusy = sid;
+    pushRestart();
+    let r;
+    const t0 = Date.now();
+    try {
+      r = await resumeSession({ projectId: row.projectId, sessionId: sid, ...restartGrid, model: row.model });
+    } catch (e) { r = { ok: false, error: String(e.message || e) }; }
+    // Back once the assistant reports from it (its SessionStart), so the
+    // next one starts after it, never beside it; a pane that says nothing
+    // in 20 s is taken as back all the same.
+    if (r.ok && !r.already) {
+      const end = Date.now() + 20000;
+      const heard = () => { const e = ev.all.get(sid); return !!(e && Date.parse(e.lastEventAt || 0) >= t0 - 1000); };
+      while (!heard() && Date.now() < end) { await new Promise((res) => setTimeout(res, 150)); if (!ticking) void tick(); }
+    }
+    restartKeep.settle(sid, r.ok ? { ok: true, pane: r.pane && r.pane.id ? r.pane.id : null, surfaceId: r.surfaceId || null, projectId: r.projectId || null } : { ok: false, error: r.error });
+    console.log(`restart: ${sid} (${row.project || '?'}): ${r.ok ? `back in ${r.surfaceId}${r.already ? ' (it was open already)' : ''}` : `not resumed (${r.status || 500}): ${r.error}`}`);
+    restartBusy = null;
+    pushRestart();
+  }
+  wantTick = true; setTimeout(tick, 30);
+}
+
+// Dismiss (POST /api/restart/dismiss): the card goes; each session not back
+// is in Recently closed (SESS-021) with Reopen, in its folder with its
+// assistant and model.
+function restartDismiss() {
+  restartQueue.length = 0;
+  const left = restartKeep.dismiss();
+  const at = new Date().toISOString();
+  for (const r of left) {
+    try {
+      sess.writeClosed({ id: r.sessionId, cwd: r.folder || null, workspaceId: null, workspaceRef: null, workspace: null, surfaceId: null, term: 'ravenry', termSession: null,
+        project: r.project || null, projectId: r.projectId || null, label: r.project || (r.folder ? path.basename(r.folder) : 'Session'), lastLine: r.topic || null,
+        memKb: 0, pid: null, closedAt: at, assistant: r.assistant || 'claude', model: r.model || null, restart: true });
+    } catch (e) { console.error('restart: dismiss', r.sessionId, e.message); }
+  }
+  console.log(`restart: dismissed, ${left.length} session(s) in Recently closed`);
+  wantTick = true; setTimeout(tick, 30);
+  pushRestart();
+  return { ok: true, closed: left.map((r) => r.sessionId) };
 }
 
 // ------------------------------------------------------------ sessions and memory
@@ -1799,6 +1948,8 @@ async function closeOne(id, workspaces, allow, settings) {
   const c = await term.close(tab);
   if (!c.ok) { sess.dropClosed(id); return fail(`${name} did not close the tab: ` + (c.err || 'no answer')); }
   const gone = await sess.waitGone(row.pid, row.startedAt, 6000);
+  // The board's own Close: never offered after a restart.
+  restartKeep.forget(id);
   console.log(`sessions: closed ${id} (${row.label}, pid ${row.pid}, ${Math.round(still.rssKb / 1024)} MB) in ${ws.ref}${gone ? '' : ', process still exiting'}`);
   return { ok: true, id, label: row.label, memKb: still.rssKb, gone };
 }
@@ -1849,6 +2000,12 @@ async function reopenSession(body) {
   reopening.add(id);
   try {
     const cwd0 = rec.cwd && fs.existsSync(rec.cwd) ? rec.cwd : HOME;
+    // Its assistant and model, when the record says them (a session put
+    // here by the restart card's Dismiss, SESS-053); else Claude Code as before.
+    const rk = rec.assistant === 'codex' ? 'codex' : 'claude';
+    const rm = typeof rec.model === 'string' && models.MODEL_ID.test(rec.model) ? rec.model : null;
+    const rcmd = rk === 'codex' ? asst.startCommand('codex', reg ? reg.settings : {}) : cfg().launchCommand || 'claude';
+    const rargs = [...(rm ? (rk === 'codex' ? ['-m', rm] : ['--model', rm]) : []), ...(rk === 'codex' ? ['resume', id] : ['--resume', id])];
     // Closed in iTerm2 or Rex, or on a board in iTerm2 mode or Rex mode: a
     // new tab there (iTerm2's current window; Rex: the old tab's session).
     const k = rec.term && rec.term !== 'cmux' && term.canDrive(rec.term) ? rec.term : term.BOARD;
@@ -1856,7 +2013,7 @@ async function reopenSession(body) {
       const name = term.nameOf(k);
       // The assistant as the tab's program, else typed at a quiet prompt (server/launch.mjs).
       const made = await term.startInTab({ kind: k, open: k === 'rex' || k === 'ravenry' ? { near: term.kindOf(rec.surfaceId) === k ? rec.surfaceId : null, session: rec.termSession || null, label: rec.label || null } : {},
-        cwd: cwd0, command: cfg().launchCommand || 'claude', args: ['--resume', id], paths: launchPaths('claude', id) });
+        cwd: cwd0, command: rcmd, args: rargs, paths: launchPaths(rk, id) });
       if (!made.ok) return { ok: false, status: 500, command: made.command, error: made.opened ? `The new ${name} tab opened, but ${made.err}. Copy the command and run it there.` : `${name} did not open a tab: ` + (made.err || 'no answer') };
       sess.dropClosed(id);
       console.log(`sessions: reopened ${id} in ${name}`);
@@ -1875,7 +2032,7 @@ async function reopenSession(body) {
     if (!ws) return { ok: false, status: 409, error: 'cmux shows no workspace to open it in.' };
     const cwd = cwd0;
     // cmux only types a command: once the new tab shows a quiet prompt (server/launch.mjs).
-    const made = await term.startInTab({ kind: 'cmux', open: { workspaceId: ws.id, paneId: null }, cwd, command: cfg().launchCommand || 'claude', args: ['--resume', id] });
+    const made = await term.startInTab({ kind: 'cmux', open: { workspaceId: ws.id, paneId: null }, cwd, command: rcmd, args: rargs });
     if (!made.ok) return { ok: false, status: 500, command: made.command, error: made.opened ? `The new cmux tab opened, but ${made.err}. Copy the command and run it there.` : 'cmux did not open a tab: ' + (made.err || 'no answer') };
     sess.dropClosed(id);
     console.log(`sessions: reopened ${id} in ${ws.ref} (${made.surfaceRef})`);
@@ -2090,9 +2247,11 @@ async function resumeSession(body, { fresh = false } = {}) {
     const kind = conv ? conv.kind : asst.kindOf((e && e.assistant) || (s && s.assistant) || 'claude');
     const cwd = [e && e.cwd, conv && conv.cwd, project.folder].find((d) => d && path.isAbsolute(d) && fs.existsSync(d)) || null;
     if (!cwd) return { ok: false, status: 409, error: 'Its folder is gone, so there is nowhere to continue it.' };
+    // The model it ran on (resumed after a restart, SESS-053), else the assistant's default.
+    const model = typeof b.model === 'string' && models.MODEL_ID.test(b.model) ? b.model : null;
     const pl = sessionstart.plan({ projectId: project.id, folder: cwd, assistant: kind, resume: sid, cols: b.cols, rows: b.rows }, {
       project,
-      launch: (_p, k) => launchFor({ kind: k, note: null }),
+      launch: (_p, k) => launchFor({ kind: k, note: null }, null, model),
       machines: machines.status().map((m) => m.name),
       binPath: assistantPath,
     });
@@ -4702,6 +4861,12 @@ async function handleRequest(req, res) {
         let r;
         try { r = skills.setSkill(body, path.join(registry.RAVENRY_HOME, 'skills-undo.json'), process.env, HOME); } catch (e) { r = { ok: false, error: e.message }; }
         return sendJson(res, r.ok ? 200 : 400, r.ok ? r : { error: r.error });
+      }
+      if (p === '/api/restart/resume' || p === '/api/restart/dismiss') {
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const r = p === '/api/restart/resume' ? restartResume(body) : restartDismiss();
+        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error });
       }
       if (p === '/api/sessions/reopen') {
         const r = await reopenSession(await jsonBody(req, 1e5));

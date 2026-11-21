@@ -276,6 +276,10 @@ export function describe(project, primary, state, now) {
       out.headline = (t && t.recap) || lastPara || 'Your reply is half typed in the prompt.';
       out.line = 'Your reply is half typed in the prompt';
       out.draft = sc.draft;
+    } else if (st.say) {
+      // The hub's own words for why it waits (a session resumed after a restart mid-turn).
+      out.headline = st.sayLong || st.say;
+      out.line = st.say;
     } else {
       out.headline = (t && t.recap) || lastPara;
       out.line = recapNext || sentences(lastPara)[0] || (t && t.title) || '';
