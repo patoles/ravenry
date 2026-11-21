@@ -44,7 +44,7 @@ const SESSION_WORD = { dialog: 'Choice open', asked: 'Asked you', draft: 'Half-t
 const SESSION_STATE = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };
 const CHECK = 'M2 5.2l2 2 4-4.4';
 // Containers outside #sheet whose last html survives a sheet rebuild.
-const KEEP_HTML = ['list', 'views', 'pchips', 'idle-sheet'];
+const KEEP_HTML = ['list', 'views', 'pchips', 'idle-sheet', 'restart'];
 
 // ------------------------------------------------------------ view state
 
@@ -613,7 +613,9 @@ function renderList() {
   const counts = { you: 0, work: 0, wait: 0, idle: 0 };
   ps.forEach((p) => { counts[p.state]++; });
   const mixLabel = `${counts.you} need you, ${counts.work} working, ${counts.wait} waiting, ${counts.idle} idle`;
-  let h = accessNote(snap) + `<div class="mix"><div class="mix-bar" role="img" aria-label="${esc(mixLabel)}">${ORDER.filter((k) => counts[k]).map((k) => `<span style="flex: ${counts[k]}; background: ${ST[k].c}"></span>`).join('')}</div></div>`;
+  // Resume after a restart (SESS-053): the card at the top of the list; the Mac's own words on the Mac.
+  const rc = restartCard();
+  let h = (rc ? restartHtml(rc, 'w', ui.local === true) : '') + accessNote(snap) + `<div class="mix"><div class="mix-bar" role="img" aria-label="${esc(mixLabel)}">${ORDER.filter((k) => counts[k]).map((k) => `<span style="flex: ${counts[k]}; background: ${ST[k].c}"></span>`).join('')}</div></div>`;
   const g = groups(ps);
   for (const k of ORDER) {
     const items = g[k];
@@ -676,6 +678,89 @@ function renderProjectChips() {
   if (back && back !== document.activeElement) back.focus();
   renderIdleSheet(g.idle);
 }
+
+// ------------------------------------------------------------ resume after a restart
+// SESS-053 (hub/server/restart.mjs, cardView): "N sessions were running
+// before the restart", at the top of Projects (the phone, over the chips;
+// a wide board, the top of the list). The hub decides everything and sends
+// the words; this draws them and posts the taps (POST /api/restart/resume,
+// /api/restart/dismiss). Once every one is back the card goes and the
+// hub's toast shows, once.
+
+const RS_ICON = '<svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7"></path><path d="M11.6 1.8v2.9H8.7"></path></svg>';
+const RS_SPIN = '<svg class="rs-spin" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke-opacity=".25"></circle><path d="M8 2a6 6 0 0 1 6 6" stroke-linecap="round"></path></svg>';
+const RS_CHECK = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6.6" stroke-width="1.5"></circle><path d="M5.2 8.2l2 2 3.8-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const RS_INFO = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6.6" stroke-width="1.5"></circle><path d="M8 7.2v4" stroke-width="1.6" stroke-linecap="round"></path><circle cx="8" cy="4.9" r="1" fill="currentColor" stroke="none"></circle></svg>';
+
+function restartRowHtml(r, c) {
+  const st = r.state;
+  const right = st === 'resuming' ? `<span class="rs-st run">${RS_SPIN}${esc(r.stateWord)}</span>`
+    : st === 'back' ? `<span class="rs-st ok">${RS_CHECK}${esc(r.stateWord)}</span>${r.projectId ? `<button class="rs-lk" data-rs-show="${escRaw(r.sessionId)}">${esc(c.show)}</button>` : ''}`
+      : st === 'next' ? `<span class="rs-st q">${esc(r.stateWord)}</span>`
+        : `<button class="btn rs-one" data-rs-resume="${escRaw(r.sessionId)}">${esc(c.resume)}</button>`;
+  return `<div class="rs-row s-${escRaw(st)}" data-rs-row="${escRaw(r.sessionId)}">
+<div class="rs-a"><span class="rs-pj">${esc(r.project)}</span>${r.midTurn && r.midTurnTag ? `<span class="rs-tag">${esc(r.midTurnTag)}</span>` : ''}<span class="rs-sp"></span>${right}</div>
+${r.topic ? `<div class="rs-tp">${esc(r.topic)}</div>` : ''}
+<div class="rs-b">${r.chip ? `<span class="rs-chip">${esc(r.chip)}</span>` : ''}${r.ran ? `<span>${esc(r.ran)}</span>` : ''}</div>
+${st === 'failed' && r.error ? `<div class="rs-err">${esc(r.error)}</div>` : ''}
+${r.midTurn && r.midTurnNote && st !== 'back' ? `<div class="rs-note">${RS_INFO}<span>${esc(r.midTurnNote)}</span></div>` : ''}
+</div>`;
+}
+
+// `mac`: the board on the Mac itself (the long words and Dismiss's note);
+// elsewhere the phone's (bodyShort, phoneNote).
+function restartHtml(c, where, mac = false) {
+  const hid = `rs-h-${where}`;
+  return `<section class="rs-card" aria-labelledby="${hid}">
+<div class="rs-hd"><span class="rs-ic">${RS_ICON}</span><div class="rs-hx"><h2 id="${hid}">${esc(c.title)}</h2><div class="rs-sub">${esc(mac ? c.body : c.bodyShort)}</div></div></div>
+<div class="rs-rows">${c.rows.map((r) => restartRowHtml(r, c)).join('')}</div>
+<div class="rs-ft"><button class="btn pri rs-big" data-rs-all ${c.resumeAllBusy ? 'disabled aria-busy="true"' : ''}>${c.resumeAllBusy ? RS_SPIN : ''}<span>${esc(c.resumeAll)}</span></button>
+<div class="rs-fn">${esc(mac ? c.dismissNote : c.phoneNote)}</div>
+<button class="btn rs-big" data-rs-dismiss>${esc(c.dismiss)}</button></div>
+</section>`;
+}
+
+// The card while it offers or resumes; null when there is none or all are back.
+function restartCard() {
+  const c = ui.snap && ui.snap.restart;
+  return c && c.phase !== 'done' && Array.isArray(c.rows) && c.rows.length ? c : null;
+}
+
+function renderRestart() {
+  const c = ui.snap && ui.snap.restart;
+  // All back: the hub's toast, once for this restart (its id).
+  if (c && c.phase === 'done' && c.toast && ui.rsToasted !== c.id && store.get('restartToast', null) !== c.id) {
+    ui.rsToasted = c.id;
+    store.set('restartToast', c.id);
+    toast(c.toast, 5000);
+  }
+  const card = restartCard();
+  setHtml('restart', card ? restartHtml(card, 'p') : '');
+}
+
+async function restartPost(url, body) {
+  try { await post(url, body); } catch (e) { toast(e.message, 5000, true); }
+}
+
+// Show on a row that is back: its project, the session picked, its Live screen (as psLanded).
+function restartShow(sid) {
+  const c = ui.snap && ui.snap.restart;
+  const r = c && c.rows.find((x) => x.sessionId === sid);
+  if (!r || !r.projectId || !project(r.projectId)) return;
+  notePick(r.projectId, r.surfaceId || null);
+  psLanded(r.projectId, { surfaceId: r.surfaceId || null, say: '' });
+}
+
+document.addEventListener('click', (e) => {
+  const one = e.target.closest('[data-rs-resume]');
+  if (one) { one.disabled = true; void restartPost('/api/restart/resume', { sessionId: one.dataset.rsResume }); return; }
+  const all = e.target.closest('[data-rs-all]');
+  if (all) { all.disabled = true; void restartPost('/api/restart/resume', {}); return; }
+  const dis = e.target.closest('[data-rs-dismiss]');
+  if (dis) { dis.disabled = true; void restartPost('/api/restart/dismiss', {}); return; }
+  const sh = e.target.closest('[data-rs-show]');
+  if (sh) restartShow(sh.dataset.rsShow);
+});
 
 function renderIdleSheet(idle) {
   if (ui.idleOpen && (!idle.length || ui.view !== 'projects')) ui.idleOpen = false;
@@ -4977,6 +5062,7 @@ function render() {
     ui.sel = first ? first.slice().sort((a, b) => Date.parse(b.since || 0) - Date.parse(a.since || 0))[0].id : null;
   }
   renderList();
+  renderRestart();
   renderProjectChips();
   if (ui.view === 'objectives') renderObjectives();
   else if (ui.view === 'ideas') renderIdeas();

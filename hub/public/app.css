@@ -335,9 +335,59 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .bs-title{font-size:16px;font-weight:700}
 .bs-done{all:unset;cursor:pointer;color:var(--work);font-size:15px;font-weight:600;padding:2px 4px}
 .bs-list{flex:1 1 auto;min-height:0;padding:8px 8px 24px;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column}
+/* Resume after a restart (SESS-053, renderRestart in app.js), as the phone
+   mockup: a card at the top of Projects, over the chips at phone width and
+   at the top of the list when wide. */
+.rs-card{background:var(--card);border-radius:14px;padding:14px 14px 12px;color:var(--tx);font-size:15px;line-height:1.35;-webkit-font-smoothing:antialiased}
+.mc.light .rs-card{box-shadow:0 0 0 1px var(--sheet-ring)}
+.rs-hd{display:flex;gap:10px;align-items:flex-start}
+.rs-ic{width:30px;height:30px;border-radius:9px;background:var(--work-t);color:var(--work);display:flex;align-items:center;justify-content:center;flex:none}
+.rs-hx{flex:1;min-width:0}
+.rs-card h2{margin:0;font-size:17px;font-weight:700;line-height:1.25}
+.rs-sub{font-size:13px;color:var(--tx2);margin-top:4px}
+.rs-rows{margin-top:8px}
+.rs-row{border-top:1px solid var(--sep);padding:10px 0}
+.rs-row:first-child{border-top:none}
+.rs-row.s-next{opacity:.75}
+.rs-a{display:flex;align-items:center;gap:8px;min-width:0}
+.rs-sp{flex:1}
+.rs-pj{font-weight:650;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rs-tag{font-size:11.5px;font-weight:650;border-radius:5px;padding:1px 6px;background:var(--work-t);color:var(--work);white-space:nowrap;flex:none}
+.rs-tp{font-size:13.5px;color:var(--tx2);margin-top:2px;overflow-wrap:anywhere}
+.rs-b{display:flex;gap:6px;align-items:center;margin-top:5px;font-size:12px;color:var(--tx3);flex-wrap:wrap}
+.rs-chip{border:1px solid var(--sep);border-radius:5px;font-size:11.5px;font-weight:600;color:var(--tx2);padding:1px 6px;white-space:nowrap}
+.rs-card .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;white-space:nowrap}
+.rs-one{height:34px;min-height:34px;border-radius:9px;font-size:14px;padding:0 14px;flex:none}
+.rs-big{display:flex;width:100%;height:46px;border-radius:11px;font-size:16px}
+.rs-card .btn.pri:disabled{opacity:.55;filter:none;cursor:default}
+.mc.light .rs-card .btn:not(.pri){box-shadow:0 0 0 1px var(--sep)}
+.rs-note{display:flex;gap:8px;align-items:flex-start;background:var(--card2);border-radius:9px;padding:8px 10px;margin-top:8px;font-size:12.5px;color:var(--tx2)}
+.rs-note svg{flex:none;margin-top:2px;color:var(--work)}
+.rs-err{font-size:12.5px;color:var(--bad);margin-top:6px}
+.rs-st{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;white-space:nowrap;flex:none}
+.rs-st.run{color:var(--tx2)}.rs-st.ok{color:var(--ok)}.rs-st.q{color:var(--tx3)}
+.rs-lk{all:unset;cursor:pointer;color:var(--work);font-weight:600;font-size:14px;flex:none}
+.rs-spin{flex:none;animation:psSpin 1s linear infinite}
+@media (prefers-reduced-motion: reduce){.rs-spin{animation:none}}
+.rs-ft{border-top:1px solid var(--sep);padding-top:12px}
+.rs-fn{text-align:center;font-size:12.5px;color:var(--tx3);margin:8px 6px}
+/* Wide: the list column is narrower than a phone; the same card, smaller. */
+.mc-list .rs-card{padding:12px;font-size:13px}
+.mc-list .rs-card h2{font-size:14.5px}
+.mc-list .rs-sub,.mc-list .rs-tp{font-size:12.5px}
+.mc-list .rs-pj{font-size:13.5px}
+.mc-list .rs-a{gap:6px}
+.mc-list .rs-one{height:28px;min-height:28px;border-radius:7px;font-size:12.5px;padding:0 10px}
+.mc-list .rs-big{height:36px;border-radius:9px;font-size:14px}
+.mc-list .rs-note,.mc-list .rs-fn{font-size:12px}
+.mc-list .rs-st,.mc-list .rs-lk{font-size:12.5px}
+.rs-wrap{display:none}
+.rs-wrap:empty{display:none !important}
 .pchips,.idle-sheet{display:none}
 @media (max-width: 700px){
   .mc-list{display:none}
+  .rs-wrap{display:block;flex:1 1 100%;padding:8px 8px 0;box-sizing:border-box;min-width:0}
+  .mc.not-projects .rs-wrap,.mc.pn-sub .rs-wrap{display:none}
   .pchips{display:flex}
   .mc.not-projects .pchips{display:none}
   .idle-sheet{display:block}
