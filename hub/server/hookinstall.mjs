@@ -558,6 +558,11 @@ export function codexStatus({ root = ROOT } = {}) {
 export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root = ROOT, node, only = null, undoFile = null } = {}) {
   if (!remove && (typeof ravenryd !== 'string' || !ravenryd.startsWith('/'))) return { ok: false, error: 'Give the absolute path of ravenryd.' };
   if (!remove && !isExe(ravenryd)) return { ok: false, error: `${ravenryd} is not an executable file.` };
+  // `only` names one assistant: the registry's installer for it, and none
+  // for one whose hooks Ravenry does not install (never both instead).
+  const how = only == null ? null : installerOf(only);
+  if (only != null && !how) return { ok: false, error: `Ravenry has no hooks to set up for ${assistants.nameOf(only) || only}.` };
+  only = how;
   const out = { ok: true, claude: null, codex: null };
   if (only !== 'codex') {
     let cur;

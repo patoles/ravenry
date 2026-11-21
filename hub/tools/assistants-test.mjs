@@ -161,6 +161,15 @@ check('with the brief prompt as its one word', /\|Read BRIEF\.md \(Hand-off sect
 const refused = await post('/api/sessions/start', { projectId: 'proj', assistant: 'nope' });
 check('an assistant nobody registered is refused, naming the three', refused.status === 400 && refused.body.error === 'assistant is claude, codex or fake.', refused.text);
 
+// Its hooks are its own ('state'): Set up never writes Claude Code's or Codex's for it.
+{
+  const before = fs.readFileSync(SETTINGS, 'utf8');
+  const hs = await post('/api/setup/hooks', { ravenryd: BIN, only: 'fake' });
+  check('Set up for it is refused, and Claude Code\'s settings stay as they were', hs.status === 400 && /no hooks to set up for Stand-in Agent/.test(hs.text) && fs.readFileSync(SETTINGS, 'utf8') === before, hs.text);
+  const rows = (await get('/api/setup/hooks')).body.rows || [];
+  check('the doctor\'s rows list only assistants whose hooks Ravenry installs', rows.map((r) => r.kind).join() === 'claude', JSON.stringify(rows));
+}
+
 // Its hook events drive its state.
 const PANE = st.body && st.body.pane ? st.body.pane.id : null;
 const SOCK = fs.readdirSync(RUN).filter((n) => n.endsWith('.sock')).map((n) => path.join(RUN, n))[0];
