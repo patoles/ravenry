@@ -1,6 +1,7 @@
 package testenv
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -39,5 +40,35 @@ func TestTheRealHomeIsRefused(t *testing.T) {
 		if p := Problems([]string{"HOME=" + tmp, "XDG_RUNTIME_DIR=/nonexistent"}); len(p) != 0 {
 			t.Fatalf("missing XDG_RUNTIME_DIR: %q", p)
 		}
+	}
+}
+
+// Run from a Ravenry pane, a test binary keeps none of the pane's
+// variables, and an environment naming the person's daemon or board is
+// refused (hub/tools/live-guard-test.mjs runs this with them set).
+func TestThePersonsDaemonAndBoardAreOutOfReach(t *testing.T) {
+	for _, k := range LiveVars {
+		if v, ok := os.LookupEnv(k); ok {
+			t.Fatalf("%s=%s is still set", k, v)
+		}
+	}
+	if os.Getenv("TERM_PROGRAM") == "ravenry" {
+		t.Fatal("TERM_PROGRAM=ravenry is still set")
+	}
+	tmp := t.TempDir()
+	live := filepath.Join(realHome(), "Library", "Application Support", "Ravenry", "run", "ravenryd-1.0.0.sock")
+	if p := Problems([]string{"HOME=" + tmp, "RAVENRY_SOCKET=" + live}); len(p) != 1 || !strings.Contains(p[0], "the person's own daemon") {
+		t.Fatalf("the person's socket: %q", p)
+	}
+	if p := Problems([]string{"HOME=" + tmp, "RAVENRY_SOCKET=" + filepath.Join(tmp, "ravenryd-1.0.0.sock")}); len(p) != 0 {
+		t.Fatalf("a test's socket: %q", p)
+	}
+	for _, u := range []string{"http://127.0.0.1:4600", "http://localhost:4600/", "http://[::1]:4600"} {
+		if p := Problems([]string{"HOME=" + tmp, "RAVENRY_HUB_URL=" + u}); len(p) != 1 {
+			t.Fatalf("the person's board %s: %q", u, p)
+		}
+	}
+	if p := Problems([]string{"HOME=" + tmp, "RAVENRY_HUB_URL=http://127.0.0.1:9", "MC_BOARD_URL=http://192.168.1.50:4600"}); len(p) != 0 {
+		t.Fatalf("a test's board: %q", p)
 	}
 }

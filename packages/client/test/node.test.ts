@@ -1,6 +1,11 @@
 // Finding the daemon (PROTOCOL.md section 9), and, when RAVENRYD names a
 // ravenryd binary, the client against the real daemon: start it, open a
 // shell, stream it with acks, type, paste, resize, close.
+// Never the person's own daemon: the guard takes this shell's RAVENRY_SOCKET
+// and RAVENRY_PANE away first, and the daemon's environment is built from
+// scratch (2026-11-21: run from a Ravenry pane, this test opened its shell
+// in the person's daemon).
+import '../../../tools/test-guard.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -76,9 +81,11 @@ real('against ravenryd: start, shell, stream with acks, type, paste, resize, clo
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'rv-'));
   fs.chmodSync(base, 0o700);
   const rt = path.join(base, 'r');
-  const env = { ...process.env, RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: path.join(base, 's'), HOME: base };
+  // From scratch: nothing of the shell's (RAVENRY_SOCKET would win over the folders).
+  const env = { HOME: base, PATH: '/usr/bin:/bin', SHELL: '/bin/sh', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: path.join(base, 's') };
   const { client, socket } = await findDaemon({ name: 'client-test', env, start: BIN, startEnv: env });
   try {
+    assert.equal(path.dirname(socket), rt, 'the daemon this test started, in its own runtime folder');
     assert.match(path.basename(socket), /^ravenryd-.+\.sock$/);
     assert.equal(client.hello.protocol, 1);
     const { pane } = await client.request('pane.new', { command: ['/bin/sh'], cwd: base, cols: 80, rows: 24, env: { PS1: '$ ' } });

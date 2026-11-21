@@ -19,15 +19,82 @@ package testenv
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+// The person's own daemon and board: a test never reaches them, whatever
+// shell it runs from (tools/test-env.mjs keeps the same rule for Node). On
+// 2026-11-21 a client test run from a shell in a Ravenry pane opened a
+// pane in the person's daemon through the RAVENRY_SOCKET it inherited. So
+// every test binary that imports this package unsets, before its tests
+// run, the variables that point a client at a running daemon or board
+// (LiveVars), and Problems refuses an environment that names the person's
+// daemon socket or board.
+
+// LiveVars point a client at a running daemon or board.
+var LiveVars = []string{"RAVENRY_SOCKET", "RAVENRY_PANE", "RAVENRY_HUB_URL", "MC_BOARD_URL"}
+
+func init() { DropLiveVars() }
+
+// DropLiveVars unsets LiveVars in this process, and TERM_PROGRAM with
+// TERM_PROGRAM_VERSION when they say ravenry. It returns the names unset.
+func DropLiveVars() []string {
+	names := append([]string{}, LiveVars...)
+	if os.Getenv("TERM_PROGRAM") == "ravenry" {
+		names = append(names, "TERM_PROGRAM", "TERM_PROGRAM_VERSION")
+	}
+	var out []string
+	for _, k := range names {
+		if _, ok := os.LookupEnv(k); ok {
+			os.Unsetenv(k)
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// BoardPort is the person's board's port, besides the one their board
+// wrote to ~/.ravenry/board.json.
+const BoardPort = 4600
+
+var loopback = regexp.MustCompile(`^(localhost|127\.\d+\.\d+\.\d+|::1|0\.0\.0\.0|::)$`)
+
+// PersonBoard reports whether this address is the person's own board on
+// this machine.
+func PersonBoard(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || !loopback.MatchString(u.Hostname()) {
+		return false
+	}
+	port, _ := strconv.Atoi(u.Port())
+	if port == 0 {
+		port = 80
+		if u.Scheme == "https" {
+			port = 443
+		}
+	}
+	if port == BoardPort {
+		return true
+	}
+	var b struct {
+		Port int `json:"port"`
+	}
+	if data, err := os.ReadFile(filepath.Join(realHome(), ".ravenry", "board.json")); err == nil && json.Unmarshal(data, &b) == nil {
+		return b.Port > 0 && b.Port == port
+	}
+	return false
+}
 
 // realHome is the account's home, from the user database (not HOME, which
 // a test may have changed).
@@ -187,15 +254,25 @@ func Problems(env []string) []string {
 			out = append(out, fmt.Sprintf("%s is %s, inside the real user's folders", name, d))
 		}
 	}
+	get := lookup(env)
+	if s := get("RAVENRY_SOCKET"); s != "" && !IsTestPath(s, roots) {
+		out = append(out, fmt.Sprintf("RAVENRY_SOCKET is %s, the person's own daemon", s))
+	}
+	for _, k := range []string{"RAVENRY_HUB_URL", "MC_BOARD_URL"} {
+		if u := get(k); u != "" && PersonBoard(u) {
+			out = append(out, fmt.Sprintf("%s is %s, the person's own board", k, u))
+		}
+	}
 	return out
 }
 
 // Check stops the test before it starts a daemon with this environment
-// when any of its folders is the real user's.
+// when any of its folders is the real user's, or it names the person's own
+// daemon or board.
 func Check(t testing.TB, env []string) {
 	t.Helper()
 	if p := Problems(env); len(p) > 0 {
-		t.Fatalf("refused to start ravenryd: a test keeps every folder of Ravenry's in a test root (a .tmp folder of this repository, RAVENRY_TEST_ROOT, or the system's temporary folders), never in the real user's:\n  %s", strings.Join(p, "\n  "))
+		t.Fatalf("refused to start ravenryd: a test keeps every folder of Ravenry's in a test root (a .tmp folder of this repository, RAVENRY_TEST_ROOT, or the system's temporary folders), never in the real user's, and reaches only its own daemon and board:\n  %s", strings.Join(p, "\n  "))
 	}
 }
 

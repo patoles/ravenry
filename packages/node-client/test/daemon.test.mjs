@@ -2,6 +2,7 @@
 // ravenryd binary (CI builds one), with a throwaway HOME, runtime and
 // state folder.
 
+import '../../../tools/test-guard.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -58,6 +58,12 @@
 // tool, and refuses a board (the hub's server, or `ravenry` start or serve)
 // whose environment names the real ps or lsof, or none. withStubMachine(env)
 // adds them to an environment built from scratch.
+//
+// The person's own daemon and board: a test never reaches them, whatever
+// shell it runs from. guardSpawns() takes RAVENRY_SOCKET, RAVENRY_PANE and
+// the board's address out of the tool's own environment, refuses a child
+// given the person's daemon socket or board, and refuses the tool's own
+// connections to them (below, "the person's own daemon and board").
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -473,6 +479,116 @@ export function paneVarsIn(env) {
   return Object.keys(env || {}).filter((k) => PANE_VARS.includes(k) || /^(CMUX_(SURFACE|WORKSPACE|PANEL|TAB)_ID|CMUX_SOCKET_PATH|ITERM_SESSION_ID|TMUX|TMUX_PANE|REX_BLOCK)$/.test(k));
 }
 
+// ------------------------------------------------------------ the person's own daemon and board
+//
+// A test never reaches the ravenryd or the board the person is running. On
+// 2026-11-21 packages/client's node test, run from a shell in a Ravenry
+// pane, gave findDaemon its whole environment with a scratch HOME and
+// runtime folder: RAVENRY_SOCKET still named the person's daemon, which a
+// client takes before any folder, so the test opened a shell pane in the
+// person's daemon and typed into it.
+//
+// So guardSpawns():
+// - takes out of the tool's own environment, before it reads it, every
+//   variable that points a client at a running daemon or board (LIVE_VARS,
+//   and TERM_PROGRAM with TERM_PROGRAM_VERSION when they say ravenry). A
+//   tool only inherits them from the shell it runs in; one that needs one
+//   sets its own (its test daemon's socket, its test board's address).
+// - refuses a child whose environment names the person's daemon (a
+//   RAVENRY_SOCKET outside a test's folders) or the person's board (an
+//   address on this machine at the board's port: 4600, or the one their
+//   board wrote to ~/.ravenry/board.json).
+// - refuses, in the tool itself, a connection to a unix socket in the
+//   person's folders (their daemon's) or to the person's board on this
+//   machine, whatever led there: a variable, the real HOME, a default.
+// hub/tools/live-guard-test.mjs fails when a test could reach either.
+export const LIVE_VARS = ['RAVENRY_SOCKET', 'RAVENRY_PANE', 'RAVENRY_HUB_URL', 'MC_BOARD_URL'];
+export const BOARD_PORT = 4600;
+
+// The check's own stand-ins for the person's daemon and board (markLive).
+const markedSockets = new Set();
+const markedPorts = new Set();
+/** Treats this socket or port as the person's, in this process: for hub/tools/live-guard-test.mjs only. */
+export function markLive({ socket = null, port = null } = {}) {
+  if (socket) markedSockets.add(path.resolve(socket));
+  if (port) markedPorts.add(Number(port));
+}
+
+/** The ports the person's board answers on: 4600, and the one it wrote to ~/.ravenry/board.json. */
+export function liveBoardPorts() {
+  const out = new Set([BOARD_PORT]);
+  try {
+    const p = Number(JSON.parse(fs.readFileSync(path.join(REAL_HOME, '.ravenry', 'board.json'), 'utf8')).port);
+    if (Number.isInteger(p) && p > 0 && p < 65536) out.add(p);
+  } catch { /* no board ran here */ }
+  return out;
+}
+let boardPorts = null;
+
+const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|::1|\[::1\]|0\.0\.0\.0|::|\[::\]|::ffff:127\.\d+\.\d+\.\d+)$/i;
+
+/** Whether this address is the person's board on this machine (no host is localhost). */
+export function personBoard(host, port) {
+  const p = Number(port);
+  if (!(!host || LOOPBACK.test(String(host)))) return false;
+  if (markedPorts.has(p)) return true;
+  return (boardPorts || (boardPorts = liveBoardPorts())).has(p);
+}
+
+/** Whether this unix socket is the person's: outside a test's folders (their daemon's). */
+export function personSocket(p, env = process.env) {
+  if (typeof p !== 'string' || !p || p.startsWith('\0')) return false;
+  const abs = path.resolve(p);
+  return markedSockets.has(abs) || !isTestPath(abs, env);
+}
+
+function boardUrlLive(u) {
+  try {
+    const x = new URL(String(u));
+    return personBoard(x.hostname, x.port || (x.protocol === 'https:' ? 443 : 80));
+  } catch { return false; }
+}
+
+/** Why a child started with this environment would reach the person's daemon or board, or null. */
+export function liveProblem(env) {
+  if (!env) return null;
+  if (env.RAVENRY_SOCKET && personSocket(env.RAVENRY_SOCKET, env)) return `RAVENRY_SOCKET names the person's own daemon (${env.RAVENRY_SOCKET})`;
+  for (const k of ['RAVENRY_HUB_URL', 'MC_BOARD_URL']) if (env[k] && boardUrlLive(env[k])) return `${k} names the person's own board (${env[k]})`;
+  return null;
+}
+
+/** Takes LIVE_VARS (and TERM_PROGRAM when it says ravenry) out of env, this process's by default: the names taken. */
+export function dropLiveVars(env = process.env) {
+  const out = LIVE_VARS.filter((k) => k in env);
+  if (env.TERM_PROGRAM === 'ravenry') out.push(...['TERM_PROGRAM', 'TERM_PROGRAM_VERSION'].filter((k) => k in env));
+  for (const k of out) delete env[k];
+  return out;
+}
+
+// The address of a net.Socket#connect call: { path } or { host, port }.
+function connectTarget(args) {
+  let a = args[0];
+  if (Array.isArray(a)) a = a[0]; // node:net's own normalized arguments
+  if (a && typeof a === 'object') return { path: a.path, host: a.host, port: a.port };
+  if (typeof a === 'number' || (typeof a === 'string' && /^\d+$/.test(a))) return { port: a, host: typeof args[1] === 'string' ? args[1] : undefined };
+  if (typeof a === 'string') return { path: a };
+  return {};
+}
+
+// Every connection of this process (net, http, fetch, the clients) goes
+// through net.Socket#connect.
+function guardConnections() {
+  const net = createRequire(import.meta.url)('node:net');
+  const orig = net.Socket.prototype.connect;
+  net.Socket.prototype.connect = function guardedConnect(...args) {
+    const t = connectTarget(args);
+    const why = t.path != null ? (personSocket(String(t.path)) ? `the unix socket ${t.path} is in the person's own folders (their daemon's)` : null)
+      : t.port != null && personBoard(t.host, t.port) ? `${t.host || 'localhost'}:${t.port} is the person's own board` : null;
+    if (why) throw new Error(`Refused to connect: ${why}. A test reaches only its own daemon and board (tools/test-env.mjs).`);
+    return orig.apply(this, args);
+  };
+}
+
 // A tool that proves the app's own answer to a start from a pane
 // (apps/desktop/tools/relaunch-check.mjs) says so first; even then only an
 // app in the relaunch test mode, which keeps the test's folders, may start
@@ -486,6 +602,8 @@ function check(file, args, opts) {
     const leak = paneVarsIn(env);
     if (leak.length) throw new Error(`Refused to start the app (${path.basename(String(file))}): its environment has a terminal pane's variables (${leak.join(', ')}); start it with a clean one.`);
   }
+  const live = liveProblem(env);
+  if (live) throw new Error(`Refused to start ${path.basename(String(file))}: ${live}. A test reaches only its own daemon and board.`);
   const ld = launchdProblem(file, args, env);
   if (ld) throw new Error(`Refused to start ${path.basename(String(file))}: ${ld}.`);
   const mp = machineProblem(file, args, env);
@@ -569,11 +687,17 @@ let guarded = false;
  * From now on, every ravenryd, hub or app this process starts through
  * node:child_process is checked first (assertTestEnv), and so is every
  * child that would drive a real terminal app (checkTerminal): a refused one
- * throws before it starts. ESM named imports see it too.
+ * throws before it starts. ESM named imports see it too. Nothing of the
+ * person's own daemon or board is reachable any more (dropLiveVars,
+ * liveProblem, guardConnections).
  */
 export function guardSpawns() {
   if (guarded) return;
   guarded = true;
+  // Nothing of the shell's points this tool or its children at the
+  // person's own daemon or board, and nothing connects to them.
+  dropLiveVars(process.env);
+  guardConnections();
   // Children that inherit this process's environment read the stand-in.
   for (const k of ['MC_PS_BIN', 'MC_LSOF_BIN']) if (!stubbed(process.env[k])) process.env[k] = STUB_PS;
   // And a stand-in for each assistant they would find as the person's own.

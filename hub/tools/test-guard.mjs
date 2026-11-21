@@ -26,6 +26,13 @@
 //   it would find as the person's own (tools/test-env.mjs, the
 //   assistants): on 2026-11-21 a test board started the person's OpenCode,
 //   which called its model.
+// - Nothing of the person's own running daemon or board is reachable
+//   (tools/test-env.mjs, the person's own daemon and board): the board's
+//   address (RAVENRY_HUB_URL, MC_BOARD_URL) goes from this process's
+//   environment with the pane variables below, a child given the person's
+//   socket or board is refused, and so is a connection to them. On
+//   2026-11-21 a client test run from a Ravenry pane opened a pane in the
+//   person's daemon. hub/tools/live-guard-test.mjs checks it.
 
 import fs from 'node:fs';
 import path from 'node:path';

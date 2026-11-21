@@ -1064,6 +1064,15 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   ravenryd and hub a test tool starts stops when the tool ends, by a
   signal, an uncaught error or process.exit (tools/test-env.mjs,
   reapStarted), the one `serve --detach` started too.
+- `node tools/live-guard-test.mjs`: no test reaches the person's own
+  ravenryd or board, whatever shell it runs from (tools/test-env.mjs, the
+  person's own daemon and board). Run with a Ravenry pane's RAVENRY_SOCKET,
+  RAVENRY_PANE, TERM_PROGRAM and board address pointing at stand-ins it
+  owns, the client's node test against a real ravenryd, a client looking
+  for its daemon under each guard and the daemon's Go guard connect to
+  neither; a child given the person's socket or board is refused, and so
+  is a connection to them from the test itself. A control with no guard
+  must reach the stand-ins.
 - `node tools/iterm-mode-test.mjs`: iTerm2 mode and `npm run iterm`
   (above, "The board in iTerm2"): which terminal the board drives from
   where it was started, the Ravenry tab against `tools/fake-iterm.mjs`

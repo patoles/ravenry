@@ -2,6 +2,7 @@
 // ids, errors, events, a stream's snapshot then output, acks, input frames,
 // stream.end, frames that arrive in the same batch as the subscribe result,
 // and the transports.
+import '../../../tools/test-guard.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

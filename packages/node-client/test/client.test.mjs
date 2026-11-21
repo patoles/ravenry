@@ -1,6 +1,7 @@
 // The client against a fake daemon: a WebSocket server written here, so
 // the framing (lengths, fragments, ping, close) is checked byte for byte.
 
+import '../../../tools/test-guard.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
