@@ -361,7 +361,15 @@ extension SelfTestBoard {
         if let r = pk.region { pk.circle(1, r, note: "This blue, a little darker") }
         pk.buttons["send"].map { pressIt($0) }
         pc("pc_pick_answered", wait(10) { self.fileText(out + "/pick.out").contains("Blue sail") }, fileText(out + "/pick.out").prefix(200).description)
-        pc("pc_pick_printed_label_region_note", ringed && wait(5) { let o = self.fileText(out + "/pick.out"); return o.contains("Blue sail\nregion 0.3000 0.3000 0.3000 0.4000\nnote This blue, a little darker") },
+        // The region as drawn with the mouse, within the same 0.01 as `ringed` (a drag lands on whole points: 0.2997 for 0.3).
+        let printed: (String) -> Bool = { o in
+            let lines = o.components(separatedBy: "\n")
+            guard let i = lines.firstIndex(of: "Blue sail"), i + 2 < lines.count, lines[i + 2] == "note This blue, a little darker" else { return false }
+            let r = lines[i + 1].split(separator: " ")
+            let want: [Double] = [0.3, 0.3, 0.3, 0.4]
+            return r.count == 5 && r[0] == "region" && zip(r.dropFirst().compactMap { Double($0) }, want).filter { abs($0 - $1) < 0.01 }.count == 4
+        }
+        pc("pc_pick_printed_label_region_note", ringed && wait(5) { printed(self.fileText(out + "/pick.out")) },
            "ringed \(ringed) \(String(describing: pk.region)) | \(fileText(out + "/pick.out").prefix(300))")
         try? FileManager.default.removeItem(atPath: picA)
         try? FileManager.default.removeItem(atPath: picB)

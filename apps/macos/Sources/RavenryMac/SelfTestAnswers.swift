@@ -115,6 +115,10 @@ extension SelfTestBoard {
         // This board's assistants as found and set up (the Start screen's own checks cover the rest).
         a0["assistants"] = [["kind": "claude", "name": "Claude Code", "found": true, "signedIn": true, "path": "/usr/local/bin/claude"]]
         hub.testAnswers["/api/setup/start"] = a0
+        // Start opened on a folder asks with it (StartView): the same answer there, or the board's own
+        // list comes back (OpenCode, no sign-in, offered first).
+        let startAsked = "/api/setup/start?folder=\(garden.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")"
+        hub.testAnswers[startAsked] = a0
         hub.testAnswers["/api/onboarding"] = ["setup": ["claude": true]]
         board.openStart(garden)
         check("ans_start_opens", wait(6) { self.board.front == .start && st.folder == garden && st.assistant == "claude" && st.controls["model"] != nil },
@@ -146,6 +150,8 @@ extension SelfTestBoard {
         check("ans_start_posted", wait(10) { hub.answers.contains { $0.seq >= n2 && $0.path == "/api/sessions/start" && $0.code == 200 && !$0.faked } },
               "\(sentSince(n2)) \(hub.answers.filter { $0.seq >= n2 }.map { "\($0.path) \($0.code)" }) \(st.error ?? "")")
         check("ans_start_runs_with_model", wait(15) { lines().contains { $0.hasPrefix("--model opus ") } }, "argv \(lines())")
+        // The hub's own answer from here on: what it remembered.
+        hub.testAnswers[startAsked] = nil
         var reg: [String: Any]?
         _ = wait(8) {
             hub.get("/api/setup/start?folder=\(garden.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? garden)") { _, j in reg = j }
