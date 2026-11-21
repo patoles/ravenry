@@ -63,6 +63,44 @@ final class InfoGlyph: NSView {
     override func viewDidChangeEffectiveAppearance() { needsDisplay = true }
 }
 
+/// The mockup's spinner: a faint ring and a lit quarter from the top, turning
+/// (still under Reduce motion). Drawn, so the self-test's pictures show it.
+final class RestartSpin: NSView {
+    private let tint: () -> NSColor
+    private var angle: CGFloat = 0
+    private var timer: Timer?
+    init(size: CGFloat = 14, tint: @escaping () -> NSColor) {
+        self.tint = tint
+        super.init(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func draw(_ r: NSRect) {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            // viewBox 16: a ring r 6, stroke 2 at .25; "M8 2a6 6 0 0 1 6 6", turned by the angle.
+            let k = bounds.width / 16, c = tint()
+            let ring = NSBezierPath(ovalIn: NSRect(x: 2 * k, y: 2 * k, width: 12 * k, height: 12 * k))
+            ring.lineWidth = 2 * k
+            c.withAlphaComponent(0.25).setStroke(); ring.stroke()
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: NSPoint(x: 8 * k, y: 8 * k), radius: 6 * k, startAngle: 270 + angle, endAngle: 360 + angle)
+            arc.lineWidth = 2 * k; arc.lineCapStyle = .round
+            c.setStroke(); arc.stroke()
+        }
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        timer?.invalidate(); timer = nil
+        guard window != nil, !Motion.reduced else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.angle = (self.angle + 18).truncatingRemainder(dividingBy: 360)
+            self.needsDisplay = true
+        }
+    }
+}
+
 final class RestartCard: Box {
     /// Resume one (its session id), or all (nil).
     var onResume: ((String?) -> Void)?
@@ -134,6 +172,8 @@ final class RestartCard: Box {
         let busy = card["resumeAllBusy"] as? Bool ?? false
         let all = RButton(s("resumeAll"), .primary) { [weak self] in self?.onResume?(nil) }
         all.isEnabled = !busy
+        // While they resume: the spinner before "Resuming 2 of 4...", in the title's colour.
+        if busy { all.leadView = RestartSpin(size: 13) { NSColor.white.withAlphaComponent(0.5) } }
         all.setAccessibilityLabel(s("resumeAll"))
         controls["all"] = all
         let dismiss = RButton(s("dismiss"), .normal) { [weak self] in self?.onDismiss?() }

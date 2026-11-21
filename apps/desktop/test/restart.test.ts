@@ -3,7 +3,7 @@
 // its clicks make, and what follows each state (tabs, the front, the toast).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { actOf, cardHtml, cardShows, postFor, restartOf, RestartFollow } from '../src/renderer/restart.ts';
+import { actOf, cardHtml, cardShows, postFor, quietSessions, restartOf, RestartFollow } from '../src/renderer/restart.ts';
 import type { RestartCard, RestartRow, RestartRowState } from '../src/renderer/restart.ts';
 
 const NOTE = 'It stopped in the middle of a turn. Resuming opens the conversation where it was; it does not run that turn again. Tell it to go on.';
@@ -157,4 +157,15 @@ test('each session that comes back opens as a tab once; when all are back the fi
 test('a card already done when the window first sees it says nothing and moves nothing', () => {
   const f = new RestartFollow();
   assert.deepEqual(f.step(card(['back', 'back', 'back', 'back'])), { open: [], front: null, toast: null });
+});
+
+test('the card\'s sessions get no "needs you" toast while it is on screen, nor in the state it goes', () => {
+  const offer = card();
+  const resuming = card(['back', 'resuming', 'next', 'next']);
+  const done = card(['back', 'back', 'back', 'back']);
+  assert.deepEqual([...quietSessions(offer, resuming)].sort(), [...SIDS].sort());
+  assert.deepEqual([...quietSessions(resuming, done)].sort(), [...SIDS].sort());
+  // Once it has gone, and with none: every session toasts again.
+  assert.equal(quietSessions(done, done).size, 0);
+  assert.equal(quietSessions(null, null).size, 0);
 });

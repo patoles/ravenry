@@ -32,6 +32,9 @@
 //   back.".
 // - a wide board on the Mac itself shows it at the top of the list, with
 //   the Mac's words (body, dismissNote).
+// - at an iPad's width (768 and 1024) every project name is whole on one
+//   line (scrollWidth <= clientWidth), the Mid-turn tag beside or under it;
+// - the all-back toast has its check.
 // Pictures at 390 x 844 in OUT: the card dark and light, mid-resume, Show's
 // Live screen and all back; and the wide board.
 import { guardSpawns } from '../../../tools/test-env.mjs';
@@ -225,6 +228,27 @@ try {
   await shot('06-wide-dark', pw2);
   await cw.close();
 
+  // ---- 02c: an iPad's width (768 and 1024): every project name whole, the Mid-turn tag beside it or under it, never over it
+  for (const [w, hgt] of [[768, 1024], [1024, 768]]) {
+    const ci = await browser.newContext({ proxy: phoneProxy(STANDIN), viewport: { width: w, height: hgt }, deviceScaleFactor: 2, hasTouch: true, colorScheme: 'dark' });
+    const pi = await ci.newPage();
+    pi.on('pageerror', (e) => check(`no_page_error_${w}`, false, e.message));
+    await pi.goto(`${PH}/?k=${encodeURIComponent(KEY)}`);
+    await pi.waitForSelector('#list .rs-card .rs-pj', { timeout: 20000 });
+    const names = await pi.evaluate(() => [...document.querySelectorAll('#list .rs-card .rs-row')].map((r) => {
+      const pj = r.querySelector('.rs-pj');
+      const tag = r.querySelector('.rs-tag');
+      const range = document.createRange();
+      range.selectNodeContents(pj);
+      const a = pj.getBoundingClientRect();
+      const t = tag && tag.getBoundingClientRect();
+      return { name: pj.textContent, sw: pj.scrollWidth, cw: pj.clientWidth, lines: range.getClientRects().length, clear: !t || t.left >= a.right - 0.5 || t.top >= a.bottom - 0.5 };
+    }));
+    check(`ipad_${w}_names_never_cut`, names.length === 4 && names.map((x) => x.name).join(',') === ORDER.join(',') && names.every((x) => x.sw <= x.cw && x.lines === 1 && x.clear), JSON.stringify(names));
+    await shot(`07-ipad-${w}-dark`, pi);
+    await ci.close();
+  }
+
   // ---- 03: Resume all, one at a time
   await p.evaluate(() => {
     window.__rs = [];
@@ -256,6 +280,7 @@ try {
   // ---- 05: all back: the card goes, the toast shows
   const toastSeen = await until(() => p.evaluate(() => { const t = document.querySelector('#toast'); return !document.querySelector('#restart .rs-card') && t && !t.hidden ? t.textContent : null; }), 60000, 50);
   check('card_goes_and_toast', toastSeen === 'All 4 sessions are back.', String(toastSeen));
+  check('toast_check_icon', await p.evaluate(() => !!document.querySelector('#toast .rs-ti svg')));
   if (toastSeen) await shot('05-all-back-dark', p, { toast: true });
   const seen = (await p.evaluate(() => { clearInterval(window.__rsT); return window.__rs; })).map((k) => JSON.parse(k));
   const states = seen.map((x) => x[0]).filter((s) => s.length === 4);

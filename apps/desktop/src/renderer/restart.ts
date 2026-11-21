@@ -64,6 +64,16 @@ export function restartOf(state: unknown): RestartCard | null {
 /** Whether the card is drawn: there is one and its sessions are not all back. */
 export const cardShows = (r: RestartCard | null): r is RestartCard => !!r && r.phase !== 'done' && r.rows.length > 0;
 
+/**
+ * The card's sessions (their ids) that come to need the person without a
+ * "needs you" toast: the card says them while it is on screen, and in the
+ * state it goes (all back, the first in front and its own toast).
+ */
+export function quietSessions(prev: RestartCard | null, next: RestartCard | null): Set<string> {
+  if (!cardShows(prev) && !cardShows(next)) return new Set();
+  return new Set([...(prev?.rows || []), ...(next?.rows || [])].map((r) => r.sessionId));
+}
+
 const esc = (s: unknown): string => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 // The icons, as the mockups draw them (currentColor: the CSS colours them).

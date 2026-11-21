@@ -699,7 +699,7 @@ function restartRowHtml(r, c) {
       : st === 'next' ? `<span class="rs-st q">${esc(r.stateWord)}</span>`
         : `<button class="btn rs-one" data-rs-resume="${escRaw(r.sessionId)}">${esc(c.resume)}</button>`;
   return `<div class="rs-row s-${escRaw(st)}" data-rs-row="${escRaw(r.sessionId)}">
-<div class="rs-a"><span class="rs-pj">${esc(r.project)}</span>${r.midTurn && r.midTurnTag ? `<span class="rs-tag">${esc(r.midTurnTag)}</span>` : ''}<span class="rs-sp"></span>${right}</div>
+<div class="rs-a"><div class="rs-nm"><span class="rs-pj">${esc(r.project)}</span>${r.midTurn && r.midTurnTag ? `<span class="rs-tag">${esc(r.midTurnTag)}</span>` : ''}</div>${right}</div>
 ${r.topic ? `<div class="rs-tp">${esc(r.topic)}</div>` : ''}
 <div class="rs-b">${r.chip ? `<span class="rs-chip">${esc(r.chip)}</span>` : ''}${r.ran ? `<span>${esc(r.ran)}</span>` : ''}</div>
 ${st === 'failed' && r.error ? `<div class="rs-err">${esc(r.error)}</div>` : ''}
@@ -733,6 +733,8 @@ function renderRestart() {
     ui.rsToasted = c.id;
     store.set('restartToast', c.id);
     toast(c.toast, 5000);
+    // The check before the words, as the Mac's (mac-B-back).
+    $('#toast').insertAdjacentHTML('afterbegin', `<span class="rs-ti">${RS_CHECK}</span>`);
   }
   const card = restartCard();
   setHtml('restart', card ? restartHtml(card, 'p') : '');

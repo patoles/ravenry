@@ -350,8 +350,9 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .rs-row:first-child{border-top:none}
 .rs-row.s-next{opacity:.75}
 .rs-a{display:flex;align-items:center;gap:8px;min-width:0}
-.rs-sp{flex:1}
-.rs-pj{font-weight:650;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The name is never cut: beside it the tag while both fit, else the tag under it (a narrow wide-board list). */
+.rs-nm{flex:1 1 auto;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.rs-pj{font-weight:650;font-size:15px;min-width:0;overflow-wrap:anywhere}
 .rs-tag{font-size:11.5px;font-weight:650;border-radius:5px;padding:1px 6px;background:var(--work-t);color:var(--work);white-space:nowrap;flex:none}
 .rs-tp{font-size:13.5px;color:var(--tx2);margin-top:2px;overflow-wrap:anywhere}
 .rs-b{display:flex;gap:6px;align-items:center;margin-top:5px;font-size:12px;color:var(--tx3);flex-wrap:wrap}
@@ -368,6 +369,7 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .rs-st.run{color:var(--tx2)}.rs-st.ok{color:var(--ok)}.rs-st.q{color:var(--tx3)}
 .rs-lk{all:unset;cursor:pointer;color:var(--work);font-weight:600;font-size:14px;flex:none}
 .rs-spin{flex:none;animation:psSpin 1s linear infinite}
+.rs-ti{display:inline-flex;vertical-align:-3px;margin-right:10px;color:var(--ok)}
 @media (prefers-reduced-motion: reduce){.rs-spin{animation:none}}
 .rs-ft{border-top:1px solid var(--sep);padding-top:12px}
 .rs-fn{text-align:center;font-size:12.5px;color:var(--tx3);margin:8px 6px}
@@ -376,7 +378,7 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .mc-list .rs-card h2{font-size:14.5px}
 .mc-list .rs-sub,.mc-list .rs-tp{font-size:12.5px}
 .mc-list .rs-pj{font-size:13.5px}
-.mc-list .rs-a{gap:6px}
+.mc-list .rs-a,.mc-list .rs-nm{column-gap:6px}
 .mc-list .rs-one{height:28px;min-height:28px;border-radius:7px;font-size:12.5px;padding:0 10px}
 .mc-list .rs-big{height:36px;border-radius:9px;font-size:14px}
 .mc-list .rs-note,.mc-list .rs-fn{font-size:12px}

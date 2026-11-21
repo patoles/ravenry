@@ -15,7 +15,8 @@
 //   back while the card stays in front.
 // - All back: their four tabs, the first in front, the toast "All 4
 //   sessions are back.", and paper-boat in Needs you with "Stopped mid-turn
-//   by the restart. Tell it to go on.".
+//   by the restart. Tell it to go on.", with no "needs you" toast for it
+//   (the card says it) nor for one that needed the person before.
 // Pictures: native-restart-offer-* (1280 and 900, dark and light),
 // native-restart-resuming-1280-dark, native-restart-back-1280-dark.
 
@@ -79,6 +80,9 @@ extension SelfTestBoard {
         check("restart_back_tabs_in_front", wait(10) { self.board.front == .tab && self.board.ws.tabs.count >= tabs0 + 4 && self.board.restartTabs.count == 4
             && self.board.ws.active?.has(self.board.restartTabs[0]) == true }, "front \(board.front), tabs \(board.ws.tabs.count) (were \(tabs0)), active \(board.ws.active?.id ?? "none")")
         check("restart_toast", wait(5) { self.board.log.contains("toast All 4 sessions are back.") }, board.log.filter { $0.hasPrefix("toast ") }.suffix(3).joined(separator: " | "))
+        // No "needs you" toast while the card was on screen: not the card's own mid-turn session, not one from before the window opened.
+        check("restart_no_needs_you_toast", !board.log.contains { $0.hasPrefix("toast ") && $0.contains(" needs you") } && board.log.contains { $0.hasSuffix(": on the restart card, no toast") },
+              board.log.filter { $0.hasPrefix("toast ") || $0.hasPrefix("arrived ") }.joined(separator: " | "))
         let you = wait(20) { hub.state?.sections.first { $0.group == "you" }?.projects.contains { p in p.rows.contains { $0.line == "Stopped mid-turn by the restart. Tell it to go on." } } == true }
         check("restart_mid_turn_needs_you", you, hub.state?.sections.map { "\($0.group): \($0.projects.map { $0.id }.joined(separator: ","))" }.joined(separator: " | ") ?? "")
         settle(1.2)

@@ -364,6 +364,27 @@ final class RButton: NSButton, Hovers {
         imageHugsTitle = true
     }
     private var hover = false { didSet { needsDisplay = true } }
+    /// A view before the title, where a lead icon goes (a spinner while it works), 14 pt:
+    /// the cell keeps an empty image's place before the title, and the view sits on it.
+    var leadView: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let v = leadView {
+                v.translatesAutoresizingMaskIntoConstraints = true
+                addSubview(v)
+                image = NSImage(size: NSSize(width: 14, height: 14), flipped: false) { _ in true }
+                imagePosition = .imageLeading
+                imageHugsTitle = true
+            } else if lead == nil { image = nil }
+            invalidateIntrinsicContentSize(); needsLayout = true; needsDisplay = true
+        }
+    }
+    override func layout() {
+        super.layout()
+        guard let v = leadView, let c = cell as? NSButtonCell else { return }
+        let r = c.imageRect(forBounds: bounds)
+        v.frame = NSRect(x: r.midX - 7, y: (bounds.height - 14) / 2, width: 14, height: 14)
+    }
 
     init(_ title: String, _ kind: Kind = .normal, small: Bool = false, icon: String? = nil, run: (() -> Void)? = nil) {
         self.kind = kind; self.small = small; self.run = run
@@ -412,7 +433,7 @@ final class RButton: NSButton, Hovers {
         if iconView != nil { return NSSize(width: small ? 26 : 30, height: small ? 26 : 30) }
         let t = attributedTitle.size()
         if kind == .link { return NSSize(width: ceil(t.width) + (external ? 17 : 0), height: ceil(t.height)) }
-        return NSSize(width: ceil(t.width) + (small ? 20 : 26) + (lead == nil ? 0 : 20) + (external ? 17 : 0), height: small ? 28 : 32)
+        return NSSize(width: ceil(t.width) + (small ? 20 : 26) + (lead == nil && leadView == nil ? 0 : 20) + (external ? 17 : 0), height: small ? 28 : 32)
     }
     @objc private func fire() { run?() }
     // The keyboard's ring (A11Y-004): the button's own rounded shape, whatever its kind draws.

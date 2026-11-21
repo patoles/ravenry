@@ -493,13 +493,17 @@ final class Board: NSObject {
     private var restartShown: String?
     private(set) var restartTabs: [String] = []
     private var restartSaid: Set<String> = []
+    /// The card's sessions (their ids) while it is on screen, and in the state it goes: no "needs you" toast for them.
+    private var restartQuiet: Set<String> = []
 
     /// The hub's card as each state comes: first seen, Start in the middle
     /// with the card at its top; each session back, its tab (the front left
     /// alone); all back, the first one's tab in front and the toast, once.
     private func restartFollow(_ st: HubState) {
         let c = st.raw["restart"] as? [String: Any]
+        let wasOn = start.restartOn
         start.restart = c
+        restartQuiet = wasOn || start.restartOn ? Set((c?["rows"] as? [[String: Any]] ?? []).compactMap { $0["sessionId"] as? String }) : []
         guard let c, let id = c["id"] as? String else { return }
         let phase = c["phase"] as? String ?? "offer"
         let rows = c["rows"] as? [[String: Any]] ?? []
@@ -519,7 +523,7 @@ final class Board: NSObject {
             restartSaid.insert(id)
             let first = rows.compactMap { $0["pane"] as? String }.first { restartTabs.contains($0) }
             if front == .start, let p = first, let tb = ws.tab(showing: p) { front = .tab; hideMiddle(); ws.showAgain(tb) }
-            if let m = c["toast"] as? String { toast(m) }
+            if let m = c["toast"] as? String { toast(m, icon: "check-c") }
             log.append("restart \(id): all back")
             render()
         }
@@ -578,6 +582,9 @@ final class Board: NSObject {
     }
 
     private func onState(_ st: HubState) {
+        // The window's first state, taken before anything below writes to the log (the restart
+        // card's line made the first state look like a later one, and every Needs you toasted).
+        let first = lastOpen.isEmpty && lastYou.isEmpty && log.isEmpty
         SessionLinks.shared.stateArrived(st, hub: hub, board: self)
         // The Dock icon's badge: the hub's Needs you count, as it came (ALERT-018).
         DockBadge.set(st.counts["you"], from: hub)
@@ -615,7 +622,6 @@ final class Board: NSObject {
         let you = Set(st.sections.filter { $0.group == "you" }.flatMap { $0.projects.flatMap { $0.rows.map { $0.key } } })
         let newCps = open.subtracting(lastOpen)
         let newYou = you.subtracting(lastYou)
-        let first = lastOpen.isEmpty && lastYou.isEmpty && log.isEmpty
         if you != lastYou || open != lastOpen { log.append("state you: \(you.sorted().joined(separator: ","))") }
         lastOpen = open; lastYou = you
         // A question's toast stays until it is answered (SESS-019): it goes once its session needs
@@ -640,6 +646,12 @@ final class Board: NSObject {
                 } else if let cp = st.checkpoints.first(where: { $0["id"] as? String == id }) { unheld = cp }
             }
             arrived += newYou.sorted()
+            // A session of the restart card, while the card is on screen: the card says it (SESS-053).
+            arrived = arrived.filter { k in
+                guard let sid = keySids[k], restartQuiet.contains(sid) else { return true }
+                log.append("arrived \(k): on the restart card, no toast")
+                return false
+            }
             if let k = arrived.last { arrive(k, st) }
             // One no session holds: its shell tab, else on its own (cpArrived).
             if let c = unheld { cpArrived(c) }
@@ -1961,16 +1973,16 @@ final class Board: NSObject {
     /// Every button of the toast (Undo and Show), for the self-test.
     var toastButtons: [RButton] { toastView.buttons }
 
-    func toast(_ text: String, action: (String, () -> Void)? = nil) {
-        toast(text, actions: action.map { [$0] } ?? [])
+    func toast(_ text: String, action: (String, () -> Void)? = nil, icon: String? = nil) {
+        toast(text, actions: action.map { [$0] } ?? [], icon: icon)
     }
     /// A toast, said on the view in front. `key` names what it is about (a
     /// newer one with the same key replaces it); `seconds` with actions: at
-    /// least 12 (infinity: until pressed).
-    func toast(_ text: String, actions: [(String, () -> Void)], key: String? = nil, seconds: Double? = nil) {
+    /// least 12 (infinity: until pressed). `icon`: a shared icon before the words, in --ok ("check-c": all back).
+    func toast(_ text: String, actions: [(String, () -> Void)], key: String? = nil, seconds: Double? = nil, icon: String? = nil) {
         guard !closed else { return }
         log.append("toast \(text)")
-        toastView.show(text, actions: actions, key: key, seconds: seconds, at: viewKey, in: root)
+        toastView.show(text, actions: actions, key: key, seconds: seconds, icon: icon, at: viewKey, in: root)
     }
 
     /// The toasts on screen now, oldest first, for the self-test.
@@ -2069,7 +2081,7 @@ final class ToastView: Flipped {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    func show(_ s: String, actions: [(String, () -> Void)], key: String?, seconds: Double?, at: String, in root: NSView) {
+    func show(_ s: String, actions: [(String, () -> Void)], key: String?, seconds: Double?, icon: String? = nil, at: String, in root: NSView) {
         let plain = actions.isEmpty
         let k = key ?? (plain ? "plain" : "say:\(s)")
         for i in items where i.key == k { drop(i) }
@@ -2077,7 +2089,7 @@ final class ToastView: Flipped {
         let item = Item(key: k, text: s, plain: plain, at: at, seconds: secs)
         let l = label(s, Fonts.pt(12.5), "tx", lines: 2)
         l.preferredMaxLayoutWidth = 520
-        var parts: [NSView] = [l]
+        var parts: [NSView] = icon.map { [Icon($0, "ok", size: 14), l] } ?? [l]
         item.buttons = actions.map { name, run in RButton(name, .link) { [weak self, weak item] in if let item { self?.drop(item) }; run() } }
         parts += item.buttons as [NSView]
         // An x on a toast with an action only (a plain one goes by itself).

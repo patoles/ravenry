@@ -60,7 +60,7 @@ import { Review } from './review.ts';
 import { sayPathOn } from '../../../../hub/public/homepath.mjs';
 import { wordsOf as cpWordsOf } from '../../../../hub/server/cpwords.mjs';
 import { PhoneCard } from './phonecard.ts';
-import { actOf, backOf, cardHtml, cardShows, CHECK_ICON, postFor, restartOf, RestartFollow } from './restart.ts';
+import { actOf, backOf, cardHtml, cardShows, CHECK_ICON, postFor, quietSessions, restartOf, RestartFollow } from './restart.ts';
 import type { RestartAct, RestartCard } from './restart.ts';
 import { t } from '../shared/strings.ts';
 import { InApp, IN_KINDS } from './inapp.ts';
@@ -3337,8 +3337,10 @@ function onHubState(next: HubState): void {
   }
   const { opened, gone } = S.cps.fromHub(next.checkpoints as HubCheckpoint[] | undefined);
   if (gone.length) void closedOnHub(gone);
-  // A checkpoint or an approval arrived: the panel opens on it.
-  const arrived = arrivals(prev, next);
+  // A checkpoint or an approval arrived: the panel opens on it. Not a session
+  // of the restart card while it is on screen: the card says it (SESS-053).
+  const quiet = quietSessions(restartOf(prev), restartOf(next));
+  const arrived = arrivals(prev, next).filter((k) => { const sid = findSession(next, k)?.session.sessionId; return !(sid && quiet.has(sid)); });
   if (!firstRun()) {
     if (opened.length) { const k = S.cps.get(opened[opened.length - 1]); if (k) arrive(k); }
     else if (arrived.length) {
