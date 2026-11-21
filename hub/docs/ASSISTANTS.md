@@ -1,12 +1,12 @@
 # Assistants
 
 The board follows the AI coding assistants its registry lists (below):
-Claude Code, OpenAI Codex and OpenCode. Everything particular to one assistant goes
+Claude Code, OpenAI Codex, OpenCode and Antigravity CLI. Everything particular to one assistant goes
 through one interface,
 `server/assistant.mjs`, the way every terminal call goes through
 `server/terminal.mjs` (docs/TERMINALS.md); nothing else imports an
 adapter. The adapters are `server/claude.mjs` (Claude Code, the first),
-`server/codex.mjs` (Codex) and `server/opencode.mjs` (OpenCode, below). Which assistant a session is comes from its hook
+`server/codex.mjs` (Codex), `server/opencode.mjs` (OpenCode, below) and `server/antigravity.mjs` (Antigravity CLI, below). Which assistant a session is comes from its hook
 events, as its terminal does. A session or event that names none is Claude
 Code, so everything recorded before there was a second assistant reads as
 it did.
@@ -17,17 +17,17 @@ Which assistants there are is data the hub owns: `server/assistants.mjs`,
 sent to every client, so a client draws the list it is sent and never
 types a second one (docs/FEATURES.md SESS-057). Each entry:
 
-| Field | What | Claude Code | Codex | OpenCode |
-| --- | --- | --- | --- | --- |
-| `id` | the kind stored everywhere: projects.json `assistant`, `startWith`, `models`, an event's `assistant` | `claude` | `codex` | `opencode` |
-| `name`, `short`, `chip` | what people call it ("Start Claude Code in ..."), a switch's word, the session tag | Claude Code, Claude, Claude | Codex, Codex, Codex | OpenCode (all three) |
-| `bin`, `home` | its command, found on the PATH or the usual install folders; its own folder | `claude`, `CLAUDE_CONFIG_DIR` or `~/.claude` | `codex`, `CODEX_HOME` or `~/.codex` | `opencode` (also `~/.opencode/bin`), `OPENCODE_CONFIG_DIR`, else `XDG_CONFIG_HOME/opencode`, else `~/.config/opencode` |
-| `signIn` | signed in when a key is in the environment or its login file is there | `ANTHROPIC_API_KEY`, `~/.claude.json` with `oauthAccount` | `OPENAI_API_KEY`, `<home>/auth.json` | none: it ships free models |
-| `command` | `start`, and the words `resume`, `model` and `prompt` add | `claude`, `--resume <id>`, `--model <m>`, the prompt as a word | `codex`, `resume <id>`, `-m <m>`, the prompt as a word | `opencode`, `--session <id>`, `-m <provider/model>`, `--prompt <text>` |
-| `sessionId` | its session ids' pattern when they are not UUIDs | | | `ses_...`, case kept |
-| `hooks` | how its hooks report, and so which installer `server/hookinstall.mjs` uses: `claude` (settings.json), `codex` (hooks.json and trust entries), `opencode` (a plugin file), `state` (`ravenryd hook --assistant <id> --state <state>`, no installer yet) | `claude` | `codex` | `opencode` |
-| `skill`, `rules` | where the Ravenry skill goes under its folder; the rules file it reads | `skills/ravenry`, CLAUDE.md | `skills/ravenry`, AGENTS.md | `skills/ravenry`, AGENTS.md |
-| `caps` | `resume` (Continue, Move here, Resume all), `model` (New session's Model), `permission`, `context`, `handoff`, `print` (Plans, Ideas) | all | all | all but `print` |
+| Field | What | Claude Code | Codex | OpenCode | Antigravity CLI |
+| --- | --- | --- | --- | --- | --- |
+| `id` | the kind stored everywhere: projects.json `assistant`, `startWith`, `models`, an event's `assistant` | `claude` | `codex` | `opencode` | `antigravity` |
+| `name`, `short`, `chip` | what people call it ("Start Claude Code in ..."), a switch's word, the session tag | Claude Code, Claude, Claude | Codex, Codex, Codex | OpenCode (all three) | Antigravity CLI, Antigravity, Antigravity |
+| `bin`, `home` | its command, found on the PATH or the usual install folders; its own folder | `claude`, `CLAUDE_CONFIG_DIR` or `~/.claude` | `codex`, `CODEX_HOME` or `~/.codex` | `opencode` (also `~/.opencode/bin`), `OPENCODE_CONFIG_DIR`, else `XDG_CONFIG_HOME/opencode`, else `~/.config/opencode` | `agy` (`~/.local/bin`), `~/.gemini/antigravity-cli` |
+| `signIn` | signed in when a key is in the environment or its login file is there | `ANTHROPIC_API_KEY`, `~/.claude.json` with `oauthAccount` | `OPENAI_API_KEY`, `<home>/auth.json` | none: it ships free models | `GEMINI_API_KEY`, or its login keychain item (service `gemini`, account `antigravity`), asked without reading the secret |
+| `command` | `start`, and the words `resume`, `model` and `prompt` add | `claude`, `--resume <id>`, `--model <m>`, the prompt as a word | `codex`, `resume <id>`, `-m <m>`, the prompt as a word | `opencode`, `--session <id>`, `-m <provider/model>`, `--prompt <text>` | `agy`, `--conversation <id>`, `--model <id>`, `-i <text>` |
+| `sessionId` | its session ids' pattern when they are not UUIDs | | | `ses_...`, case kept | UUIDs |
+| `hooks` | how its hooks report, and so which installer `server/hookinstall.mjs` uses: `claude` (settings.json), `codex` (hooks.json and trust entries), `opencode` (a plugin file), `antigravity` (a group in `~/.gemini/config/hooks.json` of `ravenryd hook --state` commands), `state` (`ravenryd hook --assistant <id> --state <state>`, no installer yet) | `claude` | `codex` | `opencode` | `antigravity` |
+| `skill`, `rules` | where the Ravenry skill goes under its folder; the rules file it reads | `skills/ravenry`, CLAUDE.md | `skills/ravenry`, AGENTS.md | `skills/ravenry`, AGENTS.md | `skills/ravenry`, AGENTS.md (it also reads GEMINI.md) |
+| `caps` | `resume` (Continue, Move here, Resume all), `model` (New session's Model), `permission`, `context`, `handoff`, `print` (Plans, Ideas) | all | all | all but `print` | all but `print`; `permission` from its screen |
 
 Where clients read it: `assistants.list` in `GET /api/state` and `GET
 /api/settings/assistant` (the switches, the tag, the words that name an
@@ -49,6 +49,14 @@ permission|question]`), and the hub records each report as the board's
 event of that meaning (`stateInput` in `server/assistanthook.mjs`:
 UserPromptSubmit, a Notification, Stop or SessionStart, SessionEnd), so
 every state rule reads it as it reads Claude Code's.
+
+Three more fields say what is particular to one: `stopContinue` (the word
+its Stop hook takes to carry on, Antigravity CLI's `continue` in place of
+Claude Code's `block`; `stopReply`), `quietResume` (its hooks say nothing
+when a conversation is opened again, so the board notes the opening
+itself, as a SessionStart would) and `limits` (what the board cannot do
+with its sessions although its caps say it follows them, in words people
+read; sent to every client).
 
 **The test assistant.** `fake` ("Stand-in Agent", command
 `ravenry-stand-in`, hooks `state`, no Model menu, no print mode) is
@@ -596,3 +604,119 @@ from the board (Allow once), the turn's end with its model chip, context
 and last message, Hand off now (the brief's Hand-off written, its commit
 allowed from the board, the fresh OpenCode session started), Continue by
 its id in a new pane, and Remove.
+
+## Antigravity CLI
+
+Measured on Antigravity CLI 1.5.14 (`agy`, signed in with a personal
+Google account), 2026-11-21, in a scratch HOME whose `Library/Keychains`
+links the login keychain (agy keeps its sign-in there, service `gemini`,
+account `antigravity`, so a scratch HOME without that link is signed out),
+a scratch project and a ravenryd pane (`node tools/antigravity-test.mjs`,
+below).
+
+- **Its hooks**: `~/.gemini/config/hooks.json` maps a group's name to its
+  events (`{"<group>": {"<Event>": [handlers]}}`; PreToolUse and
+  PostToolUse take `{matcher, hooks}`). Events seen: SessionStart (a new
+  conversation's first message, just before its first model call; never
+  when a conversation is resumed), PreInvocation and PostInvocation (each
+  model call), PreToolUse and PostToolUse, Stop (the model's loop ended).
+  None for a permission prompt, an interrupt (Esc ends the turn with no
+  Stop) or the program's end (no SessionEnd; another group's
+  Notification, SessionEnd and turn-completion entries never ran). Input
+  is camelCase: `hookEventName`, `conversationId` (a UUID), `cwd`,
+  `transcriptPath`, `modelName` (`gemini-3.8-flash-high`),
+  `lastUserInput`, `workspacePaths`, `artifactDirectoryPath`; Stop adds
+  `executionNum`, `terminationReason` (`NO_TOOL_CALL`), `fullyIdle`,
+  `error` and `continuationActive`, which stayed false on the Stop after a
+  continue. A PreToolUse answer must name a decision: `{}` refused the
+  tool ("tool call denied by pre-tool hook"), so Ravenry has none there.
+- **Where a hook runs**: as a child of the session's own `agy` process,
+  with the pane's environment (`RAVENRY_PANE`, `RAVENRY_SOCKET`, and
+  `ANTIGRAVITY_CONVERSATION_ID`), in `~/.gemini/config`. No daemon: each
+  session is one process with no children at rest, so a report always
+  names its own pane.
+- **Ravenry's group**, `ravenry`: `<ravenryd> hook --assistant antigravity
+  --state working --event SessionStart`, the same with `--event
+  PreInvocation`, and `--state idle --event Stop --decide --timeout 8s`
+  (timeout 15 s). The daemon reads the camelCase fields as the board's
+  (`CamelAliases`: conversationId as session_id, transcriptPath,
+  modelName as model), and the hub records each report as the board's
+  event of that meaning (`reportsByState`), as for the stand-in. Set up
+  adds the group before the file's last brace and Remove takes the same
+  text out, so every other group keeps its bytes (measured on a file
+  another program wrote with ` : ` and `\/`: back byte for byte); a file
+  rewritten in between is read and written as JSON. A group named
+  `ravenry` that runs anything else is left alone. The doctor's row is
+  `antigravityStatus` (missing, ok, stale when its ravenryd is gone or
+  the group is older, off when its `enabled` is false, foreign); the
+  app's hub brings a stale one up to date at start. A test reaches only
+  `MC_ANTIGRAVITY_HOME`.
+- **Its screen** (`server/antigravity.mjs`): the prompt between two
+  rules, and a footer whose right end is the model and its effort
+  ("Gemini 3.8 Flash · high", after "auto · " in Auto mode); "esc to
+  cancel" at its left while a turn runs, "? for shortcuts" at rest. That
+  footer is its own mark: a screen with it is read as Antigravity CLI's
+  before Claude Code's reading is tried, since Claude Code's reading takes
+  its numbered menus and "esc to cancel" for its own (no captured Claude
+  Code screen has it). Auto mode's placeholder ("Auto mode: edits & safe
+  commands auto-approved") is not a draft.
+- **A permission** has no event, so it is read from the screen:
+  "Requesting permission for:", what, "Run this command?", the numbered
+  answers with `>` at the selected one ("1. Yes, run command" ... "4. No,
+  cancel"), and "↑/↓ Navigate" under them. It is Needs you with those
+  answers, and the board picks one with the arrows and Enter
+  (`server/choose.mjs`), as for Claude Code. Agy's PreToolUse fires before
+  the prompt shows, so it says nothing about one. With its default Auto
+  mode, safe commands and edits run without asking; the test turns Auto
+  mode off (`agentMode: ""`, `toolPermission: request-review`) so the
+  prompt shows.
+- **Its transcript**: `transcriptPath`, `<~/.gemini/antigravity-cli>/brain/
+  <id>/.system_generated/logs/transcript_full.jsonl`, plain JSON lines
+  (`server/antigravitysession.mjs`): USER_INPUT (the message inside
+  `<USER_REQUEST>`), PLANNER_RESPONSE (model, input_tokens,
+  cache_read_tokens, output_tokens, its words, tool_calls), SYSTEM_MESSAGE
+  (a Stop hook's reason is "Stop hook blocked termination: <reason>"),
+  GENERIC (a tool's run). The context in use is the last response's
+  input, cache and output tokens; it records no window, so the context bar
+  uses the one from Settings. The conversation itself is also in
+  `conversations/<id>.db` (SQLite with protobuf blobs), which the board
+  does not read. Its folders come from `cache/conversation_metadata.json`.
+- **The hand-off**: its Stop takes `{"decision":"continue","reason"}`
+  (`stopReply`), which agy carries on with as a system message, and the
+  next Stop knows it from the transcript (the note since the person's
+  last message), since `continuationActive` does not say. Measured end to
+  end: Hand off now while a permission was open waited for the Stop, the
+  Stop's answer carried the session on, it wrote the brief's Hand-off
+  (its edit and its commit asked, answered from the board), and the fresh
+  session started with `agy -i '<read the hand-off>'`.
+- **Resume**: `agy --conversation <id>` opens it (on exit it prints `agy
+  --conversation=<id>`, read as the screen's resume id). No hook fires
+  until the next message, so the board notes the opening itself
+  (`quietResume`) and the new pane shows the session at once; a message
+  typed from the board was answered in the same conversation.
+- **Its models**: `agy models` prints an id and its label a line
+  (`gemini-3.8-flash-high	Gemini 3.8 Flash (High)`, `claude-sonnet-4-6`,
+  `gpt-oss-120b-medium`), read in the background at most every 10
+  minutes; New session's Model lists them by label, and the chip says the
+  label. A model seen with its assistant goes only to that assistant's
+  menu, so its `claude-sonnet-4-6` never lands in Claude Code's.
+- **The skill**: `~/.gemini/antigravity-cli/skills/ravenry` ("Global
+  skills" in `/skills`; `~/.gemini/skills` is its shared folder, and
+  `~/.agents/skills` is not read).
+- **Not done** (the registry's `limits`): Plans and Ideas never run on it
+  (it has a print mode, `agy -p`, not measured); a session outside a
+  Ravenry pane is not followed; Esc is seen only from the screen (at rest
+  20 s after); the context window is the one from Settings.
+
+`node tools/antigravity-test.mjs [--keep] [--no-model] [OUT]` runs it on
+the real `agy` (skipped when it is not installed or lists no models):
+the registry's words, its screens, its transcript and the hooks file
+without a board, then a scratch board with a real ravenryd and a scratch
+HOME: Set up and the doctor's row, the skill listed by agy, New session's
+card signed in and its Model menu, a start with its model and first
+message, Working, the permission as Needs you answered from the board,
+Hand off now and its Stop's "continue", the hand-off written and the
+fresh session started, the model chip, context and last turns, Continue
+by its id with a message from the board, Remove back to the file's bytes,
+and no browser opened (a PATH shim stands in for `open`). About ten model
+calls on the cheapest model it lists; `--no-model` makes none.
