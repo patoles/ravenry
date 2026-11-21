@@ -105,7 +105,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             switch s.authorizationStatus {
             case .authorized, .provisional: done(true, "")
             case .notDetermined:
-                c.requestAuthorization(options: [.alert, .sound]) { granted, err in
+                c.requestAuthorization(options: [.alert, .sound, .badge]) { granted, err in
                     if let e = err as NSError? { AppLog.write("notify: macOS refused the ask: \(e.domain) \(e.code): \(e.localizedDescription)") }
                     done(granted, granted ? "" : err?.localizedDescription ?? notAllowed)
                 }
@@ -130,7 +130,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             case .notDetermined: st = "not asked yet: asking"
             default: st = "status \(s.authorizationStatus.rawValue)"
             }
-            AppLog.write("notify: macOS says Ravenry's notifications are \(st)")
+            // macOS's own switch for badges on Ravenry's icon, beside the Dock badge (DockBadge.swift).
+            let badges = s.badgeSetting == .enabled ? "on" : s.badgeSetting == .disabled ? "off" : "not asked"
+            AppLog.write("notify: macOS says Ravenry's notifications are \(st), Dock badges \(badges)")
             if s.authorizationStatus == .notDetermined {
                 Notifier.allowed(c) { ok, why in AppLog.write("notify: macOS's answer: \(ok ? "allowed" : "not allowed: \(why)")") }
             }

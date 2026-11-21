@@ -52,6 +52,7 @@ import type { SkillRow } from '../shared/skills.ts';
 import { Updates } from './updater.ts';
 import { initSettings, openSettings } from './settings.ts';
 import { postNotification } from './notify.ts';
+import { DockBadge } from './badge.ts';
 import type { NotifyRequest } from './notify.ts';
 import { helperArgs, MARKER, paneVars, readMarker, relaunchPlan } from './relaunch.ts';
 import { applyGate } from './gate.ts';
@@ -898,7 +899,9 @@ app.whenReady().then(async () => {
   staged = stage();
   ipc();
   menu();
-  feed = new HubFeed(hubUrl(), (s) => { send('hub:state', s); askForFolders(); }, (st: HubStatus) => { send('hub:status', st); askForFolders(); });
+  // The Dock icon's badge: the hub's Needs you count, cleared when none (badge.ts, ALERT-018).
+  const badge = new DockBadge(app);
+  feed = new HubFeed(hubUrl(), (s) => { badge.state(s); send('hub:state', s); askForFolders(); }, (st: HubStatus) => { badge.status(st); send('hub:status', st); askForFolders(); });
   feed.onNotify = (n) => void notifyFromHub(n);
   // Tests (offscreen): a step can hand the app a notification as the hub would.
   if (OFFSCREEN) (globalThis as unknown as { __ravenryNotify?: (n: unknown) => Promise<void> }).__ravenryNotify = notifyFromHub;

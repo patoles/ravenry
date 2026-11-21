@@ -267,7 +267,12 @@ final class Board: NSObject {
         // The switch from the npm board: the centre, the quiet bar (NpmSwitch.swift).
         followNpm()
         hub.onState = { [weak self] st in self?.onState(st) }
-        hub.onStatus = { [weak self] _ in self?.render() }
+        hub.onStatus = { [weak self] up in
+            guard let self else { return }
+            // The hub gone: its count is not known any more (DockBadge.swift).
+            if !up { DockBadge.drop(self.hub) }
+            self.render()
+        }
         // Back in front: a folder macOS has not answered for is asked about now (AccessAsk.swift).
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.askForFolders(self?.hub.state) }
         ws.onFront = { [weak self] in
@@ -316,6 +321,7 @@ final class Board: NSObject {
         if phoneCard.isOpen { phoneCard.close() }
         outside.stop()
         hub.stop()
+        DockBadge.drop(hub)
         if Board.lastFront === self { Board.lastFront = nil }
     }
 
@@ -502,6 +508,8 @@ final class Board: NSObject {
 
     private func onState(_ st: HubState) {
         SessionLinks.shared.stateArrived(st, hub: hub, board: self)
+        // The Dock icon's badge: the hub's Needs you count, as it came (ALERT-018).
+        DockBadge.set(st.counts["you"], from: hub)
         if !pinsPlaced {
             pinsPlaced = true
             for k in pinned where st.find(k) != nil { pinTab(k) }

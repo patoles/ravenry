@@ -467,5 +467,7 @@ extension SelfTestBoard {
         board.notifier.post(Notifier.Request(id: "n-click", title: "garden-planner needs you", body: "Asked you a question", kind: "ask", projectId: "garden-planner", surfaceId: "sf-1")) { _ in }
         board.notifier.click("n-click")
         check("notify_click_opens_session", board.front == .session("garden-planner/sf-1") || (board.front == .tab && board.frontKey == "garden-planner/sf-1"), "\(board.front)")
+        // The Dock icon's badge (SelfTestDockBadge.swift).
+        dockBadge()
     }
 }
