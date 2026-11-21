@@ -11,8 +11,8 @@
 //   node scripts/sidetest.mjs [OUT]      (after scripts/build.sh)
 //   node scripts/sidetest.mjs --screen brief [OUT]
 //
-// --screen start also gets the assistant registry with its test-only third
-// assistant (RAVENRY_MAC_ASSISTANTS, SelfTestStart.swift screenStartThird).
+// --screen start also gets the assistant registry, OpenCode third
+// (RAVENRY_MAC_ASSISTANTS, SelfTestStart.swift screenStartThird).
 //
 // With --screen, one screen's checks only (SelfTestScreens.swift), on the
 // demo hub with its running plan, its idea and the lighthouse project, whose
@@ -1029,11 +1029,11 @@ function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d,
 // --screen daemons: no --socket (every daemon of the runtime folder).
 // --screen openon (SelfTestOpenOn.swift, NAV-009): two shells in the daemon, the window's tabs.
 if (OPENON) for (const n of ['oo-1', 'oo-2']) execFileSync(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['new', '--socket', sock, '--label', 'ravenry.kind=shell', '--cwd', user, '--json', '--name', n, '--', '/bin/zsh', '-l'], { env });
-// --screen start: the assistant registry as a test's hub has it (hub/server/assistants.mjs, the
-// test-only stand-in registered third), read in a process of its own that asks for it.
+// --screen start: the assistant registry as a hub has it (hub/server/assistants.mjs: Claude Code,
+// Codex and OpenCode third), read in a process of its own.
 function testAssistants() {
   const out = execFileSync(process.execPath, ['--input-type=module', '-e', "const a = await import(process.argv[1]); process.stdout.write(JSON.stringify(a.views()));", path.join(REPO, 'hub', 'server', 'assistants.mjs')],
-    { env: { PATH: process.env.PATH, TEST_RAVENRY: '1', TEST_RAVENRY_ASSISTANT: 'fake' }, encoding: 'utf8' });
+    { env: { PATH: process.env.PATH }, encoding: 'utf8' });
   return out;
 }
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS || GONE ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {

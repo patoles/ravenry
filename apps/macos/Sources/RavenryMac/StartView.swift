@@ -548,7 +548,10 @@ final class StartView: MiddleView {
                 let dot = Box(fill: isFound && signed ? "ok" : isFound ? "you" : "idle", radius: 3.5)
                 dot.translatesAutoresizingMaskIntoConstraints = false
                 NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 7), dot.heightAnchor.constraint(equalToConstant: 7)])
-                let s = onMachine ? t("start.onMachine", ["machine": machine ?? ""]) : isFound ? (signed ? t("start.signedIn") : t("start.notSignedIn")) : t("start.notHere")
+                // Three cards or more leave each too narrow for "Found, not signed in yet": the phone's
+                // shorter words then, on every card alike. Two cards keep the longer ones.
+                let narrow = offered.count >= 3
+                let s = onMachine ? t("start.onMachine", ["machine": machine ?? ""]) : isFound ? (signed ? t(narrow ? "pstart.signedIn" : "start.signedIn") : t(narrow ? "pstart.notSignedIn" : "start.notSignedIn")) : t("start.notHere")
                 let inner = vstack([label(x["name"] as? String ?? kind, Fonts.pt(13.5, Fonts.w650)), hstack([dot, label(s, Fonts.pt(12), "tx2"), spring()], spacing: 6)], spacing: 4)
                 inner.translatesAutoresizingMaskIntoConstraints = false
                 b.addSubview(inner)

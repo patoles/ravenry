@@ -1333,7 +1333,7 @@ body.iph-on{overflow:hidden}
 .ps-why b{color:var(--tx);font-weight:650}
 .ps-link{all:unset;cursor:pointer;color:var(--work);font-weight:500;display:inline-block;margin-top:4px}
 .ps-acards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.ps-ac{all:unset;box-sizing:border-box;cursor:pointer;background:var(--input);box-shadow:inset 0 0 0 1px var(--sep);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.ps-ac{all:unset;box-sizing:border-box;cursor:pointer;-webkit-tap-highlight-color:transparent;background:var(--input);box-shadow:inset 0 0 0 1px var(--sep);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
 .ps-ac.on{box-shadow:inset 0 0 0 2px var(--work)}
 .ps-ac:disabled{opacity:.55;cursor:default}
 .ps-ac b{font-size:15px;font-weight:650;color:var(--tx)}
