@@ -13,12 +13,12 @@ Objectives page shows this file as "done of total".
 - [x] A remote pane comes back by itself after the connection drops (sleep, a network change) (MACH-011)
 - [x] The Dock icon shows how many sessions need you (ALERT-018)
 
-## Next, in this order
+## Shipped in 0.1.75
 
-- [ ] Resume after a restart: one card with Resume all (SESS-053)
-- [ ] Any number of assistants, not only Claude Code and Codex (groundwork for SESS-054, SESS-055)
-- [ ] OpenCode sessions, with its models, OpenRouter ones too (SESS-054)
-- [ ] Antigravity CLI sessions, after a short test of its hooks (SESS-055)
+- [x] Resume after a restart: one card with Resume all (SESS-053)
+- [x] Any number of assistants, not only Claude Code and Codex (groundwork for SESS-054, SESS-055)
+- [x] OpenCode sessions, with its models, OpenRouter ones too (SESS-054)
+- [x] Antigravity CLI sessions, after a short test of its hooks (SESS-055)
 
 ## Later
 
