@@ -1245,3 +1245,76 @@ body.iph-on{overflow:hidden}
 .iph-res{font-size:14px;margin-top:9px}
 .iph-res.ok{color:var(--ok)}
 .iph-res.bad{color:var(--bad)}
+/* The phone's sessions (app.js, the phone's sessions; the approved phone
+   mockups of 2026-11-21): the + menu, New session on a project's page and
+   as a full screen, the Last conversation card and the Move to Ravenry band. */
+.ps-newmenu{width:272px}
+.pn-mi.ps-mi{align-items:flex-start;height:auto;min-height:0;padding-top:11px;padding-bottom:11px;line-height:1.3}
+.ps-mi svg{margin-top:2px;flex:none}
+.ps-mi-sub{display:block;font-size:12.5px;color:var(--tx3);font-weight:400;margin-top:2px}
+.ps-head{display:flex;align-items:center;gap:10px}
+.ps-head h1{flex:1;min-width:0;overflow-wrap:anywhere}
+.btn.ps-nsbtn{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:34px;font-size:14px;padding:6px 12px}
+.ps-modal{position:relative}
+.ps-form{padding:8px 20px 20px;display:flex;flex-direction:column;gap:16px}
+#ps-top{display:flex;flex-direction:column;gap:16px}
+.ps-seg .seg{gap:7px;padding:7px 14px;font-size:14px}
+.ps-seg .seg:disabled{opacity:.5;cursor:default}
+.ps-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none;display:inline-block}
+.ps-dot.off{background:var(--idle)}
+.ps-dot.you{background:var(--you)}
+.ps-dot.work{background:var(--work);width:8px;height:8px}
+.ps-rows{background:var(--input);box-shadow:inset 0 0 0 1px var(--sep);border-radius:10px;padding:4px;display:flex;flex-direction:column}
+.ps-row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:7px;color:var(--tx);font-size:15px;cursor:pointer;min-width:0}
+.ps-row.on{background:var(--sel)}
+.ps-row .ps-rn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ps-row .ps-sh{margin-left:auto;font:12px ui-monospace,Menlo,monospace;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ps-row.more{color:var(--work);font-weight:500}
+.ps-row.more .ps-sh{font:inherit;font-size:13px;font-weight:400;color:var(--tx3)}
+.ps-row.more svg{flex:none;margin-left:8px}
+.ps-radio{flex:none;width:16px;height:16px;border-radius:50%;box-sizing:border-box;border:1.5px solid var(--tx3);display:grid;place-items:center}
+.ps-radio.on{background:var(--work);border-color:var(--work)}
+.ps-radio.on::after{content:"";width:6px;height:6px;border-radius:50%;background:#fff}
+.inp .ps-typed{margin-top:4px;font-size:14px}
+.ps-why{display:flex;gap:10px;background:var(--card);border-radius:10px;padding:11px 12px;font-size:13px;line-height:1.45;color:var(--tx2)}
+.ps-why svg{flex:none;margin-top:3px;color:var(--tx2)}
+.ps-why b{color:var(--tx);font-weight:650}
+.ps-link{all:unset;cursor:pointer;color:var(--work);font-weight:500;display:inline-block;margin-top:4px}
+.ps-acards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ps-ac{all:unset;box-sizing:border-box;cursor:pointer;background:var(--input);box-shadow:inset 0 0 0 1px var(--sep);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.ps-ac.on{box-shadow:inset 0 0 0 2px var(--work)}
+.ps-ac:disabled{opacity:.55;cursor:default}
+.ps-ac b{font-size:15px;font-weight:650;color:var(--tx)}
+.ps-ac span{font-size:12.5px;color:var(--tx2);display:flex;align-items:center;gap:6px}
+.ps-modelrow{display:flex;align-items:center;gap:10px;color:var(--tx2)}
+.ps-modelrow .pm-sel{height:34px;font-size:14px;padding:0 28px 0 12px;align-self:auto;max-width:100%}
+.ps-lab{display:flex;align-items:baseline;gap:6px}
+.ps-opt{color:var(--tx3);font-weight:400}
+.inp textarea.ps-ta{min-height:76px;font-size:15px}
+.ps-foot{position:sticky;bottom:0;background:var(--win);padding:12px 20px calc(14px + env(safe-area-inset-bottom, 0px));border-top:1px solid var(--sep);margin-top:auto}
+.btn.ps-go{width:100%;min-height:48px;font-size:16px;font-weight:600;border-radius:10px}
+.ps-lastc{display:flex;flex-direction:column;overflow:hidden}
+.ps-last{padding:4px 16px 16px;display:flex;flex-direction:column;gap:12px}
+.ps-last .ttl{font-size:17px;font-weight:650;color:var(--tx);line-height:1.3;overflow-wrap:anywhere}
+.ps-last .when{font-size:12.5px;color:var(--tx3);margin-top:3px}
+.ps-turn{font-size:14px;line-height:1.45;color:var(--tx2);display:grid;grid-template-columns:54px 1fr;gap:2px 8px;overflow-wrap:anywhere}
+.ps-turn .who{color:var(--tx3);font-size:12.5px;font-weight:600;padding-top:2px}
+.ps-turn .you{color:var(--tx)}
+.ps-btns{display:flex;flex-direction:column;gap:8px}
+.ps-btns .btn{min-height:46px;font-size:15px;border-radius:10px;width:100%}
+.ps-note{font-size:12.5px;color:var(--tx3);line-height:1.45;text-align:center}
+.ps-bandw{padding:0 16px}
+.ps-band{margin:0 0 12px;background:var(--card2);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;cursor:default}
+.ps-band.in{margin:0}
+.ps-band .hd{display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:650;color:var(--tx)}
+.ps-band .tx{font-size:13px;color:var(--tx2);line-height:1.45}
+.ps-band .row2{display:flex;flex-direction:column;gap:8px}
+.ps-band .row2 .btn,.ps-band .btn.one{min-height:42px;font-size:14px;border-radius:9px}
+.ps-band.wait .hd{color:var(--tx2);font-weight:500;font-size:13.5px}
+.ps-spin{width:14px;height:14px;border-radius:50%;box-sizing:border-box;border:2px solid var(--sep);border-top-color:var(--work);flex:none;animation:psSpin 1s linear infinite}
+@keyframes psSpin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.ps-spin{animation:none}}
+.ps-toast{z-index:60;position:fixed;left:16px;right:16px;bottom:calc(290px + env(safe-area-inset-bottom, 0px));background:var(--card2);color:var(--tx);padding:12px 14px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.4);display:flex;gap:10px;align-items:center;line-height:1.35}
+.ps-toast[hidden]{display:none}
+.mc.light .ps-ac,.mc.light .ps-rows{box-shadow:inset 0 0 0 1px var(--sep)}
+.mc.light .ps-ac.on{box-shadow:inset 0 0 0 2px var(--work)}

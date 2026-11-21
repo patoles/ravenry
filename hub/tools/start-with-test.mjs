@@ -718,8 +718,9 @@ async function pageChecks() {
         await pb.post('/api/settings/assistant', { startWith: first ? 'codex' : 'claude' });
         await pg.evaluate(() => { location.hash = '#boat'; });
         await pg.waitForTimeout(400);
-        // At phone width New project is the top bar's (the phone's menu A).
-        await pg.click(await pg.isVisible('#new-project') ? '#new-project' : '#pbar [data-act="pn-new"]');
+        // At phone width New project is in the top bar's + menu (the phone's menu A, then the + menu of 2026-11-21).
+        if (await pg.isVisible('#new-project')) await pg.click('#new-project');
+        else { await pg.click('#pbar [data-act="pn-new"]'); await pg.click('#pmenu [data-act="pn-new-project"]'); }
         await pg.waitForSelector('#m-asst-row');
         await pg.fill('input[name="name"]', 'Garden planner');
         const np = await pg.evaluate(() => ({ prev: document.querySelector('#m-asst-row').previousElementSibling.id, btns: [...document.querySelectorAll('#m-asst-row [data-asst]')].map((b) => b.textContent + (b.classList.contains('on') ? '*' : '')).join(','), hint: document.querySelector('#m-asst-row .as-hint').textContent, foot: document.querySelector('#m-foot').textContent }));

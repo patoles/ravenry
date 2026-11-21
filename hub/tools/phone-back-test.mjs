@@ -82,7 +82,11 @@ await row('An idea, open', async () => { await go('#/ideas'); await click('.idea
 await row('Rules', async () => { await go('#/rules'); }, { way: 'any', after: (t) => atProjects(t) });
 await row('Rules, Suggested', async () => { await go('#/rules'); await click('[data-rtab="sug"]'); }, { way: 'any', after: async (t) => noLayer(t) && t.pnav === 'rules' && (await p.evaluate(() => !document.querySelector('[data-rtab="sug"].on, [data-rtab="sug"][aria-selected="true"]'))) });
 await row('Ship', async () => { await go('#/ship'); }, { way: 'any', after: (t) => atProjects(t) });
-await row('New project', async () => { await go('#portfolio'); await click('#pbar [data-act="pn-new"]'); }, { way: 'arrow', after: (t) => atProjects(t) });
+// The top bar's +: a menu, then New project or New session, each a full screen.
+await row('New menu (+)', async () => { await go('#portfolio'); await click('#pbar [data-act="pn-new"]'); }, { way: 'any', after: (t) => atProjects(t) });
+await row('New project', async () => { await go('#portfolio'); await click('#pbar [data-act="pn-new"]'); await click('#pmenu [data-act="pn-new-project"]'); }, { way: 'arrow', after: (t) => atProjects(t) });
+await row('New session', async () => { await go('#portfolio'); await click('#pbar [data-act="pn-new"]'); await click('#pmenu [data-act="pn-new-session"]'); }, { way: 'arrow', after: (t) => atProjects(t) });
+await row('New session (project page)', async () => { await go('#portfolio'); await click('.ps-nsbtn'); }, { way: 'arrow', after: (t) => atProjects(t) });
 await row('Write the brief', async () => { await go('#portfolio'); await click('[data-act="write-brief"]'); }, { way: 'arrow', after: (t) => atProjects(t) });
 await row('A plan, full page', async () => { await go('#/plan/garden-planner'); }, { way: 'arrow', after: (t) => atProjects(t) });
 await row('New plan', async () => { await go('#garden-planner'); await click('[data-act="plan-new"]'); await p.waitForTimeout(600); }, { way: 'arrow', after: (t) => atProjects(t) });

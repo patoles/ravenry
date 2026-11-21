@@ -6,7 +6,7 @@
 
 // First: the start-up record (hub.log: phases, stalls; a CPU profile of a
 // new version's first 90 s), so it covers every module's own loading too.
-import { t as word } from './strings.mjs';
+import { t as word, strings as sharedStrings } from './strings.mjs';
 import * as startlog from './startlog.mjs';
 // Before any other module of the hub loads: nothing reads a protected
 // folder macOS has not let the board read (server/access.mjs guard).
@@ -87,6 +87,7 @@ import * as openon from './openon.mjs';
 import * as cpwords from './cpwords.mjs';
 import * as models from './models.mjs';
 import * as firstlaunch from './firstlaunch.mjs';
+import * as phonesess from './phonesessions.mjs';
 import * as skills from './skills.mjs';
 import * as themeImport from './themeimport.mjs';
 import * as onboarding from './onboarding.mjs';
@@ -1129,7 +1130,12 @@ function buildProject(project, wsById, hooks, settings, now) {
       // has nothing on it.
       ...(s.transcript && (s.terminal === false || (s.term && s.term !== 'ravenry')) ? { conversation: conversationOf(s.transcript) } : {}),
       ...worktreeOf(s.surfaceId),
-    })),
+    })).map((x) => {
+      // What the phone shows about where it runs: Move to Ravenry, a move
+      // waiting for its turn, or open in two places (server/phonesessions.mjs).
+      const pm = phonesess.moveView(x);
+      return pm ? { ...x, phoneMove: pm } : x;
+    }),
   };
 }
 
@@ -4269,14 +4275,28 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && p === '/api/setup/start') {
       // Each folder says whether a session already works in its project
       // (`busy`: a new one there gets its own copy unless told otherwise).
-      const v = firstlaunch.startView({ home: HOME, known: projectFolders().folders.map((x) => x.folder), want: url.searchParams.get('folder') });
-      for (const f of v.folders) {
+      const known = projectFolders().folders.map((x) => x.folder);
+      const v = firstlaunch.startView({ home: HOME, known, want: url.searchParams.get('folder') });
+      // A folder as New session lists it: whether a session already works
+      // there, the models remembered for it, and its project (the phone's
+      // New session sends it, for a worktree session).
+      const withProject = (f) => {
         const b = sidebar.busyIn(snapshot.projects, f.path); if (b) f.busy = b;
         // The model each assistant last started with here (New session's Model, remembered per project).
         const rp = (reg && reg.projects || []).find((x) => x.folder === f.path && !x.hidden && !x.machine);
-        if (rp) f.models = { claude: models.projectModel(rp, 'claude'), codex: models.projectModel(rp, 'codex') };
-      }
-      return sendJson(res, 200, { ok: true, ...v, models: snapshot.startModels || startModels() });
+        if (rp) { f.models = { claude: models.projectModel(rp, 'claude'), codex: models.projectModel(rp, 'codex') }; f.projectId = rp.id; }
+        return f;
+      };
+      for (const f of v.folders) withProject(f);
+      // The phone's New session (SESS-009, MACH-007): every project of the
+      // board on this computer (All projects), each machine with its own
+      // projects there (Runs on), and the page's words.
+      const all = known.filter((k) => (reg && reg.projects || []).some((x) => x.folder === k && !x.hidden && !x.machine)).map((k) => withProject({ name: path.basename(k) || k, path: k, short: homes.sayLocal(k) }));
+      const onMachines = machines.status().map((m) => ({
+        name: m.name, up: m.state === 'connected',
+        projects: (reg && reg.projects || []).filter((x) => x.machine === m.name && !x.hidden && typeof x.folder === 'string' && x.folder.startsWith('/')).map((x) => ({ name: x.name, path: x.folder, short: homes.sayFolder(x.folder, m.name), projectId: x.id })),
+      }));
+      return sendJson(res, 200, { ok: true, ...v, all, machines: onMachines, words: phonesess.startWords(), models: snapshot.startModels || startModels() });
     }
     if (req.method === 'GET' && p === '/api/setup/skills') {
       // ravenryd=<path> (on the Mac only): each row adds its hooks, on, off
@@ -4290,10 +4310,20 @@ async function handleRequest(req, res) {
     }
     // What the person has seen of the onboarding, for every client (server/onboarding.mjs).
     if (req.method === 'GET' && p === '/api/onboarding') return sendJson(res, 200, { ok: true, ...onboarding.view() });
+    // The shared words (shared/strings/en.json) for the board's page, the
+    // keys under the prefixes asked for (?prefix=psess.,pstart.).
+    if (req.method === 'GET' && p === '/api/strings') {
+      const pre = String(url.searchParams.get('prefix') || '').split(',').map((x) => x.trim()).filter(Boolean);
+      if (!pre.length) return sendJson(res, 400, { error: 'Give prefix=, the keys\' first parts (psess.,pstart.).' });
+      const out = {};
+      for (const [k, v] of Object.entries(sharedStrings())) if (k !== '$comment' && pre.some((x) => k.startsWith(x))) out[k] = v;
+      return sendJson(res, 200, { ok: true, strings: out });
+    }
     if (req.method === 'GET' && p === '/api/project/last') {
       const project = findProject(url.searchParams.get('projectId'));
       if (!project) return sendJson(res, 404, { error: 'No such project.' });
-      try { return sendJson(res, 200, { ok: true, projectId: project.id, last: await lastConversation(project) }); } catch (err) { return sendJson(res, 500, { error: String(err.message || err) }); }
+      // view: what the phone shows of it (Continue, or Move to Ravenry while it is open elsewhere).
+      try { const last = await lastConversation(project); return sendJson(res, 200, { ok: true, projectId: project.id, last, view: phonesess.lastView(last) }); } catch (err) { return sendJson(res, 500, { error: String(err.message || err) }); }
     }
     if (req.method === 'GET' && p === '/api/plan/draft') {
       const project = findProject(url.searchParams.get('projectId') || '');
@@ -4508,17 +4538,21 @@ async function handleRequest(req, res) {
       if (p === '/api/sessions/move') {
         let body;
         try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        // The other terminal's name, before the move changes the session (the phone's words for Keep it there).
+        const other = (() => { const sid = body && typeof body.sessionId === 'string' ? body.sessionId.toLowerCase() : ''; for (const q of snapshot.projects || []) for (const x of q.sessions || []) if (x.sessionId === sid) return (x.alsoOpen && x.alsoOpen.name) || (x.outside && x.outside.name) || null; return null; })();
         const r = await moveSession(body);
         // HUB-008: the hub's side of every move, as the app's app.log says its own.
         const sid = body && typeof body.sessionId === 'string' ? body.sessionId : '?';
         console.log(`sessions: move ${sid} (keep ${body && body.keep}${body && body.now ? ', now' : ''}), asked by ${req.mcLocal ? 'this Mac' : 'a phone'}: ${!r.ok ? `refused (${r.status || 500}): ${r.error}` : r.waiting ? 'after its turn' : r.keep === 'ravenry' || r.surfaceId ? `resumed in ${r.surfaceId || 'a new pane'}` : 'kept where it was, the Ravenry copy ended'}`);
-        return sendJson(res, r.ok ? 200 : r.status || 500, r);
+        // The words a phone shows for it (server/phonesessions.mjs); a move that waits says so on the session (phoneMove).
+        const said = r.ok && !r.waiting ? { say: phonesess.resumedSay({ moved: true, keep: r.keep, where: other }) } : {};
+        return sendJson(res, r.ok ? 200 : r.status || 500, { ...r, ...said });
       }
       if (p === '/api/sessions/resume') {
         let body;
         try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
         const r = await resumeSession(body);
-        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error, ...(r.open ? { open: true } : {}) });
+        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ...r, say: phonesess.resumedSay() } : { error: r.error, ...(r.open ? { open: true } : {}) });
       }
       if (p === '/api/sessions/start') {
         const t0 = Date.now();
@@ -4577,7 +4611,8 @@ async function handleRequest(req, res) {
           if (mr.ok && mr.reg) afterRegistry(mr.reg);
         }
         wantTick = true; setTimeout(tick, 30);
-        return sendJson(res, 200, { ok: true, surfaceId: r.surfaceId, pane: r.pane, machine: r.machine || null, projectId: project ? project.id : null, command: pl.line, assistant: pl.kind, ...(made ? { worktree: { branch: made.branch, folder: made.folder, base: made.base, baseBranch: made.baseBranch } } : {}) });
+        const say = phonesess.startedSay({ assistant: pl.kind, folder: project ? project.name : path.basename(pl.cwd), machine: pl.machine, worktree: !!made });
+        return sendJson(res, 200, { ok: true, surfaceId: r.surfaceId, pane: r.pane, machine: r.machine || null, projectId: project ? project.id : null, command: pl.line, assistant: pl.kind, say, ...(made ? { worktree: { branch: made.branch, folder: made.folder, base: made.base, baseBranch: made.baseBranch } } : {}) });
       }
       if (p.startsWith('/api/decisions/')) return decisionsWrite(req, res, p);
       {

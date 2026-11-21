@@ -18,6 +18,7 @@
 // the WebView that held it goes with the screen.
 
 import { deviceWord, t } from './strings.ts';
+import en from '../../../shared/strings/en.json' with { type: 'json' };
 
 type Json = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -226,6 +227,13 @@ export class Demo {
       if (p === '/api/state') return json(200, this.state());
       if (p === '/api/live') return json(200, this.live(u.searchParams.get('surface') || '', u.searchParams.get('v')));
       if (p === '/api/whoami') return json(200, { local: false });
+      // An idle project's last conversation (hub GET /api/project/last): none in the sample.
+      if (p === '/api/project/last') return json(200, { ok: true, projectId: u.searchParams.get('projectId'), last: null, view: null });
+      // The shared words the board asks for (hub GET /api/strings), from the same file.
+      if (p === '/api/strings') {
+        const pre = (u.searchParams.get('prefix') || '').split(',').map((x) => x.trim()).filter(Boolean);
+        return json(200, { ok: true, strings: Object.fromEntries(Object.entries(en as Record<string, string>).filter(([k]) => k !== '$comment' && pre.some((x) => k.startsWith(x)))) });
+      }
       const got = this.sample.get[keyOf(pathAndQuery)];
       if (got) return got.file ? { status: got.status, type: got.type || 'application/octet-stream', file: got.file } : got.text != null ? { status: got.status, type: got.type || 'text/plain', text: got.text } : json(got.status, got.json);
       this.misses.push(`GET ${keyOf(pathAndQuery)}`);

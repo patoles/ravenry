@@ -906,7 +906,8 @@ try {
   await backRow('Rules', () => nav('rules'), home, 'any');
   await backRow('Rules, Suggested', async () => { await nav('rules'); await tapUntil('[data-rtab="sug"]', async () => ((await look()).sug ? 1 : null)); }, (t) => t && t.pnav === 'rules' && !t.sug, 'any');
   await backRow('Ship', () => nav('ship'), home, 'any');
-  await backRow('New project', () => tapUntil('#pbar [data-act="pn-new"]', () => page('document.querySelector("#modal-title") ? 1 : null')), home, 'arrow');
+  await backRow('New project', async () => { await tapUntil('#pbar [data-act="pn-new"]', () => page('document.querySelector("#pmenu [data-act=pn-new-project]") ? 1 : null')); await tapUntil('#pmenu [data-act="pn-new-project"]', () => page('document.querySelector("#modal-title") ? 1 : null')); }, home, 'arrow');
+  await backRow('New session', async () => { await tapUntil('#pbar [data-act="pn-new"]', () => page('document.querySelector("#pmenu [data-act=pn-new-session]") ? 1 : null')); await tapUntil('#pmenu [data-act="pn-new-session"]', () => page('document.querySelector("#modal-title") ? 1 : null')); }, home, 'arrow');
   await backRow('Write the brief', async () => { await tapUntil('#pchips .pchip[data-id="portfolio"]', async () => ((await title()) === 'portfolio' ? 1 : null)); await tapUntil('[data-act="write-brief"]', () => page('document.querySelector("#modal-title") ? 1 : null')); }, home, 'arrow');
   await backRow('New plan', async () => { await tapUntil('#pchips .pchip[data-id="garden-planner"]', async () => ((await title()) === 'garden-planner' ? 1 : null)); await tapUntil('[data-act="plan-new"]', () => page('document.querySelector("#plan-phone .body") ? 1 : null')); }, home, 'arrow');
   await backRow('a plan, full page', () => page('location.hash = "#/plan/garden-planner"; 1'), home, 'arrow');

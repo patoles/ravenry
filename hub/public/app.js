@@ -3,6 +3,7 @@
 
 import { KIND, glyphKey, rowModel, flowItems, statusWords, gateTiles } from './plan-view.js';
 import { createGallery, cardPicture, frameTag, videoCant, cantTag } from './gallery.js';
+import { fill, startState, projectRows, assistantCards, modelMenu, busyLine, goLabel, startBody, stoppedWhen, moveBody } from './sessions-view.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 let gallery = null; // the picture gallery (public/gallery.js), made once the page's helpers exist
@@ -58,6 +59,11 @@ const ui = {
   ns: false,       // the message box's New session switch; off whenever a project opens
   starting: {},    // projectId -> { surfaceId, before, topic, at }: a session started from the switch
   follow: {},      // projectId -> { surfaceId, workspaceId, before, at, late }: a new session the sheet moves to once it shows
+  ps: null,        // the phone's New session page (openStart)
+  psLast: {},      // projectId -> its last conversation, for the phone's card (psLastOf)
+  psMoving: {},    // sessionId -> when a move was asked from the phone
+  psAfter: null,   // a session started, continued or moved from the phone, to open once shown (psLanded)
+  pnew: false,     // the top bar's + menu is open
   theme: 'dark',
   alerts: false,
   lastStates: {},
@@ -732,6 +738,7 @@ function buildSheet(p) {
   <div id="d-shared"></div>
   <div class="cols">
     <div class="col-l">
+      <div id="ps-last" hidden></div>
       <div id="lv-slot-phone" class="lv-slot"></div>
       <div class="card" id="d-ask" style="padding: 18px; display: flex; flex-direction: column; gap: 14px">
         <div id="d-ask-top" style="display: flex; flex-direction: column; gap: 14px"></div>
@@ -872,7 +879,7 @@ ${openButton(p, s)}`);
   if (!p.unowned) meta.push(pasHtml(p));
   setHtml('d-head', `<div style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: ${t.c}" title="${esc(why)}">${stateIcon(t, state === 'you' ? 'pulse' : '')}${esc(statusLine)}<span class="sr-only">. </span></div>
 <div class="t3" id="d-why" style="font-size: 12px; line-height: 1.4; overflow-wrap: anywhere">${esc(why)}</div>
-<h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">${esc(p.name)}</h1>`);
+${psHeadTitle(p, `<h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">${esc(p.name)}</h1>`)}`);
   setHtml('d-meta', meta.join(''));
 
   // Shared folder card, or for a session that is not in a project the "Not
@@ -1071,6 +1078,7 @@ ${notes.map((n) => `<div class="card-r" style="align-items: flex-start"><span cl
 ${notes.length ? '' : `<div class="card-r t2">${p.brief ? 'None. "Add as note" tracks one until it\'s fixed.' : 'None. Notes live in the brief, and this project has none yet.'}</div>`}`);
 
   renderLive(p, s, state);
+  psRenderPage(p, s, state);
 }
 
 // ------------------------------------------------------------ not in a project
@@ -1166,6 +1174,7 @@ function buildLive() {
   card.className = 'card lv-card';
   card.id = 'lv-card';
   card.innerHTML = `<div class="lv-h"><h2 class="card-h">Live screen</h2><span class="as-tag" id="lv-tag" hidden></span><span class="fresh" data-fresh="card"><i></i><span></span></span><span class="sp"></span><button class="icon-btn lv-exp" id="lv-exp" aria-label="Full screen" title="Full screen">${LV_ICON.expand}</button><button class="lv-tap" id="lv-tap">${LV_ICON.expand}Tap to expand</button></div>
+<div class="ps-bandw" id="ps-band" hidden></div>
 <div class="lv" id="lv">
 <div class="lv-scroll" id="lv-scroll" tabindex="0" role="log" aria-label="Live screen: the terminal, trimmed"><div class="measure" id="lv-lines"></div></div>
 <button class="lv-jump" id="lv-jump" hidden>${LV_ICON.down}<span></span></button>
@@ -1183,7 +1192,7 @@ function buildLive() {
   card.querySelector('#lv-tap').addEventListener('click', (e) => { e.stopPropagation(); openFull(); });
   // On a phone the whole card opens full screen; a drag still scrolls it.
   card.addEventListener('click', (e) => {
-    if (!LV_PHONE.matches || lv.full || e.target.closest('a, button, .cd')) return;
+    if (!LV_PHONE.matches || lv.full || e.target.closest('a, button, .cd, .ps-band')) return;
     openFull();
   });
 }
@@ -1790,6 +1799,348 @@ async function pressKey(k) {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lv.full) { e.preventDefault(); closeFull(); } });
 document.addEventListener('click', (e) => { if (e.target.closest('[data-lv-close]')) closeFull(); });
 
+// ------------------------------------------------------------ the phone's sessions
+//
+// Start, continue and move a session from the phone (docs/FEATURES.md
+// SESS-009, SESS-010, SESS-015 to SESS-018, MACH-007; the approved phone
+// mockups: the top bar's + with New session and New project, New session
+// on a project's page, New session as a full screen, the new session's
+// live screen with a toast, an idle project's Last conversation, and Move
+// to Ravenry on a session in cmux, iTerm2 or Rex). At phone width only.
+// What each part says and which choice it offers are the hub's
+// (server/phonesessions.mjs: GET /api/setup/start `words`, GET
+// /api/project/last `view`, each session's `phoneMove`); the page sends the
+// person's picks (POST /api/sessions/start, /api/sessions/resume,
+// /api/sessions/move). The rows and the request: public/sessions-view.js.
+
+// The shared words this part draws itself (shared/strings/en.json psess.*, pstart.*), from the hub once.
+const PS_WORDS = {};
+const S = (k, vars) => fill(PS_WORDS[k] != null ? PS_WORDS[k] : k, vars);
+async function loadPsWords() {
+  try {
+    const r = await fetch('/api/strings?prefix=psess.,pstart.');
+    if (!r.ok) return;
+    Object.assign(PS_WORDS, (await r.json()).strings || {});
+    if (ui.snap) render();
+  } catch { /* an older hub: the keys show, the rest works */ }
+}
+const PS_I = {
+  run: '<svg class="ic" width="22" height="22" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"/><path d="M4.2 5.4l2 1.6-2 1.6M7.6 9h2.4"/></svg>',
+  folder: '<svg class="ic" width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 5.5a1.2 1.2 0 0 1 1.2-1.2h4l1.8 1.9h6.8a1.2 1.2 0 0 1 1.2 1.2v7.9a1.2 1.2 0 0 1-1.2 1.2H3.7a1.2 1.2 0 0 1-1.2-1.2z"/><path d="M10 8.6v5M7.5 11.1h5"/></svg>',
+  branch: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="4" cy="3" r="1.5"/><circle cx="4" cy="11" r="1.5"/><circle cx="10.5" cy="4.5" r="1.5"/><path d="M4 4.5v5M10.5 6c0 2.5-6.5 1.5-6.5 3.5"/></svg>',
+  shell: '<svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l3 3-3 3M7 10.5h4.5"/></svg>',
+  plus: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 2v10M2 7h10"/></svg>',
+  chev: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>',
+};
+
+// 01a: the top bar's + opens New session or New project.
+function psNewMenuHtml() {
+  const item = (act, ic, t1, t2) => `<button class="pn-mi ps-mi" role="menuitem" data-act="${act}">${ic}<span>${esc(t1)}<span class="ps-mi-sub">${esc(t2)}</span></span></button>`;
+  return `<div class="pn-scrim" data-act="pn-menu-close"></div><div class="pn-menu ps-newmenu" role="menu" aria-label="${esc(S('pstart.plus'))}">
+${item('pn-new-session', PS_I.run, S('pstart.menuSession'), S('pstart.menuSessionSub'))}
+${item('pn-new-project', PS_I.folder, S('pstart.menuProject'), S('pstart.menuProjectSub'))}</div>`;
+}
+
+// 01b: New session beside a project's name on its page (that project picked).
+function psHeadTitle(p, h1) {
+  if (!LV_PHONE.matches || p.unowned || p.cpOnly || !p.folder) return h1;
+  return `<div class="ps-head">${h1}<button class="btn ps-nsbtn" data-act="ps-new" data-pid="${escRaw(p.id)}">${PS_I.plus}${esc(S('pstart.button'))}</button></div>`;
+}
+
+// 02a to 02d: New session, a full screen. ui.ps: { pid, v (GET /api/setup/start), st (the picks), busy, err }.
+async function openStart({ projectId = null } = {}) {
+  const p = projectId ? project(projectId) : null;
+  ui.pnew = false;
+  ui.ps = { pid: p ? p.id : null, v: null, st: null, busy: false, err: null };
+  const ps = ui.ps;
+  $('#modal').innerHTML = `<div class="modal-back" id="modal-back">
+<div class="modal ps-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+<div class="m-head" style="display: flex; align-items: center; padding: 16px 20px 8px"><button class="pn-ib fg m-back" data-close aria-label="Back">${PI.back}</button><h2 id="modal-title" style="margin: 0; font-size: 20px; font-weight: 700; flex: 1">${esc(S('pstart.menuSession'))}</h2><button class="x-btn" id="modal-close" aria-label="Close">${X_ICON}</button></div>
+<div class="ps-form" id="ps-form"><div class="t3" id="ps-top">${esc(S('pstart.loading'))}</div>
+<label class="inp" id="ps-msg" hidden><span class="ps-lab"><span id="ps-msg-l"></span><span class="ps-opt" id="ps-msg-o"></span></span><textarea class="ps-ta" id="ps-text" autocorrect="off" autocapitalize="sentences"></textarea></label>
+<div id="ps-err" class="err-line" role="alert" hidden></div></div>
+<div class="ps-foot"><button type="button" class="btn pri ps-go" id="ps-go" disabled>${esc(S('pstart.menuSession'))}</button></div></div></div>`;
+  for (const id of ['modal-close']) $('#' + id).addEventListener('click', closeStart);
+  $('#modal .m-back').addEventListener('click', closeStart);
+  $('#modal-back').addEventListener('mousedown', (e) => { if (e.target.id === 'modal-back') closeStart(); });
+  $('#ps-form').addEventListener('click', psFormClick);
+  $('#ps-form').addEventListener('input', (e) => {
+    if (!ps.st) return;
+    if (e.target.id === 'ps-text') ps.st.text = e.target.value;
+    if (e.target.id === 'ps-typed') { ps.st.typed = e.target.value; psRows(); }
+    psGo();
+  });
+  $('#ps-form').addEventListener('change', (e) => { if (e.target.id === 'ps-model' && ps.st) ps.st.model = e.target.value; });
+  $('#ps-go').addEventListener('click', psStart);
+  $('#modal-back').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeStart(); });
+  try {
+    const q = p && p.folder && !p.machine ? '?folder=' + encodeURIComponent(p.folder) : '';
+    const r = await fetch('/api/setup/start' + q);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    if (ui.ps !== ps) return;
+    ps.v = j;
+    ps.st = startState(j, { folder: p && !p.machine ? p.folder : null });
+    if (p && p.machine) psMachine(p.machine, p.folder);
+  } catch (e) {
+    if (ui.ps !== ps) return;
+    ps.err = e.message;
+  }
+  psDraw();
+}
+function closeStart() {
+  ui.ps = null;
+  $('#modal').innerHTML = '';
+}
+// Runs on: this computer (null) or a machine, its first project picked (or the one asked for).
+function psMachine(name, folder = null) {
+  const ps = ui.ps;
+  const m = name && (ps.v.machines || []).find((x) => x.name === name);
+  ps.st.machine = m ? m.name : null;
+  ps.st.typed = '';
+  ps.st.machineFolder = m ? (folder && m.projects.some((x) => x.path === folder) ? folder : (m.projects[0] && m.projects[0].path) || null) : null;
+  if (m && folder && !m.projects.some((x) => x.path === folder)) ps.st.typed = folder;
+  ps.st.model = null;
+}
+const psW = () => (ui.ps && ui.ps.v && ui.ps.v.words) || {};
+function psDraw() {
+  const ps = ui.ps;
+  if (!ps || !$('#ps-top')) return;
+  const w = psW();
+  if (w.title) $('#modal-title').textContent = w.title;
+  if (!ps.v || !ps.st) {
+    $('#ps-top').textContent = ps.err ? fill(w.failed || '{why}', { why: ps.err }) : S('pstart.loading');
+    return;
+  }
+  const { v, st } = ps;
+  const parts = [];
+  const machines = v.machines || [];
+  if (machines.length) {
+    const seg = (name, label, up) => `<button type="button" class="seg ${st.machine === name ? 'on' : ''}" data-ps-machine="${escRaw(name || '')}" aria-pressed="${st.machine === name}"${up ? '' : ' disabled'}><span class="ps-dot ${up ? '' : 'off'}"></span>${esc(label)}</button>`;
+    parts.push(`<div class="inp">${esc(w.runsOn)}<div class="fseg ps-seg" role="group" aria-label="${esc(w.runsOn)}">${seg(null, w.thisMac, true)}${machines.map((m) => seg(m.name, m.name, m.up)).join('')}</div></div>`);
+  }
+  parts.push(`<div class="inp"><span>${esc(st.machine ? fill(w.projectOn, { machine: st.machine }) : w.project)}</span><div class="ps-rows" id="ps-rows" role="radiogroup" aria-label="${esc(w.project)}"></div>${st.machine ? `<input id="ps-typed" class="ps-typed" placeholder="${escRaw(fill(w.folderOnPh, { machine: st.machine }))}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="${escRaw(st.typed || '')}">` : ''}</div>`);
+  parts.push('<div id="ps-why"></div>');
+  const cards = assistantCards(v, st, w).map((c) => `<button type="button" class="ps-ac ${c.on ? 'on' : ''}" data-ps-asst="${c.kind}" aria-pressed="${c.on}"${c.ok ? '' : ' disabled'}><b>${esc(c.name)}</b><span><i class="ps-dot ${c.dot}"></i>${esc(c.sub)}</span></button>`).join('');
+  const mm = modelMenu(v, st);
+  const model = mm.menu.length ? `<div class="ps-modelrow"><label for="ps-model">${esc(w.model)}</label><select class="pm-sel" id="ps-model">${mm.menu.map((o) => `<option value="${escRaw(o.id)}"${o.id === mm.picked ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div><span class="fhint">${esc(w.modelNote)}</span>` : '';
+  parts.push(`<div class="inp">${esc(w.assistant)}<div class="ps-acards" role="group" aria-label="${esc(w.assistant)}">${cards}</div>${model}</div>`);
+  setHtml('ps-top', parts.join(''));
+  $('#ps-top').classList.remove('t3');
+  const msg = $('#ps-msg');
+  msg.hidden = false;
+  $('#ps-msg-l').textContent = w.firstMessage;
+  $('#ps-msg-o').textContent = w.optional;
+  $('#ps-text').placeholder = w.firstMessagePh;
+  if ($('#ps-text').value !== st.text) $('#ps-text').value = st.text;
+  psRows();
+  psGo();
+}
+function psRows() {
+  const ps = ui.ps;
+  if (!ps || !ps.st || !$('#ps-rows')) return;
+  const w = psW();
+  const { rows, more } = projectRows(ps.v, ps.st);
+  const row = (r) => `<button type="button" class="ps-row ${r.on ? 'on' : ''}" role="radio" aria-checked="${r.on}" data-ps-folder="${escRaw(r.path)}"><span class="ps-radio ${r.on ? 'on' : ''}"></span><span class="ps-rn">${esc(r.name)}</span>${ps.st.machine && r.on ? `<span class="ps-sh">${esc(r.short || r.path)}</span>` : ''}</button>`;
+  const html = rows.map(row).join('') + (more ? `<button type="button" class="ps-row more" data-ps-all><span style="width: 16px; flex: none"></span>${esc(w.allProjects)}<span class="ps-sh">${more}</span>${PS_I.chev}</button>` : '');
+  setHtml('ps-rows', html);
+  $('#ps-rows').hidden = !html;
+  const b = busyLine(ps.v, ps.st, w);
+  setHtml('ps-why', b ? `<div class="ps-why">${PS_I.branch}<div><b>${esc(b.bold)}</b>${esc(b.rest)}<br><button type="button" class="linkish ps-link" data-ps-infolder>${esc(b.link)}</button></div></div>` : '');
+}
+function psGo() {
+  const ps = ui.ps;
+  const go = $('#ps-go');
+  if (!ps || !go) return;
+  if (!ps.st) { go.disabled = true; return; }
+  const label = ps.busy ? psW().starting : goLabel(ps.v, ps.st, psW());
+  if (go.textContent !== label) go.textContent = label;
+  go.disabled = ps.busy || !!startBody(ps.v, ps.st).error;
+}
+function psFormClick(e) {
+  const ps = ui.ps;
+  if (!ps || !ps.st) return;
+  const m = e.target.closest('[data-ps-machine]');
+  if (m) { psMachine(m.dataset.psMachine || null); psDraw(); return; }
+  const f = e.target.closest('[data-ps-folder]');
+  if (f) {
+    if (ps.st.machine) { ps.st.machineFolder = f.dataset.psFolder; ps.st.typed = ''; const t = $('#ps-typed'); if (t) t.value = ''; }
+    else { ps.st.folder = f.dataset.psFolder; ps.st.inFolder = false; ps.st.model = null; }
+    psDraw();
+    return;
+  }
+  if (e.target.closest('[data-ps-all]')) { ps.st.showAll = true; psRows(); return; }
+  if (e.target.closest('[data-ps-infolder]')) { ps.st.inFolder = !ps.st.inFolder; psRows(); return; }
+  const a = e.target.closest('[data-ps-asst]');
+  if (a && !a.disabled) { ps.st.assistant = a.dataset.psAsst; ps.st.model = null; psDraw(); }
+}
+async function psStart() {
+  const ps = ui.ps;
+  if (!ps || !ps.st || ps.busy) return;
+  const err = $('#ps-err');
+  const b = startBody(ps.v, ps.st);
+  if (b.error) { err.textContent = S('pstart.noProject'); err.hidden = false; return; }
+  err.hidden = true;
+  ps.busy = true;
+  psGo();
+  try {
+    const before = (project(b.body.projectId) || { sessions: [] }).sessions.map((x) => x.surfaceId);
+    const r = await post('/api/sessions/start', b.body);
+    closeStart();
+    psLanded(r.projectId || b.body.projectId, r, before);
+  } catch (e) {
+    ps.busy = false;
+    err.textContent = fill(psW().failed || '{why}', { why: e.message });
+    err.hidden = false;
+    psGo();
+  }
+}
+
+// 03: a session started, continued or moved from here: its project, its
+// session picked once the board shows it, and its live screen full screen
+// with the hub's words as a toast.
+function psLanded(pid, r, before = []) {
+  const p = pid ? project(pid) : null;
+  if (p) {
+    if (ui.view !== 'projects') setView('projects');
+    if (ui.sel !== p.id) { ui.sel = p.id; history.replaceState(null, '', '#' + encodeURIComponent(p.id)); }
+    if (r.surfaceId) ui.selSession[p.id] = r.surfaceId;
+    followStart(p.id, r, before);
+  }
+  ui.psAfter = { pid: p ? p.id : null, surfaceId: r.surfaceId || null, say: r.say || '', at: Date.now() };
+  render();
+  setTimeout(psAfterRender, 15000);
+  setTimeout(psAfterRender, 30500);
+}
+function psAfterRender() {
+  const a = ui.psAfter;
+  if (!a) return;
+  // The person went on to something else: nothing is opened over it, nothing said there.
+  if (a.pid && (ui.sel !== a.pid || ui.view !== 'projects')) { ui.psAfter = null; return; }
+  const p = a.pid ? project(a.pid) : null;
+  const s = p && ui.sel === p.id ? view(p).s : null;
+  const shown = !!(s && a.surfaceId && sameTab(s.surfaceId, a.surfaceId));
+  if (!shown && Date.now() - a.at < 30000) return;
+  ui.psAfter = null;
+  if (shown && LV_PHONE.matches && !lv.full) openFull();
+  if (a.say) psToast(a.say);
+}
+function psToast(msg) {
+  let t = $('#ps-toast');
+  if (!t) { t = document.createElement('div'); t.id = 'ps-toast'; t.className = 'ps-toast'; t.setAttribute('role', 'status'); ($('#mc') || document.body).append(t); }
+  t.innerHTML = `<span class="ps-dot work"></span><span>${esc(msg)}</span>`;
+  t.hidden = false;
+  clearTimeout(psToast._t);
+  psToast._t = setTimeout(() => { t.hidden = true; }, 6000);
+}
+
+// 04, 05: an idle project with no session shows its last conversation
+// (GET /api/project/last, read when its page opens and every 20 s while it
+// stays), Continue this conversation, or Move to Ravenry while it is still
+// open in another terminal. ui.psLast: projectId -> { at, view, last, busy }.
+function psLastOf(p) {
+  const c = ui.psLast[p.id];
+  if (!c || (!c.loading && Date.now() - c.at > 20000)) {
+    ui.psLast[p.id] = { ...(c || {}), loading: true, at: c ? c.at : 0 };
+    fetch('/api/project/last?projectId=' + encodeURIComponent(p.id)).then((r) => r.json()).then((j) => {
+      ui.psLast[p.id] = { at: Date.now(), loading: false, last: j.last || null, view: j.view || null };
+      if (ui.sel === p.id) render();
+    }).catch(() => { ui.psLast[p.id] = { at: Date.now(), loading: false, last: null, view: null }; });
+  }
+  return c && c.view ? c : null;
+}
+function psRenderPage(p, s, state) {
+  const slot = $('#ps-last');
+  const card = $('#lv-card');
+  const phone = LV_PHONE.matches;
+  // The Last conversation card, in the Live screen's place.
+  const c = phone && !s && state === 'idle' && !p.unowned && !p.machine && p.folder ? psLastOf(p) : null;
+  if (slot) {
+    const html = c ? psLastHtml(p, c) : '';
+    slot.hidden = !html;
+    setHtml('ps-last', html);
+  }
+  if (card) card.hidden = !!c;
+  // The band in the Live screen card: Move to Ravenry, its wait, or open in two places.
+  const band = $('#ps-band');
+  if (band) {
+    const html = phone && s && s.phoneMove ? psBandHtml(p, s, s.phoneMove) : '';
+    band.hidden = !html;
+    setHtml('ps-band', html);
+  }
+}
+function psLastHtml(p, c) {
+  const { view: v, last: l } = c;
+  const w = v.words;
+  const when = stoppedWhen(l.stoppedAt, S, serverNow());
+  const turns = `<div class="ps-turn">${l.lastPrompt ? `<span class="who">${esc(w.you)}</span><span class="you">${esc(l.lastPrompt)}</span>` : ''}${l.lastText ? `<span class="who">${esc(w.who)}</span><span>${esc(l.lastText)}</span>` : ''}</div>`;
+  const busy = !!c.busy;
+  const newHere = `<button class="btn" data-act="ps-new" data-pid="${escRaw(p.id)}">${esc(w.newHere)}</button>`;
+  const acts = v.action === 'move'
+    ? `<div class="ps-band in"><div class="hd">${PS_I.shell}${esc(w.stillOpen)}</div><div class="tx">${esc(w.moveText)}</div><button class="btn pri one" data-act="ps-last-move" data-pid="${escRaw(p.id)}"${busy ? ' disabled' : ''}>${esc(busy ? w.moving : w.move)}</button></div><div class="ps-btns">${newHere}</div>`
+    : `<div class="ps-btns"><button class="btn pri" data-act="ps-continue" data-pid="${escRaw(p.id)}"${busy ? ' disabled' : ''}>${esc(busy ? w.continuing : w.continue)}</button><div class="ps-note">${esc(w.note)}</div>${newHere}</div>`;
+  return `<div class="card ps-lastc" id="ps-lastc"><div class="lv-h"><h2 class="card-h">${esc(w.head)}</h2><span class="as-tag">${esc(w.chip)}</span><span class="sp"></span></div>
+<div class="ps-last"><div><div class="ttl">${esc(l.title)}</div><div class="when">${esc(fill(w.stopped, { when }))}</div></div>${turns}${acts}</div></div>`;
+}
+function psBandHtml(p, s, m) {
+  const busy = ui.psMoving[s.sessionId] && Date.now() - ui.psMoving[s.sessionId] < 20000;
+  const data = `data-pid="${escRaw(p.id)}" data-sid="${escRaw(s.sessionId)}"`;
+  if (m.kind === 'waiting') return `<div class="ps-band wait" role="status"><div class="hd"><span class="ps-spin" aria-hidden="true"></span>${esc(m.text)}</div></div>`;
+  const moving = S('psess.moving');
+  if (m.kind === 'also') return `<div class="ps-band"><div class="hd">${PS_I.shell}${esc(m.head)}</div><div class="tx">${esc(m.text)}</div><div class="row2"><button class="btn pri" data-act="ps-move" data-keep="ravenry" ${data}${busy ? ' disabled' : ''}>${esc(busy ? moving : m.keep)}</button><button class="btn" data-act="ps-move" data-keep="outside" ${data}${busy ? ' disabled' : ''}>${esc(m.keepOther)}</button></div></div>`;
+  return `<div class="ps-band"><div class="hd">${PS_I.shell}${esc(m.head)}</div><div class="tx">${esc(m.text)}</div><button class="btn pri one" data-act="ps-move" data-keep="ravenry" ${data}${busy ? ' disabled' : ''}>${esc(busy ? moving : m.move)}</button></div>`;
+}
+// Continue this conversation (POST /api/sessions/resume: never a second
+// copy; refused while it is open elsewhere, the card then offers Move).
+async function psContinue(pid) {
+  const p = project(pid);
+  const c = p && ui.psLast[pid];
+  if (!c || !c.last || c.busy) return;
+  const say = toaster();
+  c.busy = true; render();
+  try {
+    const before = p.sessions.map((x) => x.surfaceId);
+    const r = await post('/api/sessions/resume', { projectId: pid, sessionId: c.last.sessionId });
+    delete ui.psLast[pid];
+    psLanded(pid, r, before);
+  } catch (e) {
+    c.busy = false; c.at = 0;
+    say.error(e.message, 5000, true);
+    render();
+  }
+}
+// Move to Ravenry, or keep it in the other terminal (POST /api/sessions/move).
+async function psMove(pid, sid, keep, fromLast = false) {
+  const p = project(pid);
+  if (!p || !sid || ui.psMoving[sid]) return;
+  const say = toaster();
+  ui.psMoving[sid] = Date.now();
+  if (fromLast && ui.psLast[pid]) ui.psLast[pid].busy = true;
+  render();
+  try {
+    const before = p.sessions.map((x) => x.surfaceId);
+    const r = await post('/api/sessions/move', moveBody(pid, sid, keep));
+    if (fromLast) delete ui.psLast[pid];
+    if (r.surfaceId) psLanded(pid, r, before);
+    else if (r.say) say(r.say, 5000, true);
+  } catch (e) {
+    if (fromLast && ui.psLast[pid]) { ui.psLast[pid].busy = false; ui.psLast[pid].at = 0; }
+    say.error(e.message, 5000, true);
+  } finally {
+    delete ui.psMoving[sid];
+    render();
+  }
+}
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-act^="ps-"]');
+  if (!a || a.disabled) return;
+  const act = a.dataset.act;
+  if (act === 'ps-new') openStart({ projectId: a.dataset.pid });
+  else if (act === 'ps-continue') psContinue(a.dataset.pid);
+  else if (act === 'ps-last-move') { const c = ui.psLast[a.dataset.pid]; if (c && c.last) psMove(a.dataset.pid, c.last.sessionId, 'ravenry', true); }
+  else if (act === 'ps-move') psMove(a.dataset.pid, a.dataset.sid, a.dataset.keep);
+});
+
 // ------------------------------------------------------------ hand-off
 
 function handoffButton(s) {
@@ -2250,7 +2601,7 @@ function renderPhoneNav() {
   setHtml('bnav', ds.map(([k, label, ic, b]) => `<button class="pn-d${spot === k ? ' on' : ''}" data-pnav="${k}" ${spot === k ? 'aria-current="page"' : ''} aria-label="${esc(label)}"><span class="pn-pill">${ic}${b}</span><span>${esc(label)}</span></button>`).join(''));
   // The top bar: the home's, a page's (back to Pages), the Pages list's, Search's.
   const ib = (id, ic, label, cls = '', attrs = '') => `<button class="pn-ib ${cls}" ${id ? `id="${id}"` : ''} aria-label="${esc(label)}" ${attrs}>${ic}</button>`;
-  const np = (label) => `<button class="pn-np" data-act="pn-new" aria-label="${esc(label)}">${PI.plus}</button>`;
+  const np = (label) => `<button class="pn-np" data-act="pn-new" aria-label="${esc(label)}" aria-haspopup="menu" aria-expanded="${ui.pnew ? 'true' : 'false'}">${PI.plus}</button>`;
   const more = ib('pb-more', PI.kebab, 'More', ui.pmenu ? 'hl' : '', `aria-haspopup="menu" aria-expanded="${ui.pmenu ? 'true' : 'false'}"`);
   let bar;
   const backBar = (title) => `${ib('', PI.back, 'Back', 'fg', 'data-act="pn-back"')}<span class="pn-ttl sm">${esc(title)}</span>`;
@@ -2265,7 +2616,7 @@ function renderPhoneNav() {
   else if (v.startsWith('page/') || v === 'objectives') {
     const row = ((ui.snap.pages) || []).find((r) => 'page/' + r.key === v);
     bar = `${ib('', PI.back, 'Back to Pages', 'fg', 'data-act="pn-back"')}<span class="pn-ttl sm">${esc(v === 'objectives' ? 'Objectives' : row ? row.label : 'Page')}</span>${more}`;
-  } else bar = `<span class="pn-ttl">${PN_LOGO}<span class="pn-word">Ravenry</span></span>${connChip()}${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}${v === 'projects' ? np('New project') : ''}`;
+  } else bar = `<span class="pn-ttl">${PN_LOGO}<span class="pn-word">Ravenry</span></span>${connChip()}${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}${v === 'projects' ? np(S('pstart.plus')) : ''}`;
   setHtml('pbar', bar);
   // The Ravenry app at the board's wide width (an iPad, 2026-11-15): the
   // connection chip beside the name, and its own settings (This iPad, the
@@ -2282,6 +2633,8 @@ function renderPhoneNav() {
 }
 
 function renderPhoneMenu() {
+  // The top bar's +: New session or New project (the phone's sessions, below).
+  if (ui.pnew) { setHtml('pmenu', psNewMenuHtml()); return; }
   if (!ui.pmenu) { setHtml('pmenu', ''); return; }
   const app = !!window.ravenryApp;
   const local = ui.local === true;
@@ -2473,15 +2826,17 @@ document.addEventListener('click', (e) => {
   const act = a.dataset.act;
   if (act === 'pn-search') { ui.pnBack = ui.view; ui.pnq = ''; setView('search'); renderPhoneNav(); }
   else if (act === 'pn-back') phoneBack();
-  else if (act === 'pn-new') openModal({ mode: 'new' });
-  else if (act === 'pn-menu-close') { ui.pmenu = false; renderPhoneNav(); }
+  else if (act === 'pn-new') { ui.pnew = !ui.pnew; ui.pmenu = false; renderPhoneNav(); }
+  else if (act === 'pn-new-session') { ui.pnew = false; renderPhoneNav(); openStart({}); }
+  else if (act === 'pn-new-project') { ui.pnew = false; renderPhoneNav(); openModal({ mode: 'new' }); }
+  else if (act === 'pn-menu-close') { ui.pmenu = false; ui.pnew = false; renderPhoneNav(); }
   else if (act === 'pn-phone') { ui.pmenu = false; renderPhoneNav(); setTimeout(() => $('#phone').click(), 0); }
   else if (act === 'pn-alerts') { $('#alerts').click(); setTimeout(renderPhoneMenu, 300); }
   else if (act === 'pn-app') { ui.pmenu = false; renderPhoneNav(); if (window.ravenryApp && window.ravenryApp.openSettings) window.ravenryApp.openSettings(); }
   else if (act === 'pn-settings') { ui.pmenu = false; renderPhoneNav(); setTimeout(() => { if (!hs.open) openHs(); }, 0); }
 });
-document.addEventListener('click', (e) => { if (e.target.closest('#pb-more')) { ui.pmenu = !ui.pmenu; renderPhoneNav(); } });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.pmenu) { ui.pmenu = false; renderPhoneNav(); } });
+document.addEventListener('click', (e) => { if (e.target.closest('#pb-more')) { ui.pmenu = !ui.pmenu; ui.pnew = false; renderPhoneNav(); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && (ui.pmenu || ui.pnew)) { ui.pmenu = false; ui.pnew = false; renderPhoneNav(); } });
 
 // ------------------------------------------------------------ views (phase D)
 
@@ -4627,6 +4982,7 @@ function render() {
   else if (ui.view === 'search') renderSearch();
   else if (ui.view === 'plan') renderPlanPage();
   else renderSheet();
+  psAfterRender();
 }
 
 function select(id) {
@@ -5933,6 +6289,7 @@ if (ui.view === 'ship') loadShip();
 connect();
 if (q.get('modal') === 'new') openModal({ mode: 'new' });
 // Only the Mac shows the phone button. A phone just signed in gets one toast.
+loadPsWords();
 fetch('/api/whoami').then((r) => r.json()).then((w) => { ui.local = !!w.local; $('#phone-anchor').hidden = !w.local; if (ui.modal && ui.modal.mode === 'new') renderFolder(); prFirstRun(); if (ui.snap) render(); }).catch(() => {});
 if (/(?:^|;\s*)mc_new=1/.test(document.cookie)) {
   document.cookie = 'mc_new=; Max-Age=0; Path=/; SameSite=Strict';
