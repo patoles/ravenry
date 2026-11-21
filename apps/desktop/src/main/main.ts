@@ -420,7 +420,7 @@ function ipc(): void {
   };
   // Its hooks too (the hub writes them: hookinstall.mjs), by a dry run:
   // on when setting them up would change nothing.
-  const hooksOf = async (k: 'claude' | 'codex') => {
+  const hooksOf = async (k: string) => {
     const bin = hookBin();
     if (!bin || !feed) return { hooks: 'unavailable' as const, hooksFile: null };
     try {
@@ -460,8 +460,14 @@ function ipc(): void {
       return { ok: true, repeats: r };
     } catch (e) { return { ok: false, error: (e as Error).message }; }
   });
+  // An assistant the hub lists a row for (its registry, hub/server/assistants.mjs).
+  const listed = async (kind: unknown): Promise<boolean> => {
+    if (typeof kind !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,31}$/.test(kind) || !feed) return false;
+    try { return (((await hubGet(feed.url, '/api/setup/skills')) as { skills?: { kind?: string }[] }).skills || []).some((r) => r.kind === kind); } catch { return false; }
+  };
   ipcMain.handle('hooks:set', async (_e, kind: unknown, on: unknown) => {
-    if (kind !== 'claude' && kind !== 'codex') return { ok: false, error: 'No such assistant.' };
+    if (!feed) return { ok: false, error: 'Ravenry\'s board is not running.' };
+    if (!(await listed(kind))) return { ok: false, error: 'No such assistant.' };
     const bin = hookBin();
     if (!bin || !feed) return { ok: false, error: 'Ravenry\'s board is not running.' };
     try { await hubPost(feed.url, '/api/setup/hooks', { ravenryd: bin, only: kind, ...(on ? {} : { remove: true }) }); }
@@ -470,7 +476,8 @@ function ipc(): void {
     return { ok: true, skills: await skillsChanged() };
   });
   ipcMain.handle('skills:set', async (_e, kind: unknown, on: unknown) => {
-    if (kind !== 'claude' && kind !== 'codex') return { ok: false, error: 'No such assistant.' };
+    if (!feed) return { ok: false, error: 'Ravenry\'s board is not running.' };
+    if (!(await listed(kind))) return { ok: false, error: 'No such assistant.' };
     const bin = hookBin();
     if (on && !bin) return { ok: false, error: 'Ravenry\'s command is not installed yet.' };
     if (!feed) return { ok: false, error: 'Ravenry\'s board is not running.' };

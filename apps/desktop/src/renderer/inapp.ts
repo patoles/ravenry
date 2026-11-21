@@ -16,6 +16,10 @@ import { h, picturesWait, redraw, svg } from './dom.ts';
 const FIRST_PICS = 24;
 import * as I from './icons.ts';
 import type { HubProject, HubState } from './model.ts';
+import { assistantName, isAssistant } from './model.ts';
+
+/** A job's or a reply's assistant word, from the hub's list (`who`; none was Claude). */
+const whoWord = (who: string | null | undefined): string => assistantName(isAssistant(who) ? who : 'claude') || 'Claude';
 
 export type InView =
   | { kind: 'gallery'; project: string; at?: number | null; lit?: number | null; back: unknown }
@@ -367,7 +371,7 @@ export class InApp {
     const post = (what: string, body: Record<string, unknown> = {}) => () => this.host.call('POST', `/api/plan/${what}`, { projectId: v.project, ...body });
     const head = this.head(v, ['New plan'], `${name}, from its brief`);
     if (d && d.busy) {
-      return [head, h('div.pg-b', h('div.sec', h('p', `${d.busy.who === 'codex' ? 'Codex' : 'Claude'} is drafting the plan. You read it before anything runs.`)),
+      return [head, h('div.pg-b', h('div.sec', h('p', `${whoWord(d.busy.who)} is drafting the plan. You read it before anything runs.`)),
         h('div.acts', h('button.btn', { disabled: !!this.busy, on: { click: () => void this.act('halt', v, post('halt')) } }, 'Stop')))];
     }
     if (d && d.steps && d.steps.length) {
@@ -412,7 +416,7 @@ export class InApp {
         it.pitch ? h('p.t2', it.pitch) : null,
         h('div.ia-thread',
           it.thread.length ? it.thread.map((m) => h(`div.ia-msg.${m.who === 'you' ? 'you' : 'them'}`,
-            h('span.who', `${m.who === 'you' ? 'You' : m.who === 'board' ? 'Ravenry' : m.who === 'codex' ? 'Codex' : 'Claude'}, ${when(m.at)}`),
+            h('span.who', `${m.who === 'you' ? 'You' : m.who === 'board' ? 'Ravenry' : whoWord(m.who)}, ${when(m.at)}`),
             h(`div.bd${m.error ? '.err' : ''}`, m.text),
             (m.images || []).length ? h('div.ia-imgs', (m.images || []).map((u) => h('img', { src: this.host.hubUrl() + u, alt: '' }))) : null))
             : h('p.t3', 'Nothing said yet. Ask anything about the idea.'),

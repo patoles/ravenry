@@ -200,11 +200,50 @@ export interface BoardGroup {
   count: number;
 }
 
+/**
+ * One assistant as the hub's registry sends it (GET /api/state
+ * `assistants.list`, hub/server/assistants.mjs): its id, its name ("Claude
+ * Code"), its word for a switch (short) and its tag (chip).
+ */
+export interface AssistantEntry { id: string; name: string; short: string; chip: string; caps?: Record<string, boolean>; [k: string]: unknown }
+/** Before the first state, and from an older hub: Claude Code and Codex. */
+const BUILTIN_ASSISTANTS: AssistantEntry[] = [{ id: 'claude', name: 'Claude Code', short: 'Claude', chip: 'Claude' }, { id: 'codex', name: 'Codex', short: 'Codex', chip: 'Codex' }];
+let assistantList: AssistantEntry[] = BUILTIN_ASSISTANTS;
+/** Takes the hub's list from a state (its `assistants.list`); an older hub's state leaves the built-in one. */
+export function takeAssistants(state: unknown): void {
+  const l = (state as { assistants?: { list?: unknown } } | null)?.assistants?.list;
+  if (Array.isArray(l) && l.length && l.every((a) => a && typeof a.id === 'string' && typeof a.name === 'string')) {
+    assistantList = l.map((a) => ({ ...a, short: a.short || a.name, chip: a.chip || a.short || a.name }));
+  }
+}
+/** Every assistant the hub lists, in its order. */
+export const assistants = (): AssistantEntry[] => assistantList;
+/** The hub's entry of an assistant, or null when it lists no such one. */
+export const assistantOf = (kind: string | null | undefined): AssistantEntry | null => (kind ? assistantList.find((a) => a.id === kind) || null : null);
+/**
+ * Can this assistant do `cap` (its registry caps: resume, model, handoff...)?
+ * A kind that starts with a listed id counts as that one, as before; the
+ * built-in entries, from an older hub, can do everything.
+ */
+export function assistantCan(kind: string | null | undefined, cap: string): boolean {
+  const k = String(kind || '');
+  const a = assistantOf(k) || assistantList.find((x) => k.startsWith(x.id)) || null;
+  return !!a && (!a.caps || a.caps[cap] !== false);
+}
+/** Is this an assistant the hub lists ("claude", "codex", ...)? */
+export const isAssistant = (kind: string | null | undefined): boolean => !!assistantOf(kind);
+
+/** Its tag ("Claude", "Codex"), from the hub's list, else the kind with a capital, else null. */
 export function assistantName(kind: string | null | undefined): string | null {
   if (!kind) return null;
-  if (kind === 'claude') return 'Claude';
-  if (kind === 'codex') return 'Codex';
+  const a = assistantOf(kind);
+  if (a) return a.chip;
   return kind[0].toUpperCase() + kind.slice(1);
+}
+/** Its whole name ("Claude Code", "Codex"), else its tag. */
+export function assistantFullName(kind: string | null | undefined): string | null {
+  const a = assistantOf(kind);
+  return a ? a.name : assistantName(kind);
 }
 
 /** "now", "4 min", "2 h", "3 d". */

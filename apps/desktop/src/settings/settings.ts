@@ -290,7 +290,7 @@ function skillsPane(): Node[] {
   ].filter(Boolean) as Node[];
 }
 
-async function setHooks(kind: 'claude' | 'codex', on: boolean): Promise<void> {
+async function setHooks(kind: string, on: boolean): Promise<void> {
   skillBusy = `h:${kind}`; skillErr = null; draw();
   const r = await api.skills.setHooks(kind, on);
   skillBusy = null;
@@ -298,7 +298,7 @@ async function setHooks(kind: 'claude' | 'codex', on: boolean): Promise<void> {
   draw();
 }
 
-async function setSkill(kind: 'claude' | 'codex', on: boolean): Promise<void> {
+async function setSkill(kind: string, on: boolean): Promise<void> {
   skillBusy = kind; skillErr = null; draw();
   const r = await api.skills.set(kind, on);
   skillBusy = null;

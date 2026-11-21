@@ -32,7 +32,7 @@ import { Daemons } from './daemons.ts';
 import { h, heldIn, preloadPicture, redraw, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import {
-  ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, rekeyed, sessionGroup, sessionKey, sessionOfPane, tokens,
+  ago, arrivals, assistantName, assistantCan, assistantFullName, assistants as assistantList, isAssistant, takeAssistants, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, rekeyed, sessionGroup, sessionKey, sessionOfPane, tokens,
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState, ProjectAccess } from './model.ts';
 import { Machines, MACHINES_ICON } from './machines.ts';
@@ -171,7 +171,7 @@ const S = {
 };
 
 interface SetupStep {
-  kind: 'claude' | 'codex';
+  kind: string;
   /** Ticked. */
   hooks: boolean; skill: boolean;
   /** Already on (the line says so and is not written again). */
@@ -1186,7 +1186,8 @@ async function tryIt(c: LearnCard): Promise<void> {
   const saved = await api().storeGet().catch(() => ({} as Record<string, unknown>));
   const folder = (lastProject && !lastProject.machine && lastProject.folder) || (typeof saved.lastCwd === 'string' ? saved.lastCwd : null) || S.config?.home || null;
   const found = await startView().then((v) => v.assistants, () => [] as AssistantInfo[]);
-  const a = found.find((x) => x.kind === S.start.assistant && x.found) || found.find((x) => x.kind === 'claude' && x.found) || found.find((x) => x.found);
+  // The one picked, else the first found in the hub's order (Claude Code first).
+  const a = found.find((x) => x.kind === S.start.assistant && x.found) || found.find((x) => x.found);
   if (!a) { toast('Try it needs Claude Code or Codex on this Mac.'); return; }
   const proj = folder ? (S.hub?.projects || []).find((p) => p.folder === folder && !p.machine) : null;
   try {
@@ -2236,7 +2237,7 @@ function renderElsewhere(f: { project: HubProject; session: HubSession } | null,
   const out = session.outside || null;
   const open = !ended && !!out && out.open !== false;
   const canOpen = !m && !ended && !!session.term && ELSE_OPEN.has(session.term);
-  const kindOk = /^(claude|codex)/.test(String(session.assistant || 'claude'));
+  const kindOk = assistantCan(session.assistant || 'claude', 'resume');
   const canResume = !!out && !!session.sessionId && kindOk && (open || out.resumable || ended);
   const busy = moveBusy.has(session.sessionId || '');
   const waiting = !!session.moving?.waiting || moveAsked.has(session.sessionId || '');
@@ -2405,7 +2406,7 @@ async function readStart(): Promise<void> {
  * (it tells Ravenry when it needs you) and the Ravenry skill, both ticked.
  * Null when it was answered before, or both are on already.
  */
-async function setupStep(kind: 'claude' | 'codex'): Promise<SetupStep | null> {
+async function setupStep(kind: string): Promise<SetupStep | null> {
   if (S.setupAsked[kind]) return null;
   let rows: SkillRow[] = [];
   try { rows = await api().skills.get(); } catch { /* none */ }
@@ -2444,7 +2445,7 @@ async function answerSetup(yes: boolean): Promise<void> {
 let setupReady = false;
 
 /** Per assistant, what is set up (the panel's two lines, B). */
-let setupLines: Partial<Record<'claude' | 'codex', { hooks: boolean; skill: boolean }>> = {};
+let setupLines: Partial<Record<string, { hooks: boolean; skill: boolean }>> = {};
 let setupAt = 0;
 let setupLoading = false;
 function takeSetupLines(rows: SkillRow[]): void {
@@ -2459,7 +2460,7 @@ async function loadSetupLines(): Promise<void> {
   try { takeSetupLines(await api().skills.get()); } catch { /* none */ } finally { setupLoading = false; }
 }
 /** The setup lines as they are now: hooks or the skill set up since (in Settings, by an agent, by hand) show within seconds. */
-function setupLinesFor(kind: 'claude' | 'codex'): { hooks: boolean; skill: boolean } | null {
+function setupLinesFor(kind: string): { hooks: boolean; skill: boolean } | null {
   if (!setupLoading && Date.now() - setupAt > 5000) void loadSetupLines();
   return setupLines[kind] || null;
 }
@@ -2887,7 +2888,7 @@ function offBoardPanel(p: HubProject, s: HubSession): [HTMLElement, (HTMLElement
   const where = s.termName || (s.term === 'ravenry' ? 'Ravenry' : 'its terminal');
   const conv = s.conversation || [];
   const lastTurn = conv.length ? conv[conv.length - 1] : null;
-  const canMove = !!s.sessionId && /^(claude|codex)/.test(String(s.assistant || 'claude')) && !s.surfaceId.startsWith('ravenry:');
+  const canMove = !!s.sessionId && assistantCan(s.assistant || 'claude', 'resume') && !s.surfaceId.startsWith('ravenry:');
   return [panelHead(p.name, assistantName(s.assistant), null, machineOf(p, s)), [
     h('div.st.c-idle', svg(RING.idle), `Not running now${s.term && s.term !== 'ravenry' ? `: it ran in ${where}` : ''}`),
     h('div.sec', h('p', s.topic || p.name), p.folderShort ? h('p.t3.small', p.folderShort) : null),
@@ -3081,7 +3082,7 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   }
 
   // What the first-launch step set up for its assistant (B), on this machine.
-  const sl = !machineOf(p, s) && (s.assistant === 'claude' || s.assistant === 'codex') ? setupLinesFor(s.assistant) : null;
+  const sl = !machineOf(p, s) && s.assistant && isAssistant(s.assistant) ? setupLinesFor(s.assistant) : null;
   if (sl && !k) body.push(h('div.sec.setup-lines', h('div.sec-h', 'This session'), ...setupLineEls(sl)));
 
   if (k) body.push(cardFor(k, cardCtx));
@@ -3225,13 +3226,13 @@ function newSessionPanel(pane: string): [HTMLElement, (HTMLElement | null)[]] {
   const p = store.get(pane)!.pane;
   // The board starts it as ravenry.session=<assistant> (a shell types its command).
   const lab = p.labels?.['ravenry.session'] || p.labels?.['ravenry.agent'] || base(p.command[0] || '');
-  const kind = /codex/.test(lab) ? 'codex' : /claude/.test(lab) ? 'claude' : null;
+  const kind = isAssistant(lab) ? lab : assistantList().find((a) => lab.includes(a.id))?.id || null;
   const sl = kind ? setupLinesFor(kind) : null;
   return [panelHead('New session', kind ? assistantName(kind) : null), [
     h('div.st.c-idle', svg(RING.idle), 'Ready for your first message'),
     h('div.sec.setup-lines',
       h('div.sec-h', 'This session'),
-      h('div.kv.wide', h('span', 'Folder'), h('span.mono', tilde(p.cwd)), kind ? h('span', 'Assistant') : null, kind ? h('span', kind === 'claude' ? 'Claude Code' : 'Codex') : null),
+      h('div.kv.wide', h('span', 'Folder'), h('span.mono', tilde(p.cwd)), kind ? h('span', 'Assistant') : null, kind ? h('span', assistantFullName(kind)) : null),
       ...(sl ? setupLineEls(sl) : [])),
   ]];
 }
@@ -3308,6 +3309,8 @@ async function handOff(p: HubProject, s: HubSession): Promise<void> {
 function onHubState(next: HubState): void {
   const prev = S.hub;
   S.hub = next;
+  // The assistants are the hub's (its registry): names, tags, what each can do.
+  takeAssistants(next);
   // Each project's latest picture decoded before a panel shows it.
   if (S.config) for (const p of next.projects || []) { const pic = (p.brief?.pictures || []).filter((x) => x.url).slice(-1)[0]; if (pic) void preloadPicture(S.config.hubUrl + pic.url); }
   // A session that kept its id but changed its key keeps its place: the
@@ -4071,6 +4074,7 @@ async function boot(): Promise<void> {
   void loadSetupLines();
   const hs = await api().hubState();
   S.hub = (hs.state as HubState) || null;
+  takeAssistants(S.hub);
   S.hubStatus = hs.status;
   // The board's onboarding marks before anything draws a hint (a slow board does not hold the window up).
   await Promise.race([onbSync(), new Promise((r) => setTimeout(r, 1500))]);

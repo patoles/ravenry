@@ -1,7 +1,8 @@
 // The Ravenry skill as the windows see it (the hub's hub/server/skills.mjs does the work).
 
 export interface SkillRow {
-  kind: 'claude' | 'codex';
+  /** The assistant's id in the hub's registry (claude, codex, ...). */
+  kind: string;
   name: string;
   /** The assistant is installed on this machine. */
   found: boolean;
@@ -17,7 +18,7 @@ export interface SkillRow {
 
 export interface SkillsApi {
   get(): Promise<SkillRow[]>;
-  set(kind: 'claude' | 'codex', on: boolean): Promise<{ ok: true; skills: SkillRow[] } | { ok: false; error: string }>;
-  setHooks(kind: 'claude' | 'codex', on: boolean): Promise<{ ok: true; skills: SkillRow[] } | { ok: false; error: string }>;
+  set(kind: string, on: boolean): Promise<{ ok: true; skills: SkillRow[] } | { ok: false; error: string }>;
+  setHooks(kind: string, on: boolean): Promise<{ ok: true; skills: SkillRow[] } | { ok: false; error: string }>;
   onChange(cb: (rows: SkillRow[]) => void): () => void;
 }
