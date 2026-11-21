@@ -467,6 +467,7 @@ client checks `methods` in `hello` before using it.
 | `styles` | boolean, optional | Add each line's styled runs. |
 | `history` | integer, optional | Add up to this many scrollback lines above the screen. |
 | `vt` | boolean, optional | Add the VT sequences that rebuild the screen. |
+| `links` | boolean, optional | Add each line's hyperlinks (OSC 8). A daemon older than this option refuses it (`bad_request`). |
 
 Result:
 
@@ -477,7 +478,9 @@ Result:
 - `lines`: one per row (history first, then each visible row). Each has
   `text` (trailing blanks removed), `wrapped: true` when the row runs on
   into the next (a soft wrap: the two are one line the width cut), and,
-  with `styles`, `spans`.
+  with `styles`, `spans`, and with `links`, `links` when the row has any.
+- A link is a run of cells that carry one hyperlink (OSC 8): `col`,
+  `width` (in cells), `text` and `uri`, as the program wrote it.
 - A span is a run of cells whose style is not the default: `col`, `width`
   (in cells; a wide character covers two), `text`, and the attributes
   that are on (`bold`, `dim`, `italic`, `underline`, `blink`, `inverse`,

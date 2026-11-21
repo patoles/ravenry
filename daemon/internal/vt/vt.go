@@ -181,6 +181,8 @@ type CaptureOptions struct {
 	Styles bool
 	// History adds up to this many scrollback lines above the screen.
 	History int
+	// Links adds the hyperlinks (OSC 8) of each line.
+	Links bool
 }
 
 // Capture is a read of the screen.
@@ -202,6 +204,15 @@ type Line struct {
 	// Wrapped: the row runs on into the next one (a soft wrap), so the two
 	// are one line of text that the terminal's width cut.
 	Wrapped bool
+	// Links are the line's hyperlinks (OSC 8), when asked for.
+	Links []LineLink
+}
+
+// LineLink is a run of cells of one line that carry the same hyperlink
+// (OSC 8): where it starts, its width in cells, its text and its URI.
+type LineLink struct {
+	Col, Width int
+	Text, URI  string
 }
 
 // Span is a run of cells with one style that is not the default style.

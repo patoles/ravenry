@@ -263,6 +263,7 @@ type CaptureRequest struct {
 	Styles  bool   `json:"styles,omitempty"`
 	History int    `json:"history,omitempty"`
 	VT      bool   `json:"vt,omitempty"`
+	Links   bool   `json:"links,omitempty"`
 }
 
 type CaptureResult struct {
@@ -290,6 +291,16 @@ type Line struct {
 	Spans []Span `json:"spans,omitempty"`
 	// Wrapped: the row runs on into the next (a soft wrap).
 	Wrapped bool `json:"wrapped,omitempty"`
+	// Links: the row's hyperlinks (OSC 8), with `links`.
+	Links []LineLink `json:"links,omitempty"`
+}
+
+// LineLink is a run of cells that carry one hyperlink (OSC 8).
+type LineLink struct {
+	Col   int    `json:"col"`
+	Width int    `json:"width"`
+	Text  string `json:"text"`
+	URI   string `json:"uri"`
 }
 
 // Span is a run of cells with a style that is not the default. Fg and Bg

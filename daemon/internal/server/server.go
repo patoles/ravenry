@@ -1064,7 +1064,7 @@ func (c *conn) paneCapture(id uint64, data []byte) {
 		c.failErr(id, bad("history must not be negative"))
 		return
 	}
-	opts := vt.CaptureOptions{Styles: r.Styles, History: r.History}
+	opts := vt.CaptureOptions{Styles: r.Styles, History: r.History, Links: r.Links}
 	var cp *vt.Capture
 	var snap []byte
 	var mark uint64
@@ -1085,6 +1085,9 @@ func (c *conn) paneCapture(id uint64, data []byte) {
 	for i, l := range cp.Lines {
 		res.Lines[i].Text = l.Text
 		res.Lines[i].Wrapped = l.Wrapped
+		for _, k := range l.Links {
+			res.Lines[i].Links = append(res.Lines[i].Links, proto.LineLink{Col: k.Col, Width: k.Width, Text: k.Text, URI: k.URI})
+		}
 		for _, sp := range l.Spans {
 			res.Lines[i].Spans = append(res.Lines[i].Spans, span(sp))
 		}

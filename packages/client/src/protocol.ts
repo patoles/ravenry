@@ -524,8 +524,16 @@ export interface CaptureResult {
   alt_screen: boolean;
   title: string;
   history: number;
-  lines: { text: string; spans?: Span[] }[];
+  lines: { text: string; spans?: Span[]; wrapped?: boolean; links?: LineLink[] }[];
   vt?: string;
+}
+
+/** A run of cells of one row that carry the same hyperlink (OSC 8). */
+export interface LineLink {
+  col: number;
+  width: number;
+  text: string;
+  uri: string;
 }
 
 export interface ReadResult {
@@ -562,7 +570,7 @@ export interface Methods {
   'pane.close': { params: { pane: PaneId; grace_ms?: number; no_wait?: boolean; reason?: string }; result: { pane: Pane; signalled: number } };
   'pane.resize': { params: { pane: PaneId; cols: number; rows: number }; result: { pane: Pane } };
   'pane.capture': {
-    params: { pane: PaneId; styles?: boolean; history?: number; vt?: boolean };
+    params: { pane: PaneId; styles?: boolean; history?: number; vt?: boolean; links?: boolean };
     result: CaptureResult;
   };
   'pane.read': {

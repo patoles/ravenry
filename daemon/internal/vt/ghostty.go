@@ -428,6 +428,10 @@ func (s *ghostty) Capture(o CaptureOptions) (*Capture, error) {
 		if ref, err := s.t.GridRef(p); err == nil {
 			if row, err := ref.Row(); err == nil {
 				c.Lines[i].Wrapped, _ = row.Wrap()
+				// A row that carries a hyperlink says so: only those are read cell by cell.
+				if has, _ := row.Hyperlink(); o.Links && has {
+					c.Lines[i].Links = s.rowLinks(p)
+				}
 			}
 		}
 	}
@@ -452,6 +456,59 @@ func (s *ghostty) Capture(o CaptureOptions) (*Capture, error) {
 		}
 	}
 	return c, nil
+}
+
+// rowLinks reads one row cell by cell and returns its runs of cells that
+// carry the same hyperlink (OSC 8).
+func (s *ghostty) rowLinks(row gt.Point) []LineLink {
+	var out []LineLink
+	var cur *LineLink
+	var text strings.Builder
+	flush := func() {
+		if cur != nil {
+			cur.Text = text.String()
+			out = append(out, *cur)
+			cur = nil
+		}
+		text.Reset()
+	}
+	for x := 0; x < s.cols; x++ {
+		row.X = uint16(x)
+		ref, err := s.t.GridRef(row)
+		if err != nil {
+			break
+		}
+		cell, err := ref.Cell()
+		if err != nil {
+			break
+		}
+		if wide, _ := cell.Wide(); wide == gt.CellWideSpacerTail || wide == gt.CellWideSpacerHead {
+			// The second half of a wide character belongs to the first.
+			if cur != nil {
+				cur.Width++
+			}
+			continue
+		}
+		uri, err := ref.HyperlinkURI()
+		if err != nil || uri == "" {
+			flush()
+			continue
+		}
+		if cur == nil || cur.URI != uri {
+			flush()
+			cur = &LineLink{Col: x, URI: uri}
+		}
+		cur.Width++
+		cps, _ := ref.Graphemes()
+		if len(cps) == 0 {
+			text.WriteByte(' ')
+		}
+		for _, cp := range cps {
+			text.WriteRune(rune(cp))
+		}
+	}
+	flush()
+	return out
 }
 
 // spans reads one row cell by cell and returns its runs of non-default

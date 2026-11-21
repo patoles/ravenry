@@ -969,12 +969,48 @@
         "wrapped": {
           "type": "boolean",
           "description": "The row runs on into the next one (a soft wrap): the two are one line the terminal's width cut. Absent when it does not."
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LineLink"
+          },
+          "description": "With links: the row's hyperlinks (OSC 8). Absent when it has none."
         }
       },
       "required": [
         "text"
       ],
       "additionalProperties": false
+    },
+    "LineLink": {
+      "type": "object",
+      "properties": {
+        "col": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "In cells; a wide character covers two."
+        },
+        "text": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string",
+          "description": "The hyperlink's URI as the program wrote it, any scheme."
+        }
+      },
+      "required": [
+        "col",
+        "width",
+        "text",
+        "uri"
+      ],
+      "additionalProperties": false,
+      "description": "A run of cells of one row that carry the same hyperlink (OSC 8)."
     },
     "Mark": {
       "type": "integer",
@@ -2242,6 +2278,10 @@
         "vt": {
           "type": "boolean",
           "description": "Add the VT sequences that rebuild the screen."
+        },
+        "links": {
+          "type": "boolean",
+          "description": "Add each line's hyperlinks (OSC 8). A daemon older than this option refuses it (bad_request)."
         }
       },
       "required": [

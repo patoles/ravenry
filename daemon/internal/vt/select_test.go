@@ -255,3 +255,36 @@ func px(action string) float64 {
 	}
 	return 7
 }
+
+// TestCaptureLinks: a capture with Links gives each row's hyperlinks (OSC
+// 8) with their text, start and width, over a soft wrap too; plain URLs
+// in the text are not hyperlinks, and without Links no row has any.
+func TestCaptureLinks(t *testing.T) {
+	s := newTestScreen(t, 20, 5)
+	s.Write([]byte("see https://x.io ok\r\n"))
+	s.Write([]byte("a \x1b]8;;https://ravenry.dev/x\x1b\\click\x1b]8;;\x1b\\ and \x1b]8;;file:///tmp/a.txt\x1b\\a.txt\x1b]8;;\x1b\\\r\n"))
+	s.Write([]byte("0123456789012345\x1b]8;;https://ravenry.dev/long\x1b\\wrapped\x1b]8;;\x1b\\"))
+	c, err := s.Capture(CaptureOptions{Links: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Lines[0].Links) != 0 {
+		t.Errorf("a plain URL taken for a hyperlink: %+v", c.Lines[0].Links)
+	}
+	got := c.Lines[1].Links
+	if len(got) != 2 || got[0] != (LineLink{Col: 2, Width: 5, Text: "click", URI: "https://ravenry.dev/x"}) || got[1] != (LineLink{Col: 12, Width: 5, Text: "a.txt", URI: "file:///tmp/a.txt"}) {
+		t.Errorf("row 1: %+v", got)
+	}
+	if a, b := c.Lines[2].Links, c.Lines[3].Links; len(a) != 1 || a[0].Text != "wrap" || a[0].Col != 16 || len(b) != 1 || b[0].Text != "ped" || b[0].URI != "https://ravenry.dev/long" || !c.Lines[2].Wrapped {
+		t.Errorf("wrapped: %+v %+v", a, b)
+	}
+	plain, err := s.Capture(CaptureOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, l := range plain.Lines {
+		if l.Links != nil {
+			t.Errorf("row %d has links without Links: %+v", i, l.Links)
+		}
+	}
+}
