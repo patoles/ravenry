@@ -1,7 +1,8 @@
 # Assistants
 
-The board follows two AI coding assistants: Claude Code and OpenAI Codex.
-Everything particular to one assistant goes through one interface,
+The board follows the AI coding assistants its registry lists (below):
+Claude Code and OpenAI Codex. Everything particular to one assistant goes
+through one interface,
 `server/assistant.mjs`, the way every terminal call goes through
 `server/terminal.mjs` (docs/TERMINALS.md); nothing else imports an
 adapter. The adapters are `server/claude.mjs` (Claude Code, the first) and
@@ -9,6 +10,67 @@ adapter. The adapters are `server/claude.mjs` (Claude Code, the first) and
 events, as its terminal does. A session or event that names none is Claude
 Code, so everything recorded before there was a second assistant reads as
 it did.
+
+## The registry
+
+Which assistants there are is data the hub owns: `server/assistants.mjs`,
+sent to every client, so a client draws the list it is sent and never
+types a second one (docs/FEATURES.md SESS-057). Each entry:
+
+| Field | What | Claude Code | Codex |
+| --- | --- | --- | --- |
+| `id` | the kind stored everywhere: projects.json `assistant`, `startWith`, `models`, an event's `assistant` | `claude` | `codex` |
+| `name`, `short`, `chip` | what people call it ("Start Claude Code in ..."), a switch's word, the session tag | Claude Code, Claude, Claude | Codex, Codex, Codex |
+| `bin`, `home` | its command, found on the PATH or the usual install folders; its own folder | `claude`, `CLAUDE_CONFIG_DIR` or `~/.claude` | `codex`, `CODEX_HOME` or `~/.codex` |
+| `signIn` | signed in when a key is in the environment or its login file is there | `ANTHROPIC_API_KEY`, `~/.claude.json` with `oauthAccount` | `OPENAI_API_KEY`, `<home>/auth.json` |
+| `command` | `start`, and the words `resume` and `model` add | `claude`, `--resume <id>`, `--model <m>` | `codex`, `resume <id>`, `-m <m>` |
+| `hooks` | how its hooks report, and so which installer `server/hookinstall.mjs` uses: `claude` (settings.json), `codex` (hooks.json and trust entries), `state` (`ravenryd hook --assistant <id> --state <state>`, no installer yet) | `claude` | `codex` |
+| `skill`, `rules` | where the Ravenry skill goes under its folder; the rules file it reads | `skills/ravenry`, CLAUDE.md | `skills/ravenry`, AGENTS.md |
+| `caps` | `resume` (Continue, Move here, Resume all), `model` (New session's Model), `permission`, `context`, `handoff`, `print` (Plans, Ideas) | all | all |
+
+Where clients read it: `assistants.list` in `GET /api/state` and `GET
+/api/settings/assistant` (the switches, the tag, the words that name an
+assistant), `assistants` in `GET /api/setup/start` (New session's cards,
+each with `found` and `signedIn`), the rows of `GET /api/setup/skills` and
+`GET /api/setup/hooks` (`rows`, which `ravenry doctor` lists), and
+`assistantName` on a push message's session (the Android app's alert).
+Before the first state, and from an older hub, a client shows Claude Code
+and Codex as before. A stored id the registry does not have (an assistant
+a later build added) reads as unset and is never rewritten.
+
+An assistant with an adapter of its own is read on screen as before
+(`server/claude.mjs`, `server/codex.mjs`); any other registered one gets
+the hook-only adapter (`server/hookonly.mjs`): the board reads no screen,
+prompt or transcript of it, and its state comes from its hooks. One whose
+`hooks` is `state` says its state in its hook command (`ravenryd hook
+--assistant <id> --state working|needs_you|idle|ended [--need
+permission|question]`), and the hub records each report as the board's
+event of that meaning (`stateInput` in `server/assistanthook.mjs`:
+UserPromptSubmit, a Notification, Stop or SessionStart, SessionEnd), so
+every state rule reads it as it reads Claude Code's.
+
+**The test assistant.** `fake` ("Stand-in Agent", command
+`ravenry-stand-in`, hooks `state`, no Model menu, no print mode) is
+registered only in a test's process that asks for it: `TEST_RAVENRY=1`,
+which `server/home.mjs` refuses outside the repository's `.tmp`, and
+`TEST_RAVENRY_ASSISTANT=fake`. It never appears for a real user.
+`node tools/assistants-test.mjs [OUT]` proves it flows through: the hub
+lists it third (the state, New session's answer, Settings), a project set
+to it starts its command in a labelled pane with the brief to read, its
+`ravenryd hook --state` reports move the session through Working, Needs
+you, the hand-back and the end with its tag, Set up refuses to write
+Claude Code's or Codex's hooks for it, and the board page at 390 px shows
+its New session card and "Start Stand-in Agent in <project>".
+
+**Adding an assistant** (OpenCode, SESS-054): its entry in
+`server/assistants.mjs`; an adapter when the board should read its screen
+or transcript (else the hook-only one serves); its hooks (an installer,
+doctor state and uninstall in `server/hookinstall.mjs`, or `--state` in
+the hook commands it is given); its skill path; its model menu
+(`server/models.mjs startMenus`); resume words that take its session ids
+(`server/sessionstart.mjs` refuses a resume id that is not a UUID); the
+hand-off Stop hook when `caps.handoff`. The copy that names both
+assistants ("Claude Code or Codex, in a project") is said again then.
 
 ## What works for each
 
