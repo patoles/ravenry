@@ -14,8 +14,8 @@
 # command runs through the daemon and the hub instead of the proposed one;
 # every test that starts ravenryd or the hub refuses a folder of the real
 # user's (tools/test-env.mjs, daemon/internal/testenv), and one that would
-# drive a real cmux, iTerm2 or Rex; no test reaches the person's own
-# daemon or board, whatever shell it runs from (hub/tools/live-guard-test.mjs); the sidebar's pages as files, with the
+# drive a real cmux, iTerm2 or Rex (that no test reaches the person's own
+# daemon or board runs in desktop.yml, which has the packages); the sidebar's pages as files, with the
 # ravenry binary's page check against a real board (hub/tools/pages-test.mjs);
 # the decision ledger, a git worktree per session with its diff and merge,
 # and a pick's pictures kept and served sandboxed (hub/tools/decisions-test,
@@ -149,7 +149,6 @@ jobs:
           node hub/tools/outside-terminal-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/last-conversation-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/reap-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
-          node hub/tools/live-guard-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/person-routes-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/phone-app-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/pages-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"

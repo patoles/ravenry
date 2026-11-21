@@ -116,6 +116,11 @@ jobs:
           npm --workspace @ravenry/desktop run typecheck
       - name: apps/desktop unit tests
         run: npm --workspace @ravenry/desktop test
+      # Tests never reach the person's own daemon or board, whatever shell
+      # they run from. Here, not in the code workflow: the client's test needs
+      # its packages (npm ci above) and the ravenryd built above.
+      - name: Tests never reach the person's daemon or board
+        run: node hub/tools/live-guard-test.mjs
       - name: The hub's bundle of the page format is current
         run: node hub/tools/vendor-page-format.mjs --check
       # The hub's remote installer against real sshd in Linux containers:
