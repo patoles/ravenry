@@ -313,7 +313,8 @@ final class SelfTestBoard {
         board.sidebar.newButton.performClick(nil)
         check("new_session", board.front == .start && !board.start.isHidden)
         // Answered here, never sent: no assistant runs (step 2 and more: --screen start).
-        hub.testAnswers["/api/onboarding"] = ["ok": true, "setup": ["claude": true, "codex": true]]
+        // Every assistant set up: the one Start offers first may be any of them (OpenCode needs no sign-in).
+        hub.testAnswers["/api/onboarding"] = ["ok": true, "setup": Dictionary(uniqueKeysWithValues: Assistants.list.map { ($0.id, true) })]
         hub.testPostAnswers["/api/sessions/start"] = (409, ["error": "Not started by the self-test."])
         _ = wait(5) { self.board.start.controls["go"] != nil && self.board.start.folder != nil }
         let tabs0 = board.ws.tabs.count
