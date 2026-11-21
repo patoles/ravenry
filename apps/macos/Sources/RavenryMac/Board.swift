@@ -475,11 +475,82 @@ final class Board: NSObject {
             guard let v = self?.ws.focusedView else { return (100, 30) }
             return (v.screen.cols, v.screen.rows)
         }
+        // The card after a restart (SESS-053): the person's clicks go to the hub, which resumes them one at a time.
+        start.restartCard.onResume = { [weak self] sid in self?.restartResume(sid) }
+        start.restartCard.onDismiss = { [weak self] in self?.restartDismiss() }
+        start.restartCard.onShow = { [weak self] r in self?.restartShow(r) }
         gallery.onClose = { [weak self] in self?.back() }
         // Group A's sidebar, panel and page hooks, once the panel's host is set.
         wireSessions()
         // The panel's checkpoints from the daemons, New project (NewProjectPage.swift).
         wirePanel()
+    }
+
+    // MARK: resume after a restart (SESS-053, RestartCard.swift)
+
+    /// The card this window opened Start for, the panes it gave a tab, the
+    /// cards whose toast it said, and the first session back (in front when all are).
+    private var restartShown: String?
+    private(set) var restartTabs: [String] = []
+    private var restartSaid: Set<String> = []
+
+    /// The hub's card as each state comes: first seen, Start in the middle
+    /// with the card at its top; each session back, its tab (the front left
+    /// alone); all back, the first one's tab in front and the toast, once.
+    private func restartFollow(_ st: HubState) {
+        let c = st.raw["restart"] as? [String: Any]
+        start.restart = c
+        guard let c, let id = c["id"] as? String else { return }
+        let phase = c["phase"] as? String ?? "offer"
+        let rows = c["rows"] as? [[String: Any]] ?? []
+        if phase != "done", restartShown != id {
+            restartShown = id
+            log.append("restart \(id): the card, \(rows.count) session(s)")
+            openStart(nil)
+        }
+        for r in rows where r["state"] as? String == "back" {
+            guard let pane = r["pane"] as? String, !restartTabs.contains(pane) else { continue }
+            guard ws.tab(showing: pane) != nil else { continue }
+            restartTabs.append(pane)
+            ws.refresh(); ws.save()
+            log.append("restart: \(r["project"] as? String ?? "?") back in pane \(pane), its tab \(ws.tabs.count)")
+        }
+        if phase == "done", !restartSaid.contains(id) {
+            restartSaid.insert(id)
+            let first = rows.compactMap { $0["pane"] as? String }.first { restartTabs.contains($0) }
+            if front == .start, let p = first, let tb = ws.tab(showing: p) { front = .tab; hideMiddle(); ws.showAgain(tb) }
+            if let m = c["toast"] as? String { toast(m) }
+            log.append("restart \(id): all back")
+            render()
+        }
+    }
+
+    func restartResume(_ sid: String?) {
+        let g = start.grid()
+        var body: [String: Any] = ["cols": g.cols, "rows": g.rows]
+        if let s = sid { body["sessionId"] = s }
+        log.append("restart: resume \(sid ?? "all")")
+        hub.post("/api/restart/resume", body) { [weak self] code, j in
+            guard let self else { return }
+            self.log.append("restart: resume \(sid ?? "all"): \(code)")
+            if code != 200 { self.toast(j["error"] as? String ?? t("restart.failed")) }
+        }
+    }
+
+    func restartDismiss() {
+        log.append("restart: dismiss")
+        hub.post("/api/restart/dismiss", [:]) { [weak self] code, j in
+            guard let self else { return }
+            self.log.append("restart: dismiss: \(code)")
+            if code != 200 { self.toast(j["error"] as? String ?? "") }
+        }
+    }
+
+    /// Show: that session's tab in front.
+    func restartShow(_ r: [String: Any]) {
+        guard let pane = r["pane"] as? String, let tb = ws.tab(showing: pane) else { return }
+        log.append("restart: show \(r["project"] as? String ?? "?")")
+        front = .tab; hideMiddle(); ws.showAgain(tb); render()
     }
 
     // MARK: what is in front
@@ -536,6 +607,8 @@ final class Board: NSObject {
         }
         // A session in front that handed off: its fresh session in front instead, before the arrivals below.
         followHandOffs(st)
+        // Sessions that ran before a restart: the card, their tabs as they come back (SESS-053).
+        restartFollow(st)
         // A checkpoint or a session that came to need you: the panel opens
         // on it when it is in front, else a toast says so, with Show.
         let open = Set(st.checkpoints.filter { ["open", "running"].contains($0["state"] as? String ?? "") }.compactMap { $0["id"] as? String })

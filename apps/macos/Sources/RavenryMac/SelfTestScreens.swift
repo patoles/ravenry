@@ -70,6 +70,7 @@ extension SelfTestBoard {
         case "answers": screenAnswers()
         case "pickzoom": screenPickZoom()
         case "pickvideo": screenPickVideo()
+        case "restart": screenRestart()
         default: check("screen_known", false, name)
         }
         finish()

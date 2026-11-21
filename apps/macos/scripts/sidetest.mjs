@@ -636,6 +636,48 @@ if (PAGES) {
   });
   fs.writeFileSync(RULES_FILE, JSON.stringify({ memory: path.join(cpdP(path.join(PR, 'paper-boat')), 'memory'), global: path.join(PHP, '.claude', 'CLAUDE.md'), projectClaudeMd: path.join(PR, 'paper-boat', 'CLAUDE.md'), fake: path.join(PD, 'hub', 'fake-cmux.json') }));
 }
+// --screen restart (SelfTestRestart.swift, SESS-053): the board's running
+// file is from an older boot (MC_BOOT_TIME stands in for this Mac's start),
+// with four sessions that ran before it in paper-boat, notes-app,
+// harbour-light and garden-planner (session ids of their own; nothing runs
+// them now). Resume all starts stand-ins of claude and codex, first on the
+// board's PATH, in panes of this test's daemon; each says its SessionStart
+// through `ravenryd hook` 1.5 s after it starts, so a resume is seen going.
+const RESTART = SCREEN === 'restart';
+if (RESTART) {
+  const SD = path.join(tmp, 'restart-standin');
+  fs.mkdirSync(SD, { recursive: true });
+  const RD = path.join(APP, 'Contents', 'MacOS', 'ravenryd');
+  for (const name of ['claude', 'codex']) {
+    fs.writeFileSync(path.join(SD, name), `#!/bin/sh
+printf '%s|%s|%s\\n' '${name}' "$PWD" "$*" >> '${path.join(tmp, 'restart-ran.log')}'
+printf '${name} (a stand-in), resumed: %s\\n\\n> ' "$*"
+sid=''; prev=''
+for a in "$@"; do if [ "$prev" = --resume ] || [ "$prev" = resume ]; then sid="$a"; fi; prev="$a"; done
+(sleep 1.5; printf '{"hook_event_name":"SessionStart","session_id":"%s","cwd":"%s","source":"resume"}' "$sid" "$PWD" | '${RD}' hook --assistant ${name} >/dev/null 2>&1) &
+exec cat
+`, { mode: 0o755 });
+  }
+  const boot = Math.floor(Date.now() / 1000) - 600;
+  const at = (m) => new Date(Date.now() - m * 60000).toISOString();
+  const was = (sid, id, assistant, model, topic, ran, more = {}) => ({ sessionId: sid, assistant, model, projectId: id, project: id, topic, startedAt: at(ran + 12), lastSeenAt: at(12), working: false, doing: null, ...more });
+  const first = screenHub.prepare;
+  Object.assign(screenHub, {
+    runtime: run,
+    extra: [...(screenHub.extra || []), { id: 'harbour-light', name: 'harbour-light' }],
+    env: { ...screenHub.env, MC_NO_EVENTS: '0', MC_CODEX: '1', MC_BOOT_TIME: String(boot), RAVENRY_DAEMON_BIN: RD, PATH: `${SD}:${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin` },
+    prepare: (a) => {
+      first?.(a);
+      const sessions = [
+        was('b2b2b2b2-0000-4000-8000-0000000000b9', 'paper-boat', 'claude', 'claude-opus-5-5', 'Tilting the hull', 130, { working: true, doing: 'rendering the tilt frames' }),
+        was('c3c3c3c3-0000-4000-8000-0000000000c9', 'notes-app', 'claude', 'claude-opus-5-5', 'Sync settings', 45),
+        was('d4d4d4d4-0000-4000-8000-0000000000d9', 'harbour-light', 'codex', 'gpt-5.4', 'Run the tests before the commit', 80),
+        was('a1a1a1a1-0000-4000-8000-0000000000a9', 'garden-planner', 'claude', 'claude-opus-5-5', 'Planting reminders', 25),
+      ].map((e) => ({ ...e, folder: path.join(a.ROOT, e.projectId) }));
+      fs.writeFileSync(path.join(a.MC, 'running.json'), JSON.stringify({ boot: boot - 86400, writtenAt: at(12), sessions }, null, 2));
+    },
+  });
+}
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub, ...(process.env.SIDETEST_HUB_DIR ? { hubDir: path.resolve(process.env.SIDETEST_HUB_DIR) } : {}) });
 const sbDrive = SB ? sessbDriver({ hub: { current: hub }, sb: SB, sock, APP, env }) : null;
 if (SB) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }

@@ -157,6 +157,9 @@ export function sayClock(iso) {
 
 const cut = (s, n) => { const v = String(s || '').replace(/\s+/g, ' ').trim(); return v.length > n ? v.slice(0, n - 3).replace(/\s+\S*$/, '') + '...' : v; };
 
+// "Rendering the frames" reads on after "Was working:" as "rendering the frames"; "README" and "npm test" stay.
+const lowerLead = (s) => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s).replace(/\u2026$/, '');
+
 /** A row's chip: "Claude Opus 5.5", "Codex gpt-5.4", else the assistant ("Claude Code"). */
 export function chipOf(e) {
   const v = modelView(e.model, e.assistant);
@@ -180,7 +183,7 @@ export function cardView(offer, { queue = [], busy = null, machine = t('restart.
       sessionId: r.sessionId, projectId: r.projectId || null, project: r.project || path.basename(r.folder || '') || r.sessionId.slice(0, 8),
       topic: r.topic || null, assistant: r.assistant || 'claude', model: r.model || null, chip: chipOf(r),
       ran: Number.isFinite(ranMs) && r.startedAt ? t('restart.ran', { duration: sayDuration(ranMs) }) : null,
-      doing: r.working ? (r.doing ? t('restart.wasWorking', { what: cut(r.doing, 90) }) : t('restart.wasWorkingNoLine')) : t('restart.atPrompt'),
+      doing: r.working ? (r.doing ? t('restart.wasWorking', { what: lowerLead(cut(r.doing, 90)) }) : t('restart.wasWorkingNoLine')) : t('restart.atPrompt'),
       midTurn: !!r.working, midTurnTag: r.working ? t('restart.midTurn') : null, midTurnNote: r.working ? t('restart.midTurnNote') : null,
       state, stateWord: state === 'resuming' ? t('restart.resuming') : state === 'next' ? t('restart.next') : state === 'back' ? t('restart.back') : null,
       error: state === 'failed' ? r.error || t('restart.failed') : null,

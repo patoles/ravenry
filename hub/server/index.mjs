@@ -1642,7 +1642,7 @@ async function restartRun() {
     let r;
     const t0 = Date.now();
     try {
-      r = await resumeSession({ projectId: row.projectId, sessionId: sid, ...restartGrid, model: row.model });
+      r = await resumeSession({ projectId: row.projectId, sessionId: sid, ...restartGrid, model: row.model }, { known: { kind: row.assistant || 'claude', cwd: row.folder || null } });
     } catch (e) { r = { ok: false, error: String(e.message || e) }; }
     // Back once the assistant reports from it (its SessionStart), so the
     // next one starts after it, never beside it; a pane that says nothing
@@ -2210,7 +2210,10 @@ function projectConversation(project, sid) {
 // `fresh` (Move here, never over HTTP): a new pane even when the board's row
 // still names an old one, which the move is about to close; the check that
 // no process holds the session still applies.
-async function resumeSession(body, { fresh = false } = {}) {
+// `known` (the restart card, never over HTTP): the assistant and folder its
+// running file recorded for a session that ran here, for one whose events
+// went with the daemon and whose transcript is not under the project's folder.
+async function resumeSession(body, { fresh = false, known = null } = {}) {
   const b = body && typeof body === 'object' ? body : {};
   const sid = String(b.sessionId || '').toLowerCase();
   if (!sess.UUID.test(sid)) return { ok: false, status: 400, error: 'sessionId is a session id.' };
@@ -2223,7 +2226,7 @@ async function resumeSession(body, { fresh = false } = {}) {
   const other = otherProjectHolds(project, sid);
   if (other) return { ok: false, status: 409, error: other };
   const conv = !e && !s ? projectConversation(project, sid) : null;
-  if (!e && !s && !conv) return { ok: false, status: 404, error: 'No such session in that project.' };
+  if (!e && !s && !conv && !known) return { ok: false, status: 404, error: 'No such session in that project.' };
   if ((e && e.machine) || (s && s.machine) || project.machine) return { ok: false, status: 409, error: 'It runs on another machine; continue it there.' };
   const paneOfTab = (id) => (term.kindOf(id) === 'ravenry' ? id.slice('ravenry:'.length) : null);
   // Already in a Ravenry pane: that pane.
@@ -2244,8 +2247,8 @@ async function resumeSession(body, { fresh = false } = {}) {
       const where = term.nameOf((s && s.term) || termOf(e) || (holder.surfaceId ? 'cmux' : holder.itermId ? 'iterm' : holder.rexId ? 'rex' : null));
       return { ok: false, status: 409, open: true, error: `It is still open in ${where}. Close it there first, then continue it here.` };
     }
-    const kind = conv ? conv.kind : asst.kindOf((e && e.assistant) || (s && s.assistant) || 'claude');
-    const cwd = [e && e.cwd, conv && conv.cwd, project.folder].find((d) => d && path.isAbsolute(d) && fs.existsSync(d)) || null;
+    const kind = conv ? conv.kind : asst.kindOf((e && e.assistant) || (s && s.assistant) || (known && known.kind) || 'claude');
+    const cwd = [e && e.cwd, conv && conv.cwd, known && known.cwd, project.folder].find((d) => d && path.isAbsolute(d) && fs.existsSync(d)) || null;
     if (!cwd) return { ok: false, status: 409, error: 'Its folder is gone, so there is nowhere to continue it.' };
     // The model it ran on (resumed after a restart, SESS-053), else the assistant's default.
     const model = typeof b.model === 'string' && models.MODEL_ID.test(b.model) ? b.model : null;

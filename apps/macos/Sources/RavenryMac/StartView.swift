@@ -122,6 +122,21 @@ final class StartView: MiddleView {
 
     private let column = Flipped()
     private var top: NSLayoutConstraint!
+    private var widest: NSLayoutConstraint!
+    /// The card after a restart (SESS-053, RestartCard.swift), at the top
+    /// while the hub has one (state.restart) and its sessions are not all
+    /// back: Start under it, and not while they resume.
+    let restartCard = RestartCard()
+    var restart: [String: Any]? {
+        didSet {
+            let on = restartOn
+            if let c = restart, on { restartCard.set(c) }
+            let phase = restart?["phase"] as? String
+            if on != wasOn || phase != wasPhase { wasOn = on; wasPhase = phase; if window != nil { draw() } }
+        }
+    }
+    private var wasOn = false, wasPhase: String?
+    var restartOn: Bool { restart != nil && restart?["phase"] as? String != "done" }
 
     init() {
         super.init(sheet: true)
@@ -131,7 +146,8 @@ final class StartView: MiddleView {
         top = column.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 30)
         let w = column.widthAnchor.constraint(equalTo: wrap.widthAnchor, constant: -36)
         w.priority = .init(700)
-        NSLayoutConstraint.activate([top, w, column.centerXAnchor.constraint(equalTo: wrap.centerXAnchor), column.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
+        widest = column.widthAnchor.constraint(lessThanOrEqualToConstant: 560)
+        NSLayoutConstraint.activate([top, w, column.centerXAnchor.constraint(equalTo: wrap.centerXAnchor), widest,
                                      column.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -30)])
         content.set([wrap])
         registerForDraggedTypes([.fileURL])
@@ -142,7 +158,8 @@ final class StartView: MiddleView {
     override func layout() {
         super.layout()
         let h = column.fittingSize.height
-        let t = max(30, floor((bounds.height - h) / 2))
+        // With the restart card: from the top, as the tabs' place.
+        let t = restartOn ? 22 : max(30, floor((bounds.height - h) / 2))
         if abs(top.constant - t) > 0.5 { top.constant = t; needsLayout = true }
     }
 
@@ -242,6 +259,22 @@ final class StartView: MiddleView {
         // The npm board's switch, or where to go while it keeps the data (NpmSwitch.swift).
         if let npm = npmItems() { return place(npm) }
         var items: [NSView] = []
+        widest.constant = restartOn && setup == nil ? 680 : 560
+        if restartOn && setup == nil {
+            // The card first; Start under it, smaller, from the left (and not while they resume).
+            items.append(restartCard)
+            if restart?["phase"] as? String != "resuming" {
+                items.append(gap(30))
+                items.append(label(t("start.heading"), Fonts.pt(16, Fonts.w650)))
+                items.append(gap(4))
+                items.append(spaced(wrap(t("start.lead"), Fonts.pt(12.5), "tx2"), 1.4))
+                items.append(gap(14))
+                if let a = accessCard() { items.append(a); items.append(gap(12)) }
+                items.append(card())
+                if let e = error { items.append(gap(10)); items.append(wrap(e, Fonts.pt(12.5), "bad")) }
+            }
+            return place(items)
+        }
         let icon = Icon("app-icon", "tx", size: 64)
         iconView = icon
         icon.wantsLayer = true
