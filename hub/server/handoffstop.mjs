@@ -18,11 +18,14 @@ import * as h from './handoff.mjs';
 import { promptBlock } from './decisions.mjs';
 import { lastUsage as codexUsage } from './codexrollout.mjs';
 import { lastUsage as opencodeUsage } from './opencodesession.mjs';
+import { lastUsage as antigravityUsage } from './antigravitysession.mjs';
 import { nameOf, shortOf } from './assistants.mjs';
 
 // Each assistant's reading of the end of its transcript: Claude Code's
-// JSONL, Codex's rollout, OpenCode's session file (its plugin's).
-const usageOf = (assistant, file, io) => (assistant === 'codex' ? codexUsage(file, io) : assistant === 'opencode' ? opencodeUsage(file, io) : h.lastUsage(file, io));
+// JSONL, Codex's rollout, OpenCode's session file (its plugin's),
+// Antigravity CLI's transcript_full.jsonl.
+const READERS = { codex: codexUsage, opencode: opencodeUsage, antigravity: antigravityUsage };
+const usageOf = (assistant, file, io) => (READERS[assistant] || h.lastUsage)(file, io);
 
 const RANK = (s) => h.stateRank(s);
 const atLeast = (prev, s) => (prev && RANK(prev) > RANK(s) ? prev : s);
@@ -123,7 +126,9 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   let hold = h.deferralHold(held, { over });
   if (hold) {
     // OpenCode's session file keeps the person's own prompts apart from a hook's reason.
-    const promptAt = ASSISTANT === 'opencode' ? (u && u.lastPromptAt) || null
+    // Antigravity CLI's transcript keeps a hook's reason as a system message,
+    // never as the person's input.
+    const promptAt = ASSISTANT === 'opencode' || ASSISTANT === 'antigravity' ? (u && u.lastPromptAt) || null
       : ASSISTANT === 'codex'
       ? (u && u.lastPromptAt && !h.hasTag(u.lastPrompt) ? u.lastPromptAt : null)
       : (input.transcript_path ? h.lastPromptAt(input.transcript_path, held.deferredAt, io) : null);
@@ -131,7 +136,10 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   }
 
   // Never loop: Claude is already answering a block from a stop hook.
-  if (input.stop_hook_active) return queue(hold || `${ASSISTANT === 'claude' ? 'Claude' : shortOf(ASSISTANT) || 'Claude'} was already continuing for a stop hook`);
+  // Antigravity CLI's Stop says nothing of it (its continuationActive stays
+  // false, measured on 1.5.14): its transcript does, a "Stop hook blocked
+  // termination" note since the person's last message.
+  if (input.stop_hook_active || (ASSISTANT === 'antigravity' && u && u.stopHookActive)) return queue(hold || `${ASSISTANT === 'claude' ? 'Claude' : shortOf(ASSISTANT) || 'Claude'} was already continuing for a stop hook`);
   if (hold) return queue(hold);
 
   // Clean-point checks the hook can see for itself. A question to the user

@@ -24,8 +24,9 @@
 //   home     its own folder: { env, xdg, dir } (CLAUDE_CONFIG_DIR, else
 //            ~/.claude; `xdg`: the folder's name under XDG_CONFIG_HOME)
 //   signIn   signed in when one of `env` is set, or `file` (in its home
-//            folder, else the home folder) exists and, with `match`, holds it;
-//            null: nothing to sign in to
+//            folder, else the home folder) exists and, with `match`, holds it,
+//            or its `keychain` item (service, account) is in the login
+//            keychain; null: nothing to sign in to
 //   command  how it is started: `start` the command, `resume`, `model` and
 //            `prompt` the words added ("{id}", "{model}", "{prompt}"
 //            filled), null when it has none; no `prompt`: the first
@@ -37,8 +38,9 @@
 //            (`ravenryd hook --assistant <id> --state <state>`, the
 //            daemon's table for an assistant it has no table for),
 //            'opencode' (Ravenry's plugin in its plugins folder, which
-//            reports with `--state`); the installers are in
-//            server/hookinstall.mjs
+//            reports with `--state`), 'antigravity' (a group of
+//            `ravenryd hook --state` commands in ~/.gemini/config/
+//            hooks.json); the installers are in server/hookinstall.mjs
 //   skill    where the Ravenry skill goes, under its home folder, or null
 //   rules    the rules file it reads (CLAUDE.md, AGENTS.md)
 //   caps     what the board can do with its sessions: resume (Continue,
@@ -110,6 +112,42 @@ const OPENCODE = {
   caps: { resume: true, model: true, permission: true, context: true, handoff: true, print: false },
 };
 
+// Antigravity CLI (`agy`, measured on 1.5.14): its full-screen interface
+// takes the first message with -i (a bare word is not a prompt), the model
+// with --model (an id `agy models` lists: gemini-3.8-flash-high,
+// claude-sonnet-4-6) and a conversation (a UUID) with --conversation. Its
+// hooks are Ravenry's group in ~/.gemini/config/hooks.json, `ravenryd hook
+// --state` on SessionStart, PreInvocation and Stop, which run in the
+// session's own process with the pane's environment. It has no event for a
+// permission prompt, an interrupt or its end: the board reads the prompt
+// from its screen (server/antigravity.mjs), the turn's end from the
+// screen, and the end from the pane. Its Stop carries on with
+// `{"decision":"continue","reason"}`. Signed in with Google through its
+// login keychain item (service gemini, account antigravity), or
+// GEMINI_API_KEY.
+const ANTIGRAVITY = {
+  id: 'antigravity',
+  name: 'Antigravity CLI',
+  short: 'Antigravity',
+  chip: 'Antigravity',
+  bin: 'agy',
+  home: { dir: '.gemini/antigravity-cli' },
+  signIn: { env: ['GEMINI_API_KEY'], keychain: { service: 'gemini', account: 'antigravity' } },
+  command: { start: 'agy', prompt: ['-i', '{prompt}'], resume: ['--conversation', '{id}'], model: ['--model', '{model}'] },
+  hooks: 'antigravity',
+  skill: 'skills/ravenry',
+  rules: 'AGENTS.md',
+  caps: { resume: true, model: true, permission: true, context: true, handoff: true, print: false },
+  stopContinue: 'continue',
+  quietResume: true,
+  limits: [
+    'Its permission prompts are read from its screen: it has no hook for them.',
+    'Its context bar uses the window from Settings: it records no window.',
+    'Plans and Ideas do not run on it.',
+    'A session outside a Ravenry pane is not followed.',
+  ],
+};
+
 // The stand-in: a program that reports through `ravenryd hook --state`,
 // with no screen the board reads and no transcript.
 const FAKE = {
@@ -136,7 +174,7 @@ export const testAssistantOn = (env = ENV) => env.TEST_RAVENRY === '1' && env.TE
 
 /** Every registered assistant, in the order clients list them: Claude Code first. */
 export function list(env = ENV) {
-  return testAssistantOn(env) ? [CLAUDE, CODEX, OPENCODE, FAKE] : [CLAUDE, CODEX, OPENCODE];
+  return testAssistantOn(env) ? [CLAUDE, CODEX, OPENCODE, ANTIGRAVITY, FAKE] : [CLAUDE, CODEX, OPENCODE, ANTIGRAVITY];
 }
 
 // Read once for the process: the env a hub starts with decides.
@@ -154,6 +192,26 @@ export const nameOf = (k) => (get(k) ? get(k).name : null);
 export const shortOf = (k) => (get(k) ? get(k).short : null);
 export const chipOf = (k) => (get(k) ? get(k).chip : null);
 export const can = (k, cap) => !!(get(k) && get(k).caps[cap]);
+
+/**
+ * Does this assistant's hook report say its state with `--state`, to be
+ * read as the board's event of that meaning (server/assistanthook.mjs
+ * stateInput)? The stand-in's ('state') and Antigravity CLI's, whose own
+ * event names (PreInvocation) the board's rules do not read. OpenCode's
+ * plugin names the board's events itself.
+ */
+export const reportsByState = (k) => !!get(k) && ['state', 'antigravity'].includes(get(k).hooks);
+
+/**
+ * A Stop hook's answer in the words this assistant takes: Claude Code's
+ * `{"decision":"block","reason"}` (Codex and OpenCode's plugin take it
+ * too), or `stopContinue` in place of "block" (Antigravity CLI's
+ * "continue"). Anything else is given back as it is.
+ */
+export function stopReply(k, out) {
+  const w = get(k) && get(k).stopContinue;
+  return w && out && out.decision === 'block' ? { ...out, decision: w } : out;
+}
 
 /** "claude or codex", "claude, codex or fake": the ids for a refusal's words. */
 export function idsSaid(ids = IDS) {
@@ -215,6 +273,6 @@ export function sessionIdOf(x, k = null) {
  */
 export function view(k) {
   const a = of(k);
-  return { id: a.id, name: a.name, short: a.short, chip: a.chip, bin: a.bin, command: a.command, hooks: a.hooks, skill: a.skill, rules: a.rules, caps: { ...a.caps }, ...(a.sessionId ? { sessionId: a.sessionId } : {}), ...(a.test ? { test: true } : {}) };
+  return { id: a.id, name: a.name, short: a.short, chip: a.chip, bin: a.bin, command: a.command, hooks: a.hooks, skill: a.skill, rules: a.rules, caps: { ...a.caps }, ...(a.sessionId ? { sessionId: a.sessionId } : {}), ...(a.limits ? { limits: a.limits.slice() } : {}), ...(a.test ? { test: true } : {}) };
 }
 export const views = () => IDS.map(view);

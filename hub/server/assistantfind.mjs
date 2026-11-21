@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import * as registry from './assistants.mjs';
 
 /** The assistant's own folder (~/.claude, CODEX_HOME, OpenCode's ~/.config/opencode). */
@@ -37,11 +38,12 @@ export function findBin(k, env = process.env, home = os.homedir()) {
   return null;
 }
 
-/** Signed in: its key in the environment, or its login file. True when it has nothing to sign in to. */
+/** Signed in: its key in the environment, its login file, or its login keychain item. True when it has nothing to sign in to. */
 export function signedIn(k, env = process.env, home = os.homedir()) {
   const s = registry.of(k).signIn;
   if (!s) return true;
   if ((s.env || []).some((v) => !!env[v])) return true;
+  if (s.keychain) return inKeychain(s.keychain, home);
   if (!s.file) return false;
   const f = s.file.startsWith('~/') ? path.join(home, s.file.slice(2)) : path.join(homeDir(k, env, home), s.file);
   try {
@@ -50,3 +52,24 @@ export function signedIn(k, env = process.env, home = os.homedir()) {
   } catch { return false; }
 }
 
+
+// Whether a login keychain item is there (Antigravity CLI keeps its Google
+// sign-in in one: service "gemini", account "antigravity", written through
+// /usr/bin/security). Asked of `security find-generic-password` without -w,
+// so the secret is never read and no keychain dialog opens; the keychain is
+// the one under `home` (a test's scratch HOME links its Library/Keychains).
+// Kept a minute: New session asks on every open.
+const keychainSeen = new Map();
+export function inKeychain({ service, account }, home = os.homedir()) {
+  if (process.platform !== 'darwin') return false;
+  const key = `${home}\n${service}\n${account}`;
+  const hit = keychainSeen.get(key);
+  if (hit && Date.now() - hit.at < 60000) return hit.value;
+  let value = false;
+  try {
+    const r = spawnSync('/usr/bin/security', ['find-generic-password', '-s', service, ...(account ? ['-a', account] : [])], { env: { HOME: home, PATH: '/usr/bin:/bin' }, stdio: 'ignore', timeout: 3000 });
+    value = r.status === 0;
+  } catch { value = false; }
+  keychainSeen.set(key, { at: Date.now(), value });
+  return value;
+}

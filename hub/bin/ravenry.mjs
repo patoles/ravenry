@@ -269,6 +269,27 @@ async function setup({ fromStart = false } = {}) {
     }
   }
 
+  // Antigravity CLI's hooks: only when it is installed, and with a ravenryd
+  // to report through (it follows its sessions in Ravenry's panes).
+  let antigravityHooks = null;
+  if (!FROM_NPX && hk.antigravityPresent()) {
+    antigravityHooks = 'declined';
+    let st = null;
+    try { st = hk.antigravityStatus(); } catch (e) { console.log(`  note  Antigravity CLI hooks: ${e.message}`); }
+    if (st) {
+      const rv = st.ravenryd || (await import('../server/ravenryd.mjs')).findBin();
+      if (st.state === 'ok') { console.log(`  ok    Antigravity CLI hooks: Ravenry's group in ${tilde(st.file)}.`); antigravityHooks = 'installed'; }
+      else if (st.state === 'foreign') console.log(`  note  ${tilde(st.file)} has a "ravenry" group that is not Ravenry's, so setup leaves it as it is.`);
+      else if (!rv) { console.log('  note  Antigravity CLI is installed, but no ravenryd was found to report through. The Ravenry app sets its hooks up.'); antigravityHooks = 'no ravenryd'; }
+      else {
+        const plan = hk.antigravityPlan({ ravenryd: rv });
+        console.log(`\nAntigravity CLI is installed. The board follows its sessions in Ravenry's panes (state, model, the hand-off) through one group of hooks, "ravenry", in ${tilde(plan.file)}${plan.raw != null ? ' (backed up first)' : ' (a new file)'}. Every other group stays as it is.`);
+        if (await ask(`Add it to ${tilde(plan.file)}?`)) { const b = hk.antigravityWrite(plan); console.log(`  ok    Antigravity CLI hooks installed.${b ? ` Backup: ${tilde(b)}` : ''} New Antigravity CLI sessions pick them up.`); antigravityHooks = 'installed'; }
+        else console.log('  note  Antigravity CLI hooks not installed. Run ravenry setup again any time.');
+      }
+    }
+  }
+
   // Rule suggestions: a choice about the user's data and quota, so --yes
   // never turns them on.
   const registry = await import('../server/registry.mjs');
@@ -287,7 +308,7 @@ async function setup({ fromStart = false } = {}) {
   if (!w.ok) console.log(`  !!    ${w.error}`);
   else console.log(`  ${rulesAuto ? 'ok  ' : 'note'}  Rule suggestions ${rulesAuto ? 'on' : 'off (ravenry setup turns them on)'}.`);
 
-  fs.writeFileSync(await setupFile(), JSON.stringify({ version: PKG.version, at: new Date().toISOString(), hooks, ...(codexHooks ? { codexHooks } : {}), ...(opencodePlugin ? { opencodePlugin } : {}), terminal, rulesAuto: !!rulesAuto }, null, 2) + '\n');
+  fs.writeFileSync(await setupFile(), JSON.stringify({ version: PKG.version, at: new Date().toISOString(), hooks, ...(codexHooks ? { codexHooks } : {}), ...(opencodePlugin ? { opencodePlugin } : {}), ...(antigravityHooks ? { antigravityHooks } : {}), terminal, rulesAuto: !!rulesAuto }, null, 2) + '\n');
   console.log(fromStart ? '\nSetup done. Starting the board.\n' : '\nSetup done. Start the board with: ravenry');
   return 0;
 }
@@ -355,6 +376,16 @@ async function doctor() {
       else line('note', "OpenCode plugin: not installed, so the board shows an OpenCode session only from its screen. Run ravenry setup, or set it up in the app.");
     } catch (e) { line('note', `OpenCode plugin: ${e.message}`); }
   }
+  if (hk.antigravityPresent()) {
+    try {
+      const as0 = hk.antigravityStatus();
+      if (as0.state === 'ok') line('ok', `Antigravity CLI hooks: Ravenry's group in ${tilde(as0.file)}, reporting through ${tilde(as0.ravenryd)}.`);
+      else if (as0.state === 'stale') line('note', `Antigravity CLI hooks in ${tilde(as0.file)} are stale: ${as0.why}. Run ravenry setup, or set them up again in the app.`);
+      else if (as0.state === 'off') line('note', `Antigravity CLI hooks: ${as0.why} in ${tilde(as0.file)}.`);
+      else if (as0.state === 'foreign') line('note', `${tilde(as0.file)} has a "ravenry" group that is not Ravenry's; Ravenry leaves it alone.`);
+      else line('note', 'Antigravity CLI hooks: not installed, so the board shows an Antigravity CLI session only from its screen. Run ravenry setup, or set them up in the app.');
+    } catch (e) { line('note', `Antigravity CLI hooks: ${e.message}`); }
+  }
 
   const home = await dataHome();
   const setupDone = await readSetup();
@@ -410,6 +441,16 @@ async function uninstall() {
       console.log(`\nTakes Ravenry's plugin out of OpenCode: ${tilde(op.file)}.`);
       if (await ask('Take it out?')) { hk.opencodeWrite(op); console.log('OpenCode plugin removed.'); }
       else console.log('OpenCode plugin left in place.');
+    }
+  }
+  // Antigravity CLI's group, when it is Ravenry's.
+  {
+    let ap = null;
+    try { ap = hk.antigravityPlan({ remove: true }); } catch (e) { console.log(e.message); }
+    if (ap && ap.changes.length) {
+      console.log(`\nTakes Ravenry's group out of ${tilde(ap.file)} (backed up first); every other group stays.`);
+      if (await ask('Take it out?')) { const b = hk.antigravityWrite(ap); console.log(`Antigravity CLI hooks removed.${b ? ` Backup: ${tilde(b)}` : ''}`); }
+      else console.log('Antigravity CLI hooks left in place.');
     }
   }
   // The "Ravenry board" profiles `ravenry` wrote for iTerm2 (its own file).

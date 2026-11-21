@@ -9,7 +9,8 @@
 // Which assistants there are is the registry's (server/assistants.mjs: ids,
 // names, commands, capabilities, as data the clients are sent). Adapters:
 // server/claude.mjs (Claude Code, the first), server/codex.mjs (OpenAI
-// Codex) and server/opencode.mjs (OpenCode); a registered assistant with no adapter of its own gets the
+// Codex), server/opencode.mjs (OpenCode) and server/antigravity.mjs
+// (Antigravity CLI); a registered assistant with no adapter of its own gets the
 // hook-only one (server/hookonly.mjs). A session carries `assistant` (a
 // registry id) from its hook events (hooks/events.mjs, `ravenryd hook`),
 // the way it carries `terminal`; a session or event with none, or with an
@@ -25,13 +26,14 @@ import * as claude from './claude.mjs';
 import * as codex from './codex.mjs';
 import * as hookonly from './hookonly.mjs';
 import * as opencode from './opencode.mjs';
+import * as antigravity from './antigravity.mjs';
 import * as registry from './assistants.mjs';
 import { chooseOption as choose, readMenu as menuOf } from './choose.mjs';
 import { tailLines } from './screen.mjs';
 
 // The adapters written for one assistant; every other registered one is
 // followed by its hooks alone.
-const OWN = { claude, codex, opencode: opencode.adapter };
+const OWN = { claude, codex, opencode: opencode.adapter, antigravity: antigravity.adapter };
 const ADAPTERS = Object.fromEntries(registry.IDS.map((k) => [k, OWN[k] || hookonly.make(k)]));
 // Tried in this order on a screen no session names: Claude Code first.
 const ORDER = registry.IDS;
@@ -64,8 +66,20 @@ export const cmuxAgent = (kind) => of(kind).CMUX_AGENT;
 
 // ------------------------------------------------------------ the screen
 
+// An assistant whose screen has a mark of its own that no other draws
+// (Antigravity CLI's footer: its model and effort under a rule, server/
+// antigravity.mjs claims) is read as itself before Claude Code's reading
+// is tried: Claude Code's reading takes its "esc to cancel" and numbered
+// menus for its own. Measured: no captured Claude Code screen has it.
+function claimedBy(text) {
+  for (const k of ORDER) if (ADAPTERS[k].claims && ADAPTERS[k].claims(text)) return k;
+  return null;
+}
+
 // Which assistant a screen shows, or null when none is live on it.
 export function detect(text) {
+  const own = claimedBy(text);
+  if (own) return own;
   for (const k of ORDER) if (ADAPTERS[k].parseScreen(text).claudeLive) return k;
   return null;
 }
@@ -81,6 +95,8 @@ export function detect(text) {
 // reading shows as its menu with one marked, is Codex's. Every Claude Code
 // menu measured marks its selected option, so none of them moves.
 export function parseAny(text) {
+  const own = claimedBy(text);
+  if (own) return { kind: own, screen: ADAPTERS[own].parseScreen(text) };
   const first = ADAPTERS[ORDER[0]].parseScreen(text);
   if (first.claudeLive && !(first.dialog && !first.dialog.options.some((o) => o.selected) && codexMenu(text))) return { kind: ORDER[0], screen: first };
   for (const k of ORDER.slice(1)) {
@@ -137,6 +153,9 @@ export function decide(report) {
 }
 // OpenCode's models as `opencode models` lists them (New session's Model).
 export const opencodeModels = (env) => opencode.modelList(env);
+// Antigravity CLI's as `agy models` lists them: [{ id, label }].
+export const antigravityModels = (env) => antigravity.modelList(env);
+export const antigravityLabel = (id) => antigravity.labelOf(id);
 export const readMenu = (kind, text) => menuOf(text, of(kind).parseScreen);
 
 // ------------------------------------------------------------ transcripts
@@ -175,7 +194,7 @@ export const startCommand = (kind, settings) => of(kind).startCommand(settings |
 // registered one. Read at most every 30 s (the board asks on every tick).
 let seen = { at: 0, key: '', value: null };
 export function installedAll(settings = {}, env = process.env) {
-  const key = JSON.stringify([settings.claudeBin || '', settings.codexBin || '', env.PATH || '', env.MC_CLAUDE || '', env.MC_CODEX || '', env.MC_OPENCODE || '', env.MC_CLAUDE_BIN || '', env.MC_CODEX_BIN || '', env.MC_CODEX_HOME || '', KINDS.join()]);
+  const key = JSON.stringify([settings.claudeBin || '', settings.codexBin || '', env.PATH || '', env.MC_CLAUDE || '', env.MC_CODEX || '', env.MC_OPENCODE || '', env.MC_ANTIGRAVITY || '', env.MC_CLAUDE_BIN || '', env.MC_CODEX_BIN || '', env.MC_CODEX_HOME || '', KINDS.join()]);
   if (seen.value && seen.key === key && Date.now() - seen.at < 30000) return seen.value;
   const value = Object.fromEntries(KINDS.map((k) => [k, !!ADAPTERS[k].installed(settings, env)]));
   seen = { at: Date.now(), key, value };

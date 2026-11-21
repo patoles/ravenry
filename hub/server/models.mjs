@@ -69,8 +69,10 @@ export function modelShort(id, kind) {
  * ("claude-opus-5-5", "Opus 5.5", "Opus", "Claude Opus 5.5"); all null
  * while it has named none.
  */
-export function modelView(id, kind) {
-  const name = modelName(id);
+export function modelView(id, kind, label = null) {
+  // The assistant's own label for it, when its transcript reader gives one
+  // (Antigravity CLI's "Gemini 3.8 Flash (High)", from `agy models`).
+  const name = (typeof label === 'string' && label.trim()) || modelName(id);
   if (!name) return { model: null, modelName: null, modelShort: null, modelTitle: null };
   const who = assistantName(kind);
   return { model: String(id), modelName: name, modelShort: modelShort(id, kind), modelTitle: who ? `${who} ${name}` : name };
@@ -103,7 +105,15 @@ export function projectModel(project, kind) {
  * model ids of the sessions the board reads; `codexDefault`: config.toml's.
  * Each option is { id, label }: id '' is the default.
  */
-export function startMenus({ seen = [], codexDefault = null, picked = [], opencodeModels = [] } = {}) {
+export function startMenus({ seen = [], codexDefault = null, picked = [], opencodeModels = [], antigravityModels = [] } = {}) {
+  // A model seen or picked with its assistant ({ id, kind }) goes to that
+  // assistant's menu only; a bare id is placed by its form, as before.
+  const kindOfId = (x) => (x && typeof x === 'object' ? x.kind || null : null);
+  const idOf = (x) => (x && typeof x === 'object' ? x.id : x);
+  const tagged = (k) => [...seen, ...picked].filter((x) => kindOfId(x) === k).map(idOf).filter((x) => typeof x === 'string' && x && x !== '<synthetic>');
+  const bare = (list) => list.filter((x) => kindOfId(x) == null || ['claude', 'codex', 'opencode'].includes(kindOfId(x)));
+  picked = bare(picked).map(idOf);
+  seen = bare(seen).map(idOf);
   const ids = [...new Set([...seen, ...picked].filter((x) => typeof x === 'string' && x && x !== '<synthetic>'))];
   const claudeIds = ids.filter((x) => claudeParts(x));
   // OpenCode's ids are provider/model; Claude Code's and Codex's never hold a slash.
@@ -136,9 +146,14 @@ export function startMenus({ seen = [], codexDefault = null, picked = [], openco
   // OpenCode has its key), then any other it ran or a project remembers.
   const opencode = [{ id: '', label: "OpenCode's default" }];
   for (const id of [...new Set([...opencodeModels, ...opencodeIds])]) if (MODEL_ID.test(id)) opencode.push({ id, label: id });
+  // Antigravity CLI: its default (the model /model last chose), then what
+  // `agy models` lists, by its labels, then any other it ran.
+  const antigravity = [{ id: '', label: "Antigravity CLI's default" }];
+  for (const m of antigravityModels) if (m && MODEL_ID.test(m.id) && !antigravity.some((o) => o.id === m.id)) antigravity.push({ id: m.id, label: m.label || m.id });
+  for (const id of tagged('antigravity')) if (MODEL_ID.test(id) && !antigravity.some((o) => o.id === id)) antigravity.push({ id, label: id });
   // Every other assistant with a Model menu: its own default only, until
   // its adapter knows its models.
-  const out = { claude, codex, ...(assistants.get('opencode') ? { opencode } : {}) };
+  const out = { claude, codex, ...(assistants.get('opencode') ? { opencode } : {}), ...(assistants.get('antigravity') ? { antigravity } : {}) };
   for (const k of assistants.IDS) if (!out[k] && assistants.can(k, 'model')) out[k] = [{ id: '', label: `${assistants.nameOf(k)}'s default` }];
   return out;
 }

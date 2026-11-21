@@ -77,7 +77,7 @@ import * as worktrees from './worktrees.mjs';
 import { projectFiles } from './filesview.mjs';
 import * as reviewview from './reviewview.mjs';
 import * as reviews from './reviews.mjs';
-import { paneRequest, paneInfo, barKeys } from './ravenryd.mjs';
+import { paneRequest, paneInfo, barKeys, recordOf as daemonRecordOf } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
 import { drawPage } from './pagepicture.mjs';
 import * as pages from './pages.mjs';
@@ -310,14 +310,18 @@ function assistantsView() {
 // Codex's config.toml model as its default.
 function startModels() {
   const seen = [];
-  for (const p of snapshot.projects || []) for (const x of p.sessions || []) if (x.model) seen.push(x.model);
+  // Each with its assistant, so a model goes only to the menu of the
+  // assistant that ran it (Antigravity CLI also runs claude-sonnet-4-6).
+  for (const p of snapshot.projects || []) for (const x of p.sessions || []) if (x.model) seen.push({ id: x.model, kind: x.assistant || 'claude' });
   const picked = [];
-  for (const p of (reg && reg.projects) || []) for (const k of registry.ASSISTANT_KINDS) { const m = models.projectModel(p, k); if (m) picked.push(m); }
+  for (const p of (reg && reg.projects) || []) for (const k of registry.ASSISTANT_KINDS) { const m = models.projectModel(p, k); if (m) picked.push({ id: m, kind: k }); }
   let codexDefault = null;
   try { codexDefault = asst.codexModel(reg ? reg.settings : {}).configured || null; } catch { /* no Codex */ }
   let opencodeModels = [];
   try { opencodeModels = asst.opencodeModels(); } catch { /* no OpenCode */ }
-  return models.startMenus({ seen, codexDefault, picked, opencodeModels });
+  let antigravityModels = [];
+  try { antigravityModels = asst.antigravityModels(); } catch { /* no Antigravity CLI */ }
+  return models.startMenus({ seen, codexDefault, picked, opencodeModels, antigravityModels });
 }
 
 // While the board opens a workspace for a project, the tick must not import
@@ -1147,7 +1151,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       machine: sessionMachine(s),
       assistant: asst.kindOf(s.assistant),
       // The model its transcript last named, as people say it (server/models.mjs).
-      ...models.modelView(s.transcript && s.transcript.model, asst.kindOf(s.assistant)),
+      ...models.modelView(s.transcript && s.transcript.model, asst.kindOf(s.assistant), s.transcript && s.transcript.modelLabel),
       cannot: s.cannot ? s.cannot.why : null, cannotType: s.cannot ? s.cannot.short : null,
       sidebarStatus: s.sidebarStatus, hookLifecycle: s.hook ? s.hook.lifecycle : null,
       ctx: ctx(s), draft: !!s.screen.draft, dialog: !!s.screen.dialog || s.st.state === 'dialog', working: s.st.state === 'working',
@@ -2023,6 +2027,7 @@ async function reopenSession(body) {
         cwd: cwd0, command: rcmd, args: rargs, paths: launchPaths(rk, id) });
       if (!made.ok) return { ok: false, status: 500, command: made.command, error: made.opened ? `The new ${name} tab opened, but ${made.err}. Copy the command and run it there.` : `${name} did not open a tab: ` + (made.err || 'no answer') };
       sess.dropClosed(id);
+      if (k === 'ravenry' && made.surfaceId) noteResumed(rk, id, cwd0, { ok: true, pane: { id: String(made.surfaceId).replace(/^ravenry:/, '') } });
       console.log(`sessions: reopened ${id} in ${name}`);
       setTimeout(refreshProcs, 4000);
       wantTick = true;
@@ -2269,6 +2274,7 @@ async function resumeSession(body, { fresh = false, known = null } = {}) {
     const r = await startPlanned(pl, sid);
     if (!r.ok) return { ok: false, status: 502, error: `Could not start it: ${r.err}` };
     watchOpened(r);
+    noteResumed(pl.kind, sid, cwd, r);
     resumed.set(sid, { at: Date.now(), surfaceId: r.surfaceId, pane: r.pane });
     console.log(`sessions: ${sid} continues in Ravenry (${r.surfaceId})`);
     wantTick = true; setTimeout(tick, 30);
@@ -2745,6 +2751,18 @@ async function confirmStarts() {
 // assistant as the pane's program when the board finds it on this Mac
 // (`sid`: the session it continues, whose PATH comes first), else typed at
 // the pane's prompt (server/ravenryd.mjs startSession).
+// An assistant whose hooks say nothing when a conversation is opened again
+// (registry quietResume; Antigravity CLI sends its first event with the
+// next message, measured on 1.5.14): the board notes the opening itself,
+// as its SessionStart would, so the new pane shows the session at once.
+function noteResumed(kind, sid, cwd, r) {
+  if (!sid || !r || !r.ok || !r.pane || r.machine || !assistantsReg.of(kind).quietResume) return;
+  let tp = null;
+  try { tp = asst.findTranscript(kind, sid, cwd); } catch { tp = null; }
+  const rec = daemonRecordOf({ source: 'hook', assistant: kind, pane: r.pane.id, at: new Date().toISOString(), state: 'idle', event: 'SessionStart', data: { hook_event_name: 'SessionStart', session_id: sid, source: 'resume', ...(cwd ? { cwd } : {}), ...(tp ? { transcript_path: tp } : {}) } });
+  if (rec) events.ingestDaemon(rec);
+}
+
 function startPlanned(pl, sid = null) {
   const prog = pl.machine ? null : launch.program({ command: pl.command, args: pl.args || [], paths: launchPaths(pl.kind, sid) });
   return term.ravenryStart(prog ? { ...pl, program: launch.wrapped({ argv: prog.argv, path: prog.path, cwd: pl.cwd }) } : pl);
@@ -4453,12 +4471,13 @@ async function handleRequest(req, res) {
       // registry's `hooks`, server/assistants.mjs), in order, for `ravenry
       // doctor` and any client to list: { kind, name, state, on, file, daemon }.
       const opencode = hookinstall.opencodePresent() ? safe(() => hookinstall.opencodeStatus()) : null;
-      const rows = asst.KINDS.filter((k) => hookinstall.installerOf(k) && (k !== 'codex' || codex) && (k !== 'opencode' || opencode)).map((k) => {
+      const antigravity = hookinstall.antigravityPresent() ? safe(() => hookinstall.antigravityStatus()) : null;
+      const rows = asst.KINDS.filter((k) => hookinstall.installerOf(k) && (k !== 'codex' || codex) && (k !== 'opencode' || opencode) && (k !== 'antigravity' || antigravity)).map((k) => {
         const st = k === 'claude' ? claude : k === 'codex' ? codex : null;
         const on = safe(() => hookinstall.hooksOn(k));
         return { kind: k, name: asst.nameOf(k), state: (st && st.state) || (on && on.state) || null, on: !!(on && on.on), file: (on && on.file) || null, daemon: (st && st.ravenryd && st.ravenryd.state) || (on && on.daemon) || null };
       });
-      return sendJson(res, 200, { ok: true, claude, codex, opencode, rows });
+      return sendJson(res, 200, { ok: true, claude, codex, opencode, antigravity, rows });
     }
     if (req.method === 'GET' && p === '/api/live') {
       const r = await liveScreen(url.searchParams.get('surface') || '', url.searchParams.get('v'));
@@ -4811,6 +4830,7 @@ async function handleRequest(req, res) {
         }
         if (made) worktrees.remember(made, { surfaceId: r.surfaceId, pane: r.pane && r.pane.id, projectId: project.id });
         watchOpened(r);
+        if (body && body.resume) noteResumed(pl.kind, assistantsReg.sessionIdOf(body.resume), pl.cwd, r);
         // How long each part took (a slow start shows where in the log).
         console.log(`sessions: started ${r.surfaceId} in ${Date.now() - t0} ms${made ? ` (worktree in ${made.ms} ms)` : ''}: ${Object.entries(r.timing || {}).map(([k, v]) => `${k} ${v}`).join(', ')}`);
         if (project && pl.machine && project.machine !== pl.machine) afterRegistry(registry.update((rg) => { const x = rg.projects.find((y) => y.id === project.id); if (x) x.machine = pl.machine; }));

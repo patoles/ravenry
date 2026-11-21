@@ -663,8 +663,8 @@ function recordOfReport(rep, tasks = true) {
   if (rep.source === 'hook' && rep.data && typeof rep.data.session_id === 'string') {
     const paneEnv = rep.pane ? { RAVENRY_PANE: rep.pane, TERM_PROGRAM: 'ravenry' } : {};
     // An assistant that reports its state with `--state` (registry hooks
-    // 'state'): its report as the board's event of that meaning.
-    const byState = assistants.get(rep.assistant) && assistants.get(rep.assistant).hooks === 'state';
+    // 'state' or 'antigravity'): its report as the board's event of that meaning.
+    const byState = assistants.reportsByState(rep.assistant);
     const input = byState ? stateInput(rep) : rep.data;
     if (!input) return null;
     const r = record(rep.assistant, input, { env: paneEnv, ppid: rep.pid || 0, daemon: !rep.pane, home: RAVENRY_HOME, at: rep.at, tasks });
@@ -703,7 +703,8 @@ export async function handoffDecider(rep, { machine = null, client = null } = {}
     codexDaemon: async () => !rep.pane,
     ...(io ? { io } : {}),
   });
-  return out ? { stdout: JSON.stringify(out) + '\n' } : null;
+  // In the words its Stop hook takes (Antigravity CLI: "continue").
+  return out ? { stdout: JSON.stringify(assistants.stopReply(rep.assistant, out)) + '\n' } : null;
 }
 
 // ---------------------------------------------------------------- remote files

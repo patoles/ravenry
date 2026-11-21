@@ -384,10 +384,11 @@ export function status(json, { root = ROOT } = {}) {
 // window's row, the panel's "This session" and GET /api/setup/hooks all
 // say (one answer for every route). null: not an assistant Ravenry sets up.
 // Which installer is the registry's `hooks` (server/assistants.mjs):
-// 'claude' (settings.json), 'codex' (hooks.json) or 'opencode' (its
-// plugin); an assistant whose hooks report with `ravenryd hook --state`
-// ('state') has no installer here yet, so null.
-export const INSTALLERS = ['claude', 'codex', 'opencode'];
+// 'claude' (settings.json), 'codex' (hooks.json), 'opencode' (its
+// plugin) or 'antigravity' (its group in ~/.gemini/config/hooks.json); an
+// assistant whose hooks report with `ravenryd hook --state` ('state') has
+// no installer here yet, so null.
+export const INSTALLERS = ['claude', 'codex', 'opencode', 'antigravity'];
 export const installerOf = (kind) => { const a = assistants.get(kind); return a && INSTALLERS.includes(a.hooks) ? a.hooks : null; };
 export function hooksOn(kind, { root = ROOT } = {}) {
   const how = installerOf(kind);
@@ -406,6 +407,11 @@ export function hooksOn(kind, { root = ROOT } = {}) {
   if (how === 'opencode') {
     // The plugin is its hooks and its daemon's at once.
     const s = opencodeStatus({ root });
+    return { file: s.file, on: s.state === 'ok', state: s.state, daemon: s.state === 'ok' ? 'ok' : s.state === 'stale' ? 'stale' : 'missing' };
+  }
+  if (how === 'antigravity') {
+    // Its group runs the daemon's hook alone: its hooks and its daemon's at once.
+    const s = antigravityStatus();
     return { file: s.file, on: s.state === 'ok', state: s.state, daemon: s.state === 'ok' ? 'ok' : s.state === 'stale' ? 'stale' : 'missing' };
   }
   return null;
@@ -634,6 +640,19 @@ export function opencodeWrite(plan) {
   return [];
 }
 
+// ------------------------------------------------------------ Antigravity CLI
+// Its hooks are one group in ~/.gemini/config/hooks.json, every command a
+// `ravenryd hook --assistant antigravity --state ...`
+// (server/antigravityhooks.mjs, docs/ASSISTANTS.md "Antigravity CLI").
+
+import * as ag from './antigravityhooks.mjs';
+
+export const antigravityPresent = (env = process.env) => ag.present({ env, findBin: () => findAssistant('antigravity', env) });
+export const antigravityStatus = (opts = {}) => ag.status(opts);
+export const antigravityPlan = (opts = {}) => ag.plan(opts);
+export const antigravityWrite = (plan) => ag.write(plan);
+export const antigravityFile = (env = process.env) => ag.hooksFile(env);
+
 // ------------------------------------------------------------ first launch
 
 // The app's first-launch setup: Ravenry's hooks in Claude Code's settings
@@ -650,7 +669,7 @@ export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root 
   const how = only == null ? null : installerOf(only);
   if (only != null && !how) return { ok: false, error: `Ravenry has no hooks to set up for ${assistants.nameOf(only) || only}.` };
   only = how;
-  const out = { ok: true, claude: null, codex: null, opencode: null };
+  const out = { ok: true, claude: null, codex: null, opencode: null, antigravity: null };
   if (only == null || only === 'claude') {
     let cur;
     try { cur = readSettings(); } catch (e) { return { ok: false, error: e.message }; }
@@ -675,6 +694,16 @@ export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root 
     const op = opencodePlan(remove ? { remove: true, root } : { ravenryd, root });
     out.opencode = { file: op.file, changes: op.changes, backups: [], ...(op.foreign ? { foreign: true } : {}) };
     if (!dry) opencodeWrite(op);
+  }
+  if (only === 'antigravity' || (only == null && antigravityPresent())) {
+    let ap;
+    try { ap = antigravityPlan(remove ? { remove: true } : { ravenryd }); } catch (e) { return { ...out, ok: false, error: e.message }; }
+    out.antigravity = { file: ap.file, changes: ap.changes, backup: null, ...(ap.foreign ? { foreign: true } : {}) };
+    if (!dry && remove && undoFile && restoreExact([ap.file], undoFile)) out.antigravity.restored = true;
+    else if (!dry && ap.changes.length) {
+      out.antigravity.backup = antigravityWrite(ap);
+      if (undoFile) remember(undoFile, [[ap.file, ap.raw]], remove);
+    }
   }
   return out;
 }
@@ -738,7 +767,7 @@ export function refreshAppHooks({ root = ROOT, node } = {}) {
     // By real paths: the settings may spell a folder another way (/var or /private/var).
     return !fs.existsSync(script) || realOr(path.dirname(path.dirname(path.dirname(path.dirname(script))))) === realOr(versions) || (stable && throughStable(script, stable)) || realOr(script) === realOr(path.join(root, 'hooks', x.script));
   });
-  const out = { claude: [], codex: [], opencode: [] };
+  const out = { claude: [], codex: [], opencode: [], antigravity: [] };
   try {
     const cur = readSettings();
     if (ownOrGone(status(cur.json, { root }))) {
@@ -759,6 +788,15 @@ export function refreshAppHooks({ root = ROOT, node } = {}) {
     if (os0.state === 'stale' && os0.ravenryd && isExe(os0.ravenryd)) {
       const op = opencodePlan({ root });
       if (op.changes.length) { opencodeWrite(op); out.opencode = op.changes; }
+    }
+  } catch { /* unreadable: left as it is */ }
+  // Antigravity CLI's group, once set up: brought up to this copy's, with
+  // the ravenryd it names while that is still there.
+  try {
+    const as0 = antigravityStatus();
+    if (as0.state === 'stale' && as0.ravenryd && isExe(as0.ravenryd)) {
+      const ap = antigravityPlan({});
+      if (ap.changes.length) { antigravityWrite(ap); out.antigravity = ap.changes; }
     }
   } catch { /* unreadable: left as it is */ }
   return out;
