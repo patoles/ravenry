@@ -9,10 +9,12 @@ import os from 'node:os';
 import path from 'node:path';
 import * as registry from './assistants.mjs';
 
-/** The assistant's own folder (~/.claude, CODEX_HOME). */
+/** The assistant's own folder (~/.claude, CODEX_HOME, OpenCode's ~/.config/opencode). */
 export function homeDir(k, env = process.env, home = os.homedir()) {
   const a = registry.of(k);
-  return (a.home.env && env[a.home.env]) || path.join(home, a.home.dir);
+  if (a.home.env && env[a.home.env]) return env[a.home.env];
+  if (a.home.xdg && env.XDG_CONFIG_HOME && path.isAbsolute(env.XDG_CONFIG_HOME)) return path.join(env.XDG_CONFIG_HOME, a.home.xdg);
+  return path.join(home, a.home.dir);
 }
 
 /** Where the Ravenry skill goes for it, or null when it takes none. */
@@ -25,7 +27,7 @@ export function skillDir(k, env = process.env, home = os.homedir()) {
 export function findBin(k, env = process.env, home = os.homedir()) {
   // A Mac app started from the Finder gets a short PATH, and so may the
   // board's service, so the usual install folders are looked at too.
-  const dirs = [...(env.PATH || '').split(path.delimiter), path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.npm-global', 'bin'), path.join(home, '.volta', 'bin')];
+  const dirs = [...(env.PATH || '').split(path.delimiter), path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.npm-global', 'bin'), path.join(home, '.volta', 'bin'), path.join(home, '.opencode', 'bin')];
   const bin = registry.of(k).bin;
   for (const d of dirs) {
     if (!d) continue;

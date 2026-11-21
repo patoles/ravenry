@@ -251,6 +251,24 @@ async function setup({ fromStart = false } = {}) {
     }
   }
 
+  // OpenCode's plugin: only when OpenCode is installed, and with a ravenryd
+  // to report through (it follows OpenCode sessions in Ravenry's panes).
+  let opencodePlugin = null;
+  if (!FROM_NPX && hk.opencodePresent()) {
+    opencodePlugin = 'declined';
+    const st = hk.opencodeStatus();
+    const rv = st.ravenryd || (await import('../server/ravenryd.mjs')).findBin();
+    if (st.state === 'ok') { console.log(`  ok    OpenCode plugin: ${tilde(st.file)}.`); opencodePlugin = 'installed'; }
+    else if (st.state === 'foreign') console.log(`  note  ${tilde(st.file)} is not Ravenry's, so setup leaves it as it is.`);
+    else if (!rv) { console.log('  note  OpenCode is installed, but no ravenryd was found to report through. The Ravenry app sets its plugin up.'); opencodePlugin = 'no ravenryd'; }
+    else {
+      const plan = hk.opencodePlan({ ravenryd: rv });
+      console.log(`\nOpenCode is installed. The board follows its sessions in Ravenry's panes (state, permissions answered from the board, the hand-off) through a small plugin OpenCode loads from ${tilde(path.dirname(plan.file))}. Setup adds only that one file, ${path.basename(plan.file)}; nothing else in OpenCode's folder changes.`);
+      if (await ask(`Write ${tilde(plan.file)}?`)) { hk.opencodeWrite(plan); console.log('  ok    OpenCode plugin installed. New OpenCode sessions pick it up.'); opencodePlugin = 'installed'; }
+      else console.log('  note  OpenCode plugin not installed. Run ravenry setup again any time.');
+    }
+  }
+
   // Rule suggestions: a choice about the user's data and quota, so --yes
   // never turns them on.
   const registry = await import('../server/registry.mjs');
@@ -269,7 +287,7 @@ async function setup({ fromStart = false } = {}) {
   if (!w.ok) console.log(`  !!    ${w.error}`);
   else console.log(`  ${rulesAuto ? 'ok  ' : 'note'}  Rule suggestions ${rulesAuto ? 'on' : 'off (ravenry setup turns them on)'}.`);
 
-  fs.writeFileSync(await setupFile(), JSON.stringify({ version: PKG.version, at: new Date().toISOString(), hooks, ...(codexHooks ? { codexHooks } : {}), terminal, rulesAuto: !!rulesAuto }, null, 2) + '\n');
+  fs.writeFileSync(await setupFile(), JSON.stringify({ version: PKG.version, at: new Date().toISOString(), hooks, ...(codexHooks ? { codexHooks } : {}), ...(opencodePlugin ? { opencodePlugin } : {}), terminal, rulesAuto: !!rulesAuto }, null, 2) + '\n');
   console.log(fromStart ? '\nSetup done. Starting the board.\n' : '\nSetup done. Start the board with: ravenry');
   return 0;
 }
@@ -328,6 +346,15 @@ async function doctor() {
       if (cs.hooksOff) line('note', "Codex's hooks are turned off in its config.toml ([features] hooks = false).");
     } catch (e) { line('note', `Codex hooks: ${e.message}`); }
   }
+  if (hk.opencodePresent()) {
+    try {
+      const os0 = hk.opencodeStatus();
+      if (os0.state === 'ok') line('ok', `OpenCode plugin: ${tilde(os0.file)}, reporting through ${tilde(os0.ravenryd)}.`);
+      else if (os0.state === 'stale') line('note', `OpenCode plugin in ${tilde(os0.file)} is stale: ${os0.why}. Run ravenry setup, or set it up again in the app.`);
+      else if (os0.state === 'foreign') line('note', `${tilde(os0.file)} is not Ravenry's plugin; Ravenry leaves it alone.`);
+      else line('note', "OpenCode plugin: not installed, so the board shows an OpenCode session only from its screen. Run ravenry setup, or set it up in the app.");
+    } catch (e) { line('note', `OpenCode plugin: ${e.message}`); }
+  }
 
   const home = await dataHome();
   const setupDone = await readSetup();
@@ -374,6 +401,15 @@ async function uninstall() {
       console.log('');
       if (await ask('Take them out?')) { const b = hk.codexWrite(cp); console.log(`Codex hooks removed. Backup${b.length > 1 ? 's' : ''}: ${b.map(tilde).join(', ')}`); }
       else console.log('Codex hooks left in place.');
+    }
+  }
+  // OpenCode's plugin, when it is Ravenry's.
+  {
+    const op = hk.opencodePlan({ remove: true });
+    if (op.changes.length) {
+      console.log(`\nTakes Ravenry's plugin out of OpenCode: ${tilde(op.file)}.`);
+      if (await ask('Take it out?')) { hk.opencodeWrite(op); console.log('OpenCode plugin removed.'); }
+      else console.log('OpenCode plugin left in place.');
     }
   }
   // The "Ravenry board" profiles `ravenry` wrote for iTerm2 (its own file).

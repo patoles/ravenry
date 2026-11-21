@@ -21,17 +21,24 @@
 //   short    the switches' word, where room is short: "Claude"
 //   chip     the session tag: "Claude"
 //   bin      its command, found on the PATH or where its installer puts it
-//   home     its own folder: { env, dir } (CLAUDE_CONFIG_DIR, else ~/.claude)
+//   home     its own folder: { env, xdg, dir } (CLAUDE_CONFIG_DIR, else
+//            ~/.claude; `xdg`: the folder's name under XDG_CONFIG_HOME)
 //   signIn   signed in when one of `env` is set, or `file` (in its home
 //            folder, else the home folder) exists and, with `match`, holds it;
 //            null: nothing to sign in to
-//   command  how it is started: `start` the command, `resume` and `model`
-//            the words added ("{id}", "{model}" filled), null when it has none
+//   command  how it is started: `start` the command, `resume`, `model` and
+//            `prompt` the words added ("{id}", "{model}", "{prompt}"
+//            filled), null when it has none; no `prompt`: the first
+//            message is a word of its own, after `--` when it starts with
+//            a dash
+//   sessionId  the pattern of its session ids, when they are not UUIDs
 //   hooks    how its hooks report: 'claude' (Claude Code's settings.json),
 //            'codex' (Codex's hooks.json and trust entries), 'state'
 //            (`ravenryd hook --assistant <id> --state <state>`, the
-//            daemon's table for an assistant it has no table for); the
-//            installers are in server/hookinstall.mjs
+//            daemon's table for an assistant it has no table for),
+//            'opencode' (Ravenry's plugin in its plugins folder, which
+//            reports with `--state`); the installers are in
+//            server/hookinstall.mjs
 //   skill    where the Ravenry skill goes, under its home folder, or null
 //   rules    the rules file it reads (CLAUDE.md, AGENTS.md)
 //   caps     what the board can do with its sessions: resume (Continue,
@@ -78,6 +85,31 @@ const CODEX = {
   caps: { resume: true, model: true, permission: true, context: true, handoff: true, print: true },
 };
 
+// OpenCode (opencode-ai on npm; measured on 1.19.6): its full-screen
+// interface takes the first message with --prompt (a bare word is the
+// folder to open), the model as provider/model with -m, and a session id
+// (ses_...) with --session. Its states come from Ravenry's plugin in its
+// plugins folder (hooks/opencode-plugin.js), which reports through
+// `ravenryd hook --state` and answers a permission through OpenCode's own
+// API. Nothing to sign in to: it ships free models, and a provider's key
+// (OpenRouter's, say) is OpenCode's own business.
+const OPENCODE = {
+  id: 'opencode',
+  name: 'OpenCode',
+  short: 'OpenCode',
+  chip: 'OpenCode',
+  bin: 'opencode',
+  // OPENCODE_CONFIG_DIR, else <XDG_CONFIG_HOME>/opencode, else ~/.config/opencode.
+  home: { env: 'OPENCODE_CONFIG_DIR', xdg: 'opencode', dir: '.config/opencode' },
+  signIn: null,
+  command: { start: 'opencode', prompt: ['--prompt', '{prompt}'], resume: ['--session', '{id}'], model: ['-m', '{model}'] },
+  sessionId: '^ses_[A-Za-z0-9]{8,64}$',
+  hooks: 'opencode',
+  skill: 'skills/ravenry',
+  rules: 'AGENTS.md',
+  caps: { resume: true, model: true, permission: true, context: true, handoff: true, print: false },
+};
+
 // The stand-in: a program that reports through `ravenryd hook --state`,
 // with no screen the board reads and no transcript.
 const FAKE = {
@@ -104,7 +136,7 @@ export const testAssistantOn = (env = ENV) => env.TEST_RAVENRY === '1' && env.TE
 
 /** Every registered assistant, in the order clients list them: Claude Code first. */
 export function list(env = ENV) {
-  return testAssistantOn(env) ? [CLAUDE, CODEX, FAKE] : [CLAUDE, CODEX];
+  return testAssistantOn(env) ? [CLAUDE, CODEX, OPENCODE, FAKE] : [CLAUDE, CODEX, OPENCODE];
 }
 
 // Read once for the process: the env a hub starts with decides.
@@ -141,6 +173,41 @@ export function words(k, what, value) {
 }
 
 /**
+ * The words a first message adds to its command: the registry's `prompt`
+ * words (OpenCode's `--prompt <text>`, as one `--prompt=<text>` when the
+ * text starts with a dash), else the text as one word, after `--` when it
+ * starts with a dash (`claude -- '-x'`, `codex -- '-x'`).
+ */
+export function promptArgs(k, text) {
+  const t = String(text);
+  const w = of(k).command.prompt;
+  if (Array.isArray(w)) {
+    if (t.startsWith('-') && w.length === 2 && w[1] === '{prompt}') return [`${w[0]}=${t}`];
+    return w.map((x) => (x === '{prompt}' ? t : x));
+  }
+  return [...(t.startsWith('-') ? ['--'] : []), t];
+}
+
+// A Claude Code or Codex session id: a UUID, kept in lower case.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * A session id as the board keeps it, or null: a UUID in lower case, or
+ * an id in a registered assistant's own pattern (OpenCode's ses_..., whose
+ * case matters) as it is. `k` limits it to that assistant's form.
+ */
+export function sessionIdOf(x, k = null) {
+  const s = typeof x === 'string' ? x.trim() : '';
+  if (!s) return null;
+  const pat = (a) => (a.sessionId ? new RegExp(a.sessionId) : null);
+  if (k && get(k)) {
+    const p = pat(get(k));
+    return p ? (p.test(s) ? s : null) : (UUID.test(s) ? s.toLowerCase() : null);
+  }
+  if (UUID.test(s)) return s.toLowerCase();
+  return ENTRIES.some((a) => pat(a) && pat(a).test(s)) ? s : null;
+}
+
+/**
  * What a client is sent of each one (GET /api/state `assistants.list`,
  * GET /api/setup/start `assistants`, GET /api/settings/assistant): the
  * data above with no functions; `skill` as people read it is the hub's
@@ -148,6 +215,6 @@ export function words(k, what, value) {
  */
 export function view(k) {
   const a = of(k);
-  return { id: a.id, name: a.name, short: a.short, chip: a.chip, bin: a.bin, command: a.command, hooks: a.hooks, skill: a.skill, rules: a.rules, caps: { ...a.caps }, ...(a.test ? { test: true } : {}) };
+  return { id: a.id, name: a.name, short: a.short, chip: a.chip, bin: a.bin, command: a.command, hooks: a.hooks, skill: a.skill, rules: a.rules, caps: { ...a.caps }, ...(a.sessionId ? { sessionId: a.sessionId } : {}), ...(a.test ? { test: true } : {}) };
 }
 export const views = () => IDS.map(view);

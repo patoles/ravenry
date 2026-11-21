@@ -8,8 +8,8 @@
 //
 // Which assistants there are is the registry's (server/assistants.mjs: ids,
 // names, commands, capabilities, as data the clients are sent). Adapters:
-// server/claude.mjs (Claude Code, the first) and server/codex.mjs (OpenAI
-// Codex); a registered assistant with no adapter of its own gets the
+// server/claude.mjs (Claude Code, the first), server/codex.mjs (OpenAI
+// Codex) and server/opencode.mjs (OpenCode); a registered assistant with no adapter of its own gets the
 // hook-only one (server/hookonly.mjs). A session carries `assistant` (a
 // registry id) from its hook events (hooks/events.mjs, `ravenryd hook`),
 // the way it carries `terminal`; a session or event with none, or with an
@@ -24,13 +24,14 @@
 import * as claude from './claude.mjs';
 import * as codex from './codex.mjs';
 import * as hookonly from './hookonly.mjs';
+import * as opencode from './opencode.mjs';
 import * as registry from './assistants.mjs';
 import { chooseOption as choose, readMenu as menuOf } from './choose.mjs';
 import { tailLines } from './screen.mjs';
 
 // The adapters written for one assistant; every other registered one is
 // followed by its hooks alone.
-const OWN = { claude, codex };
+const OWN = { claude, codex, opencode: opencode.adapter };
 const ADAPTERS = Object.fromEntries(registry.IDS.map((k) => [k, OWN[k] || hookonly.make(k)]));
 // Tried in this order on a screen no session names: Claude Code first.
 const ORDER = registry.IDS;
@@ -123,7 +124,19 @@ export const withPrompt = (kind, screen, v) => of(kind).withPrompt(screen, v);
 
 // A menu's option chosen with the arrows and Enter (server/choose.mjs), read
 // with this assistant's screen reading.
-export const chooseOption = (kind, opts) => choose({ ...opts, parse: of(kind).parseScreen });
+// An assistant that answers a menu its own way (OpenCode: through its
+// plugin and OpenCode's API, server/opencode.mjs) is given the session id.
+export const chooseOption = (kind, opts) => (of(kind).chooseOption ? of(kind).chooseOption({ ...opts, parse: of(kind).parseScreen }) : choose({ ...opts, parse: of(kind).parseScreen }));
+// A hook that waits on the hub for something only its adapter knows
+// (OpenCode's plugin waiting for the board's answer to a permission):
+// a promise of { stdout } or null; undefined when no adapter decides it.
+export function decide(report) {
+  const k = report && report.assistant;
+  if (!k || kindOf(k) !== k || !ADAPTERS[k].decide) return undefined;
+  return ADAPTERS[k].decide(report);
+}
+// OpenCode's models as `opencode models` lists them (New session's Model).
+export const opencodeModels = (env) => opencode.modelList(env);
 export const readMenu = (kind, text) => menuOf(text, of(kind).parseScreen);
 
 // ------------------------------------------------------------ transcripts
@@ -162,7 +175,7 @@ export const startCommand = (kind, settings) => of(kind).startCommand(settings |
 // registered one. Read at most every 30 s (the board asks on every tick).
 let seen = { at: 0, key: '', value: null };
 export function installedAll(settings = {}, env = process.env) {
-  const key = JSON.stringify([settings.claudeBin || '', settings.codexBin || '', env.PATH || '', env.MC_CLAUDE || '', env.MC_CODEX || '', env.MC_CLAUDE_BIN || '', env.MC_CODEX_BIN || '', env.MC_CODEX_HOME || '', KINDS.join()]);
+  const key = JSON.stringify([settings.claudeBin || '', settings.codexBin || '', env.PATH || '', env.MC_CLAUDE || '', env.MC_CODEX || '', env.MC_OPENCODE || '', env.MC_CLAUDE_BIN || '', env.MC_CODEX_BIN || '', env.MC_CODEX_HOME || '', KINDS.join()]);
   if (seen.value && seen.key === key && Date.now() - seen.at < 30000) return seen.value;
   const value = Object.fromEntries(KINDS.map((k) => [k, !!ADAPTERS[k].installed(settings, env)]));
   seen = { at: Date.now(), key, value };

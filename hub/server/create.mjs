@@ -13,6 +13,7 @@ import { execFileSync, spawn } from 'node:child_process';
 
 import * as term from './terminal.mjs';
 import { typedLine } from './launch.mjs';
+import { promptArgs, idsSaid } from './assistants.mjs';
 
 const { cmux } = term;
 import * as registry from './registry.mjs';
@@ -84,9 +85,11 @@ export function quoteWord(s) {
 }
 
 // `command` is the chosen assistant's (server/assistant.mjs startCommand):
-// `claude` (the launchCommand setting) or `codex`. Both take a prompt that
-// starts with a dash only after `--` (measured for Codex 0.166.0: `codex
-// '-x hi'` is "unexpected argument '-x'", `codex -- '-x hi'` is the prompt).
+// `claude` (the launchCommand setting), `codex` or `opencode`. Its words
+// are server/assistants.mjs promptArgs: Claude Code and Codex take a prompt
+// that starts with a dash only after `--` (measured for Codex 0.166.0:
+// `codex '-x hi'` is "unexpected argument '-x'", `codex -- '-x hi'` is the
+// prompt); OpenCode takes it after --prompt (a bare word is a folder).
 
 // What a launch runs: the assistant the board chose (`launch`: { kind,
 // command, note }, from server/index.mjs), else cfg.launchCommand as before.
@@ -311,7 +314,7 @@ export function takenIn(dir) {
 export async function createProject(form, { cfg, settings, reserve, launch = null, adopt = null, paths = () => [] }) {
   const err = validate(form);
   if (err) return { ok: false, status: 400, error: err };
-  if (form.assistant != null && form.assistant !== '' && !registry.ASSISTANT_KINDS.includes(form.assistant)) return { ok: false, status: 400, error: 'The assistant must be claude or codex.' };
+  if (form.assistant != null && form.assistant !== '' && !registry.ASSISTANT_KINDS.includes(form.assistant)) return { ok: false, status: 400, error: `The assistant must be ${idsSaid()}.` };
   const L = launchOf(cfg, launch);
   const name = oneLine(form.name);
   const slug = registry.slug(name);
@@ -362,14 +365,14 @@ export async function createProject(form, { cfg, settings, reserve, launch = nul
   if (adopt) return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), adopted: true, ...chosen(L), message: `${name} is in ${short(folder)}, with the session already running there. The brief is ${briefRel}.` };
   const prompt = `Read ${briefRel} and start on the first milestone.`;
   if (term.BOARD !== 'cmux') {
-    const t = await openBoardTab({ cwd: folder, command: L.command, args: [prompt], label: name, paths: paths(L.kind) });
+    const t = await openBoardTab({ cwd: folder, command: L.command, args: promptArgs(L.kind, prompt), label: name, paths: paths(L.kind) });
     if (!t.ok) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), ...chosen(L), error: `Folder and brief are ready, but ${t.error}` };
     return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: t.where, surfaceId: t.surfaceId, gitInit: made, ...chosen(L), message: `${name} is in ${short(folder)}. ${L.short} is reading the brief in a new ${t.place}.` };
   }
   const release = reserve(name);
   let ws;
   try {
-    ws = await openWorkspace({ name, cwd: folder, command: typedLine({ command: L.command, args: [prompt] }), focus: settings.focusNewWorkspace === true });
+    ws = await openWorkspace({ name, cwd: folder, command: typedLine({ command: L.command, args: promptArgs(L.kind, prompt) }), focus: settings.focusNewWorkspace === true });
     if (ws.ok) reg = registry.update((r) => { const p = r.projects.find((x) => x.id === id); if (p) p.workspaces = [ws.workspaceId]; });
   } finally {
     release();
@@ -428,7 +431,7 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
   // (after `--` when it starts with a dash), else the brief's prompt. Typed
   // into a shell they are one shell word each (shellWord); as a tab's
   // program they are its argv as they are.
-  const args = fm ? [...(fm.startsWith('-') ? ['--'] : []), fm] : [prompt];
+  const args = promptArgs(L.kind, fm || prompt);
   const cmd = typedLine({ command: L.command, args });
   if (term.BOARD !== 'cmux') {
     const t = await openBoardTab({ cwd: project.folder, command: L.command, args, near, label: project.name, paths: paths(L.kind) });

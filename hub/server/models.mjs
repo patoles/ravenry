@@ -1,5 +1,6 @@
 // The model a session runs, said the way people say it, and the one a new
-// session starts with.
+// session starts with. OpenCode's: its plugin's session file
+// (server/opencode.mjs), provider/model.
 //
 // Where it comes from: Claude Code's transcript (each reply's
 // message.model, server/transcript.mjs), Codex's rollout (each turn's
@@ -23,8 +24,9 @@ import { assistantName } from './cpwords.mjs';
 import * as assistants from './assistants.mjs';
 
 // A model id as a command line takes it: letters, digits, . _ : - and a
-// "[1m]" suffix.
-export const MODEL_ID = /^[A-Za-z0-9][\w.:-]{0,79}(?:\[1m\])?$/;
+// "[1m]" suffix; OpenCode's are provider/model, with more slashes for a
+// router's ("openrouter/anthropic/claude-sonnet-4.5", ":free" at the end).
+export const MODEL_ID = /^[A-Za-z0-9][\w.:-]{0,79}(?:\[1m\])?$|^[A-Za-z0-9][\w.-]{0,39}\/[\w.:@+-][\w.:@+/-]{0,119}$/;
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 // Claude Code's --model aliases (`claude --help`): the newest of a family.
@@ -44,10 +46,11 @@ function claudeParts(id) {
   return null;
 }
 
-/** The model as people say it: "Opus 5.5", "Fable 5.2", "gpt-5.4"; null for none. */
+/** The model as people say it: "Opus 5.5", "Fable 5.2", "gpt-5.4", OpenCode's "deepseek-v4.1-flash-free" (its provider left out); null for none. */
 export function modelName(id) {
   const s = String(id || '').trim();
   if (!s || s === '<synthetic>') return null;
+  if (s.includes('/')) return s.split('/').pop() || s;
   const c = claudeParts(s);
   if (!c) return s;
   return `${cap(c.family)}${c.version ? ' ' + c.version : ''}${c.long ? ' (1M)' : ''}`;
@@ -83,7 +86,7 @@ export function withModel(command, kind, model) {
   if (!a.caps.model || !a.command.model) return command;
   const flag = a.command.model[0];
   const rest = String(command || a.command.start).replace(/\s+(?:-m|--model)(?:=|\s+)(?:'[^']*'|\S+)/g, '');
-  return `${rest} ${flag} ${/^[\w.:-]+$/.test(m) ? m : `'${m}'`}`;
+  return `${rest} ${flag} ${/^[\w.:/@+-]+$/.test(m) ? m : `'${m}'`}`;
 }
 
 /** The model a project starts its next session of `kind` with, or null (the assistant's default). */
@@ -100,10 +103,12 @@ export function projectModel(project, kind) {
  * model ids of the sessions the board reads; `codexDefault`: config.toml's.
  * Each option is { id, label }: id '' is the default.
  */
-export function startMenus({ seen = [], codexDefault = null, picked = [] } = {}) {
+export function startMenus({ seen = [], codexDefault = null, picked = [], opencodeModels = [] } = {}) {
   const ids = [...new Set([...seen, ...picked].filter((x) => typeof x === 'string' && x && x !== '<synthetic>'))];
   const claudeIds = ids.filter((x) => claudeParts(x));
-  const codexIds = ids.filter((x) => !claudeParts(x));
+  // OpenCode's ids are provider/model; Claude Code's and Codex's never hold a slash.
+  const codexIds = ids.filter((x) => !claudeParts(x) && !x.includes('/'));
+  const opencodeIds = ids.filter((x) => x.includes('/'));
   const newest = (family) => claudeIds.map(claudeParts).filter((c) => c.family === family && c.version && !c.long)
     .sort((a, b) => b.version.localeCompare(a.version, 'en', { numeric: true }))[0] || null;
   const claude = [{ id: '', label: "Claude Code's default" }];
@@ -126,9 +131,14 @@ export function startMenus({ seen = [], codexDefault = null, picked = [] } = {})
   for (const id of [...new Set([...(codexDefault ? [codexDefault] : []), ...codexIds])].sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))) {
     if (MODEL_ID.test(id)) codex.push({ id, label: id });
   }
+  // OpenCode: its default (the model its config names, else its own
+  // pick), then every model `opencode models` lists (OpenRouter's too once
+  // OpenCode has its key), then any other it ran or a project remembers.
+  const opencode = [{ id: '', label: "OpenCode's default" }];
+  for (const id of [...new Set([...opencodeModels, ...opencodeIds])]) if (MODEL_ID.test(id)) opencode.push({ id, label: id });
   // Every other assistant with a Model menu: its own default only, until
   // its adapter knows its models.
-  const out = { claude, codex };
+  const out = { claude, codex, ...(assistants.get('opencode') ? { opencode } : {}) };
   for (const k of assistants.IDS) if (!out[k] && assistants.can(k, 'model')) out[k] = [{ id: '', label: `${assistants.nameOf(k)}'s default` }];
   return out;
 }

@@ -14,8 +14,6 @@ import path from 'node:path';
 import { shellWord } from './create.mjs';
 import * as assistants from './assistants.mjs';
 
-const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 // body: { projectId, folder, machine, assistant, text, cols, rows, resume }.
 // resume: a session id to continue (Continue in Ravenry): the assistant
 // runs its command with the registry's resume words (server/assistants.mjs:
@@ -45,7 +43,8 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
   const folder = typeof b.folder === 'string' && b.folder.trim() ? b.folder.trim() : project ? project.folder : null;
   if (!folder || !path.isAbsolute(folder)) return { ok: false, status: 400, error: 'Give the folder to start in (an absolute path).' };
   if (b.assistant != null && !assistants.isId(b.assistant)) return { ok: false, status: 400, error: `assistant is ${assistants.idsSaid()}.` };
-  if (b.resume != null && !(typeof b.resume === 'string' && SESSION_ID.test(b.resume))) return { ok: false, status: 400, error: 'resume is a session id.' };
+  // A session id: a UUID (Claude Code, Codex) or an assistant's own (OpenCode's ses_...).
+  if (b.resume != null && !assistants.sessionIdOf(b.resume)) return { ok: false, status: 400, error: 'resume is a session id.' };
   const L = launch(project, b.assistant || null);
   const text = typeof b.text === 'string' && b.text.trim() ? b.text.trim() : null;
   let prompt = b.resume ? null : text;
@@ -61,14 +60,17 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
     const note = `You work in your own git worktree, ${worktree.folder}, on the branch ${worktree.branch}: commit your work there. The user reviews the branch and merges it.`;
     prompt = prompt ? `${prompt} ${note}` : note;
   }
-  const resume = b.resume ? b.resume.toLowerCase() : null;
+  const resume = b.resume ? assistants.sessionIdOf(b.resume) : null;
   if (resume && !assistants.can(L.kind, 'resume')) return { ok: false, status: 400, error: `${assistants.nameOf(L.kind)} cannot resume a conversation.` };
   const resumeWords = resume ? assistants.words(L.kind, 'resume', resume) : [];
+  // The first message's words (server/assistants.mjs promptArgs): one word,
+  // after `--` when it starts with a dash, or OpenCode's `--prompt <text>`.
+  const pwords = prompt ? assistants.promptArgs(L.kind, prompt) : [];
   const line = resume ? `${L.command} ${resumeWords.join(' ')}`
-    : prompt ? `${L.command} ${prompt.startsWith('-') ? '-- ' : ''}${shellWord(prompt)}` : L.command;
+    : prompt ? `${L.command} ${pwords.map((w) => (w === prompt ? shellWord(w) : /^[\w./:=-]+$/.test(w) ? w : shellWord(w))).join(' ')}` : L.command;
   // The same as the command and its words, for a pane that runs the
   // assistant as its program (server/launch.mjs).
-  const args = resume ? resumeWords : prompt ? [...(prompt.startsWith('-') ? ['--'] : []), prompt] : [];
+  const args = resume ? resumeWords : pwords;
   const first = String(L.command).trim().split(/\s+/)[0];
   const PATH = !machine && assistants.IDS.some((k) => assistants.of(k).bin === first) ? binPath(first) : null;
   const size = (n) => (Number.isInteger(n) && n >= 1 && n <= 4096 ? n : null);

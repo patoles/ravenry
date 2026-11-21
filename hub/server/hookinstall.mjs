@@ -384,10 +384,10 @@ export function status(json, { root = ROOT } = {}) {
 // window's row, the panel's "This session" and GET /api/setup/hooks all
 // say (one answer for every route). null: not an assistant Ravenry sets up.
 // Which installer is the registry's `hooks` (server/assistants.mjs):
-// 'claude' (settings.json) or 'codex' (hooks.json); an assistant whose
-// hooks report with `ravenryd hook --state` ('state') has no installer here
-// yet, so null.
-export const INSTALLERS = ['claude', 'codex'];
+// 'claude' (settings.json), 'codex' (hooks.json) or 'opencode' (its
+// plugin); an assistant whose hooks report with `ravenryd hook --state`
+// ('state') has no installer here yet, so null.
+export const INSTALLERS = ['claude', 'codex', 'opencode'];
 export const installerOf = (kind) => { const a = assistants.get(kind); return a && INSTALLERS.includes(a.hooks) ? a.hooks : null; };
 export function hooksOn(kind, { root = ROOT } = {}) {
   const how = installerOf(kind);
@@ -402,6 +402,11 @@ export function hooksOn(kind, { root = ROOT } = {}) {
     // Asked for a row the Settings window shows (Codex found): off until set up, even with no hooks.json yet.
     const s = codexStatus({ root });
     return { file: s.file, on: s.state === 'ok' && !s.hooksOff && daemonOk(s.ravenryd, cx.readHooks().json, CODEX_OURS), state: s.state, daemon: s.ravenryd.state, hooksOff: !!s.hooksOff };
+  }
+  if (how === 'opencode') {
+    // The plugin is its hooks and its daemon's at once.
+    const s = opencodeStatus({ root });
+    return { file: s.file, on: s.state === 'ok', state: s.state, daemon: s.state === 'ok' ? 'ok' : s.state === 'stale' ? 'stale' : 'missing' };
   }
   return null;
 }
@@ -547,6 +552,88 @@ export function codexStatus({ root = ROOT } = {}) {
   return { ...st, state: stale.length ? 'stale' : st.state, stale, hooksOff: cx.hooksDisabled(c.raw), file: h.file, ravenryd: ravenrydStatus(h.json, 'codex') };
 }
 
+
+// ------------------------------------------------------------ OpenCode
+// OpenCode has no hook commands: it loads plugins from its plugins folder
+// (<OPENCODE_CONFIG_DIR, else XDG_CONFIG_HOME/opencode, else
+// ~/.config/opencode>/plugins), so Ravenry's hooks there are one file,
+// plugins/ravenry.js, written from hooks/opencode-plugin.js with the path
+// of ravenryd in it (docs/ASSISTANTS.md, "OpenCode"). It reports only from
+// a Ravenry pane. Ours by its first line (OPENCODE_MARK); a file of that
+// name that is not ours is never touched. Removing it takes out only that
+// file. A test never reaches the real folder: it names a scratch one with
+// MC_OPENCODE_HOME (else OPENCODE_CONFIG_DIR), and counts OpenCode as not
+// there without it.
+
+import { homeDir as assistantHome, findBin as findAssistant } from './assistantfind.mjs';
+
+export const OPENCODE_MARK = 'ravenry-opencode-plugin';
+const isTest = (env) => env.TEST_RAVENRY === '1' || env.MC_TEST === '1';
+export function opencodeDir(env = process.env) {
+  if (env.MC_OPENCODE_HOME) return env.MC_OPENCODE_HOME;
+  return assistantHome('opencode', env);
+}
+export const OPENCODE_PLUGIN_FILE = (env = process.env) => path.join(opencodeDir(env), 'plugins', 'ravenry.js');
+
+// OpenCode is here: its binary, or its folder already holds our plugin.
+// MC_OPENCODE=0|1 decides in tests.
+export const opencodePresent = (env = process.env) => {
+  if (isTest(env) && !env.MC_OPENCODE_HOME && !env.OPENCODE_CONFIG_DIR) return false;
+  if (env.MC_OPENCODE === '0' || env.MC_OPENCODE === '1') return env.MC_OPENCODE === '1';
+  if (findAssistant('opencode', env)) return true;
+  return fs.existsSync(OPENCODE_PLUGIN_FILE(env));
+};
+
+/** The plugin's text for this ravenryd. */
+export function opencodePluginText(ravenryd, { root = ROOT } = {}) {
+  const t = fs.readFileSync(path.join(root, 'hooks', 'opencode-plugin.js'), 'utf8');
+  return t.replace("'__RAVENRYD__'", JSON.stringify(String(ravenryd)));
+}
+
+const ravenrydOfPlugin = (text) => { const m = /^const RAVENRYD = ("(?:[^"\\]|\\.)*");$/m.exec(String(text || '')); try { return m ? JSON.parse(m[1]) : null; } catch { return null; } };
+
+// { file, state: 'ok' | 'missing' | 'stale' | 'foreign', ravenryd, why }:
+// stale when its ravenryd is gone or the plugin is an older one.
+export function opencodeStatus({ root = ROOT, env = process.env } = {}) {
+  const file = OPENCODE_PLUGIN_FILE(env);
+  let raw = null;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return { file, state: 'missing', ravenryd: null }; }
+  if (!raw.includes(OPENCODE_MARK)) return { file, state: 'foreign', ravenryd: null };
+  const rv = ravenrydOfPlugin(raw);
+  if (!rv || !isExe(rv)) return { file, state: 'stale', ravenryd: rv, why: `${rv || 'its ravenryd'} is gone` };
+  let want = null;
+  try { want = opencodePluginText(rv, { root }); } catch { /* no template */ }
+  if (want != null && want !== raw) return { file, state: 'stale', ravenryd: rv, why: 'an older plugin' };
+  return { file, state: 'ok', ravenryd: rv };
+}
+
+// What setup or uninstall would do: { file, raw, text (null: removed),
+// changes }. Writes nothing. `ravenryd` undefined keeps the one in place.
+export function opencodePlan({ remove = false, ravenryd, root = ROOT, env = process.env } = {}) {
+  const file = OPENCODE_PLUGIN_FILE(env);
+  let raw = null;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { /* none */ }
+  const ours = raw != null && raw.includes(OPENCODE_MARK);
+  if (raw != null && !ours) return { file, raw, text: raw, changes: [], foreign: true };
+  if (remove) return { file, raw, text: null, changes: ours ? ['plugins/ravenry.js: removed Ravenry\'s plugin'] : [] };
+  const rv = ravenryd === undefined ? ravenrydOfPlugin(raw) : ravenryd;
+  if (!rv) return { file, raw, text: raw, changes: [] };
+  const text = opencodePluginText(rv, { root });
+  return { file, raw, text, changes: text === raw ? [] : [raw == null ? 'plugins/ravenry.js: Ravenry\'s plugin (states, permissions, hand-off)' : 'plugins/ravenry.js: Ravenry\'s plugin brought up to date'] };
+}
+
+// Writes an opencodePlan. Our own file is replaced or removed with no
+// backup (it holds nothing of the person's). Returns [].
+export function opencodeWrite(plan) {
+  if (plan.foreign || !plan.changes.length) return [];
+  if (plan.text == null) { fs.rmSync(plan.file, { force: true }); return []; }
+  fs.mkdirSync(path.dirname(plan.file), { recursive: true });
+  const tmp = `${plan.file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, plan.text);
+  fs.renameSync(tmp, plan.file);
+  return [];
+}
+
 // ------------------------------------------------------------ first launch
 
 // The app's first-launch setup: Ravenry's hooks in Claude Code's settings
@@ -563,8 +650,8 @@ export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root 
   const how = only == null ? null : installerOf(only);
   if (only != null && !how) return { ok: false, error: `Ravenry has no hooks to set up for ${assistants.nameOf(only) || only}.` };
   only = how;
-  const out = { ok: true, claude: null, codex: null };
-  if (only !== 'codex') {
+  const out = { ok: true, claude: null, codex: null, opencode: null };
+  if (only == null || only === 'claude') {
     let cur;
     try { cur = readSettings(); } catch (e) { return { ok: false, error: e.message }; }
     const p = plan(cur.json, remove ? { remove: true, root, node } : { ravenryd, root, node });
@@ -575,7 +662,7 @@ export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root 
       if (undoFile) remember(undoFile, [[cur.file, cur.raw]], remove);
     }
   }
-  if (only !== 'claude' && (only === 'codex' || codexPresent())) {
+  if (only === 'codex' || (only == null && codexPresent())) {
     const cp = codexPlan(remove ? { remove: true, root, node } : { ravenryd, root, node });
     out.codex = { file: cp.hooks.file, changes: cp.changes, backups: [], hooksOff: cp.hooksOff };
     if (!dry && remove && undoFile && restoreExact([cp.hooks.file, cp.config.file], undoFile)) out.codex.restored = true;
@@ -583,6 +670,11 @@ export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root 
       out.codex.backups = codexWrite(cp);
       if (undoFile) remember(undoFile, [[cp.hooks.file, cp.hooks.raw], [cp.config.file, cp.config.raw]], remove);
     }
+  }
+  if (only === 'opencode' || (only == null && opencodePresent())) {
+    const op = opencodePlan(remove ? { remove: true, root } : { ravenryd, root });
+    out.opencode = { file: op.file, changes: op.changes, backups: [], ...(op.foreign ? { foreign: true } : {}) };
+    if (!dry) opencodeWrite(op);
   }
   return out;
 }
@@ -646,7 +738,7 @@ export function refreshAppHooks({ root = ROOT, node } = {}) {
     // By real paths: the settings may spell a folder another way (/var or /private/var).
     return !fs.existsSync(script) || realOr(path.dirname(path.dirname(path.dirname(path.dirname(script))))) === realOr(versions) || (stable && throughStable(script, stable)) || realOr(script) === realOr(path.join(root, 'hooks', x.script));
   });
-  const out = { claude: [], codex: [] };
+  const out = { claude: [], codex: [], opencode: [] };
   try {
     const cur = readSettings();
     if (ownOrGone(status(cur.json, { root }))) {
@@ -658,6 +750,15 @@ export function refreshAppHooks({ root = ROOT, node } = {}) {
     if (codexPresent() && ownOrGone(codexStatus({ root }))) {
       const cp = codexPlan({ root, node });
       if (cp.changes.length) { codexWrite(cp); out.codex = cp.changes; }
+    }
+  } catch { /* unreadable: left as it is */ }
+  // OpenCode's plugin, once set up: brought up to this copy's, with the
+  // ravenryd it names while that is still there.
+  try {
+    const os0 = opencodeStatus({ root });
+    if (os0.state === 'stale' && os0.ravenryd && isExe(os0.ravenryd)) {
+      const op = opencodePlan({ root });
+      if (op.changes.length) { opencodeWrite(op); out.opencode = op.changes; }
     }
   } catch { /* unreadable: left as it is */ }
   return out;

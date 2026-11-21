@@ -25,6 +25,7 @@
 // stand-ins (tools/handoff-now-test.mjs) and the hub with its terminals.
 
 import * as h from './handoff.mjs';
+import { nameOf, shortOf } from './assistants.mjs';
 
 // Case 1: the hand-off this session wrote since the person's last prompt
 // (the transcript's newest prompt the person typed; the hook's own reason,
@@ -95,7 +96,7 @@ export async function request({ session: s, prev = null, target = null, transcri
   const reason = h.reasonText({
     pct, tokens: ctx.tokens ?? null, window: ctx.window || Number(settings.contextWindow) || 1000000, threshold, ceiling, manual: true,
     file, autoStart: settings.handoffAutoStart !== false, decisions,
-    ...(s.kind === 'codex' ? { name: 'Codex', short: 'Codex' } : {}),
+    ...(s.kind && s.kind !== 'claude' && nameOf(s.kind) ? { name: nameOf(s.kind), short: shortOf(s.kind) } : {}),
   });
   // Recorded before the words go in: the turn they start can end before
   // the typing call returns.

@@ -83,8 +83,8 @@ function writeJson(p, v) {
   fs.renameSync(tmp, p);
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const okEntry = (e) => e && typeof e === 'object' && UUID.test(String(e.sessionId || ''));
+// A Claude Code or Codex UUID, or OpenCode's ses_... (server/assistants.mjs).
+const okEntry = (e) => e && typeof e === 'object' && !!assistants.sessionIdOf(String(e.sessionId || ''));
 
 /** The running file, or an empty one. */
 export function readRunning(p = RUNNING_PATH) {

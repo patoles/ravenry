@@ -405,7 +405,7 @@ export function saveProjectAssistant(projectId, assistant) {
 // or '' clears it (the assistant's own default). Running sessions are not
 // touched: switching during one is the CLI's own /model.
 // Returns { ok, project, models, reg } or { ok: false, status, error }.
-const START_MODEL = /^[A-Za-z0-9][\w.:-]{0,79}(?:\[1m\])?$/;
+const START_MODEL = /^[A-Za-z0-9][\w.:-]{0,79}(?:\[1m\])?$|^[A-Za-z0-9][\w.-]{0,39}\/[\w.:@+-][\w.:@+/-]{0,119}$/;
 export function saveProjectModel(projectId, kind, model) {
   if (!ASSISTANT_KINDS.includes(kind)) return { ok: false, status: 400, error: `assistant must be ${assistants.idsSaid()}.` };
   if (model != null && model !== '' && !(typeof model === 'string' && START_MODEL.test(model))) return { ok: false, status: 400, error: 'model must be a model name like opus or gpt-5.4, or empty for the default.' };

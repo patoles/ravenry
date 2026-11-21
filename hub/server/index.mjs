@@ -315,7 +315,9 @@ function startModels() {
   for (const p of (reg && reg.projects) || []) for (const k of registry.ASSISTANT_KINDS) { const m = models.projectModel(p, k); if (m) picked.push(m); }
   let codexDefault = null;
   try { codexDefault = asst.codexModel(reg ? reg.settings : {}).configured || null; } catch { /* no Codex */ }
-  return models.startMenus({ seen, codexDefault, picked });
+  let opencodeModels = [];
+  try { opencodeModels = asst.opencodeModels(); } catch { /* no OpenCode */ }
+  return models.startMenus({ seen, codexDefault, picked, opencodeModels });
 }
 
 // While the board opens a workspace for a project, the tick must not import
@@ -1993,8 +1995,8 @@ async function closeSessions(body) {
 // there (Rex: in the closed tab's Rex session while it is open, else a new
 // Rex session), running `cd <cwd> && claude --resume <id>`.
 async function reopenSession(body) {
-  const id = String(body.id || '').toLowerCase();
-  if (!sess.UUID.test(id)) return { ok: false, status: 400, error: 'No such session.' };
+  const id = assistantsReg.sessionIdOf(body.id);
+  if (!id) return { ok: false, status: 400, error: 'No such session.' };
   const allow = sess.closeAllow();
   if (allow && !allow.has(id)) return { ok: false, status: 403, error: 'This test board reopens only its own test session.' };
   const rec = sess.readClosed(id);
@@ -2220,8 +2222,8 @@ function projectConversation(project, sid) {
 // went with the daemon and whose transcript is not under the project's folder.
 async function resumeSession(body, { fresh = false, known = null } = {}) {
   const b = body && typeof body === 'object' ? body : {};
-  const sid = String(b.sessionId || '').toLowerCase();
-  if (!sess.UUID.test(sid)) return { ok: false, status: 400, error: 'sessionId is a session id.' };
+  const sid = assistantsReg.sessionIdOf(b.sessionId);
+  if (!sid) return { ok: false, status: 400, error: 'sessionId is a session id.' };
   const project = findProject(b.projectId);
   if (!project) return { ok: false, status: 404, error: 'No such project.' };
   const e = ev.all.get(sid) || null;
@@ -2339,9 +2341,9 @@ async function endHolder(h, sid) {
 
 async function moveSession(body) {
   const b = body && typeof body === 'object' ? body : {};
-  const sid = String(b.sessionId || '').toLowerCase();
+  const sid = assistantsReg.sessionIdOf(b.sessionId);
   const keep = b.keep === 'outside' ? 'outside' : 'ravenry';
-  if (!sess.UUID.test(sid)) return { ok: false, status: 400, error: 'sessionId is a session id.' };
+  if (!sid) return { ok: false, status: 400, error: 'sessionId is a session id.' };
   const project = findProject(b.projectId);
   if (!project) return { ok: false, status: 404, error: 'No such project.' };
   const e = ev.all.get(sid) || null;
@@ -2644,7 +2646,8 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
     const prompt = resumePrompt(m, cwd) + (runningPlan ? ` The brief has a running plan, "${runningPlan.title.replace(/'/g, '')}", under ## Plan: read it first${(runningPlan.refs || []).length ? ', and the References listed under its Goal' : ''}, and carry on from the first step not ticked, by the rules written in it.` : '');
     const kind = asst.kindOf(ev.all.get(sid) || m);
     const command = asst.launchCommand(kind, settings);
-    const copy = launch.typedLine({ cwd, command, args: [prompt] });
+    const pargs = assistantsReg.promptArgs(kind, prompt);
+    const copy = launch.typedLine({ cwd, command, args: pargs });
     // The fresh session opens in the terminal the old one ran in: a new
     // cmux tab next to it, a new iTerm2 tab in its window, or a new Rex tab
     // in its Rex session.
@@ -2664,7 +2667,7 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
       return fail(`it ran in ${term.nameOf(where.kind)}, where the board cannot open a tab. Copy the command and start it there.`, { resumeCommand: copy });
     }
     // (cmux opens the tab in the folder itself, so its typed line has no cd.)
-    const made = await term.startInTab({ kind: where.kind, open, cwd, command, args: [prompt], paths: launchPaths(kind, sid), typeCd: where.kind !== 'cmux' });
+    const made = await term.startInTab({ kind: where.kind, open, cwd, command, args: pargs, paths: launchPaths(kind, sid), typeCd: where.kind !== 'cmux' });
     const tabFields = made.surfaceId ? { resumeSurfaceId: made.surfaceId, resumeSurfaceRef: made.surfaceRef || null, ...(open.workspaceId ? { resumeWorkspaceId: open.workspaceId } : {}) } : {};
     if (!made.ok) {
       if (made.question) return fail('the terminal was asking something. Retry, or copy the command.', { resumeQuestion: made.question, resumeCommand: copy, ...tabFields });
@@ -3400,11 +3403,13 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill 
     if (choice == null) return { ok: false, status: 409, error: `A choice is open on screen. Pick one of its options, or answer in ${where}.` };
     // Arrow keys to the option, then Enter, each step read back from the
     // screen (server/choose.mjs): some menus ignore the option's digit.
+    const snapS = (snapshot.projects.find((x) => x.id === projectId) || { sessions: [] }).sessions.find((x) => x.surfaceId === surfaceId);
     const r = await asst.chooseOption(kind, {
       read: () => term.readScreen(tab, 40),
       key: (k) => term.pressKey(tab, k),
       want: choice,
       where,
+      sessionId: snapS ? snapS.sessionId || null : null,
     });
     wantTick = true;
     if (!r.ok) {
@@ -4447,12 +4452,13 @@ async function handleRequest(req, res) {
       // rows: one per registered assistant whose hooks Ravenry installs (the
       // registry's `hooks`, server/assistants.mjs), in order, for `ravenry
       // doctor` and any client to list: { kind, name, state, on, file, daemon }.
-      const rows = asst.KINDS.filter((k) => hookinstall.installerOf(k) && (k !== 'codex' || codex)).map((k) => {
+      const opencode = hookinstall.opencodePresent() ? safe(() => hookinstall.opencodeStatus()) : null;
+      const rows = asst.KINDS.filter((k) => hookinstall.installerOf(k) && (k !== 'codex' || codex) && (k !== 'opencode' || opencode)).map((k) => {
         const st = k === 'claude' ? claude : k === 'codex' ? codex : null;
         const on = safe(() => hookinstall.hooksOn(k));
         return { kind: k, name: asst.nameOf(k), state: (st && st.state) || (on && on.state) || null, on: !!(on && on.on), file: (on && on.file) || null, daemon: (st && st.ravenryd && st.ravenryd.state) || (on && on.daemon) || null };
       });
-      return sendJson(res, 200, { ok: true, claude, codex, rows });
+      return sendJson(res, 200, { ok: true, claude, codex, opencode, rows });
     }
     if (req.method === 'GET' && p === '/api/live') {
       const r = await liveScreen(url.searchParams.get('surface') || '', url.searchParams.get('v'));
@@ -5150,7 +5156,9 @@ if (process.env.MC_NO_EVENTS !== '1') {
     },
     onCheckpoint,
     onLost: (daemon) => checkpoints.dropDaemon(daemon),
-    decide: term.ravenryDecider,
+    // OpenCode's plugin waiting for the board's answer to a permission
+    // (server/opencode.mjs), else the hand-off at a Stop.
+    decide: (rep, where) => { const d = asst.decide(rep); return d !== undefined ? d : term.ravenryDecider(rep, where); },
     // Another machine's daemon events and its connection, for the feed (server/feed.mjs).
     onEvent: (e, where) => feed.relayDaemon(e, where),
     onMachine: (name, up, version) => feed.machine(name, up, version),

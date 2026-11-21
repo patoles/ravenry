@@ -17,6 +17,12 @@
 import * as h from './handoff.mjs';
 import { promptBlock } from './decisions.mjs';
 import { lastUsage as codexUsage } from './codexrollout.mjs';
+import { lastUsage as opencodeUsage } from './opencodesession.mjs';
+import { nameOf, shortOf } from './assistants.mjs';
+
+// Each assistant's reading of the end of its transcript: Claude Code's
+// JSONL, Codex's rollout, OpenCode's session file (its plugin's).
+const usageOf = (assistant, file, io) => (assistant === 'codex' ? codexUsage(file, io) : assistant === 'opencode' ? opencodeUsage(file, io) : h.lastUsage(file, io));
 
 const RANK = (s) => h.stateRank(s);
 const atLeast = (prev, s) => (prev && RANK(prev) > RANK(s) ? prev : s);
@@ -41,8 +47,8 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   const enabled = settings.handoffEnabled !== false;
   const threshold = enabled ? Number(settings.handoffThreshold) || 50 : Infinity;
   const ceiling = enabled ? Number(settings.handoffCeiling) || 70 : Infinity;
-  const u = input.transcript_path ? (ASSISTANT === 'codex' ? codexUsage(input.transcript_path, io) : h.lastUsage(input.transcript_path, io)) : null;
-  // A Codex rollout records its model's own window.
+  const u = input.transcript_path ? usageOf(ASSISTANT, input.transcript_path, io) : null;
+  // A Codex rollout, and OpenCode's session file, record the model's own window.
   if (u && u.window) window = u.window;
   const tokens = u && u.tokens != null ? u.tokens : null;
   const pct = tokens != null ? (tokens / window) * 100 : null;
@@ -116,14 +122,16 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   const held = { ...(marker || {}), ...common };
   let hold = h.deferralHold(held, { over });
   if (hold) {
-    const promptAt = ASSISTANT === 'codex'
+    // OpenCode's session file keeps the person's own prompts apart from a hook's reason.
+    const promptAt = ASSISTANT === 'opencode' ? (u && u.lastPromptAt) || null
+      : ASSISTANT === 'codex'
       ? (u && u.lastPromptAt && !h.hasTag(u.lastPrompt) ? u.lastPromptAt : null)
       : (input.transcript_path ? h.lastPromptAt(input.transcript_path, held.deferredAt, io) : null);
     hold = h.deferralHold(held, { over, promptAt });
   }
 
   // Never loop: Claude is already answering a block from a stop hook.
-  if (input.stop_hook_active) return queue(hold || `${ASSISTANT === 'codex' ? 'Codex' : 'Claude'} was already continuing for a stop hook`);
+  if (input.stop_hook_active) return queue(hold || `${ASSISTANT === 'claude' ? 'Claude' : shortOf(ASSISTANT) || 'Claude'} was already continuing for a stop hook`);
   if (hold) return queue(hold);
 
   // Clean-point checks the hook can see for itself. A question to the user
@@ -137,7 +145,7 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
     pct, tokens, window, threshold, ceiling, manual,
     file: target.file, autoStart: settings.handoffAutoStart !== false,
     decisions: (() => { try { return promptBlock(target.projectId || null); } catch { return ''; } })(),
-    ...(ASSISTANT === 'codex' ? { name: 'Codex', short: 'Codex' } : {}),
+    ...(ASSISTANT !== 'claude' && nameOf(ASSISTANT) ? { name: nameOf(ASSISTANT), short: shortOf(ASSISTANT) } : {}),
   });
   h.writeMarker(sid, {
     ...common, state: 'requested',
