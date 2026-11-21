@@ -11,7 +11,7 @@
 //   a fresh session after a hand-off. GET and POST /api/settings/handoff,
 //   only the keys that changed, one save at a time; a refused save says
 //   why and the controls go back to what is stored.
-// - New sessions: start them with Claude or Codex (POST
+// - New sessions: start them with any assistant the hub lists, Claude or Codex (POST
 //   /api/settings/assistant, the hub's note when the one picked is not
 //   installed), the Codex model to fall back on, and the folder new
 //   projects go in (Change opens the folder dialog on this Mac, POST
@@ -243,8 +243,10 @@ extension SettingsWindow {
         // New sessions: the assistant, Codex's fallback model, where new projects go.
         out.append(sec(t("ho.newSessions"), sub: t("ho.everyProject"), after: true))
         let a = ho.assistant ?? (hub?.state?.raw["assistants"] as? [String: Any]) ?? [:]
-        let startWith = a["startWith"] as? String == "codex" ? "codex" : "claude"
-        let who = seg("ho:as", startWith, [("claude", "Claude"), ("codex", "Codex")]) { [weak self] v in
+        // A segment per assistant the hub lists (GET /api/settings/assistant `list`, else the state's), by its short word.
+        Assistants.take(["assistants": a])
+        let startWith = Assistants.kind(a["startWith"] as? String)
+        let who = seg("ho:as", startWith, Assistants.list.map { ($0.id, $0.short) }) { [weak self] v in
             self?.assistantChange(["startWith": v], foot: "saved-as")
         }
         // The one picked is not installed: the board starts the other, and says so under the switch.
@@ -268,7 +270,7 @@ extension SettingsWindow {
         let foot: NSView
         switch ho.foot {
         case "saved", "saved-as", "saved-model", "saved-root":
-            let words = ho.foot == "saved" ? t("ho.saved") : ho.foot == "saved-as" && fallback == nil ? t("ho.savedAs", ["name": startWith == "codex" ? "Codex" : "Claude Code"]) : t("ho.savedPlain")
+            let words = ho.foot == "saved" ? t("ho.saved") : ho.foot == "saved-as" && fallback == nil ? t("ho.savedAs", ["name": Assistants.name(startWith)]) : t("ho.savedPlain")
             foot = hstack([symbol("checkmark", "ok", 11), label(words, Fonts.pt(12), "ok")], spacing: 6)
         case "error": foot = wrap(t("ho.notSaved", ["why": ho.err]), Fonts.pt(12), "bad")
         default: foot = label(t("ho.foot"), Fonts.pt(12), "tx3")

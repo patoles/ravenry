@@ -120,6 +120,16 @@ stream".
   Hand off now, Start), with `X-Ravenry: 1`, and nothing at all with
   `RAVENRY_MAC_HUB_READONLY=1`. It is the app's own stream (`?app=1`),
   which the hub sends Mac notifications to (`Notifier.swift`).
+- **The assistants** (`Assistants.swift`): the hub's assistant registry
+  (`hub/server/assistants.mjs`), the state's `assistants.list` in order,
+  each with its name ("Claude Code"), short word ("Claude") and tag. New
+  session's cards, New project's and a project's "New sessions:" switches,
+  Settings' "Start new sessions with", the tags and the words that name an
+  assistant draw that list; before the first state, and from an older hub,
+  Claude Code and Codex. `node scripts/sidetest.mjs --screen start` checks
+  a third one (the hub's test-only stand-in, passed in
+  `RAVENRY_MAC_ASSISTANTS`) gets its card, Start's words and a segment in
+  both switches.
 - **The sidebar** (`Sidebar.swift`): `state.sidebar` as it comes (the
   sections, their colours and counts, the mix bar, a project's header in
   each section it has a session in, a row a session with its assistant,

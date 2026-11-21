@@ -37,6 +37,9 @@ targets:
       # The hub's own code for a hub older than state.sidebar (OlderHub.swift).
       - path: ../../hub/server/sidebar.mjs
         buildPhase: resources
+      # The assistant registry cpwords.mjs names assistants by.
+      - path: ../../hub/server/assistants.mjs
+        buildPhase: resources
       - path: ../../hub/server/cpwords.mjs
         buildPhase: resources
       - path: ../../hub/server/briefnext.mjs

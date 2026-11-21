@@ -247,10 +247,10 @@ final class PlanPage: FormPage {
         post("answer", ["text": tx]) { [weak self] _ in self?.clear(key); self?.toast?(t("plan.sent")) }
     }
 
-    /// The assistant a project's sessions run (its own, else Claude), by name.
-    private func who(_ p: HubProject) -> String { p.s("assistant") == "codex" ? "Codex" : "Claude" }
+    /// The assistant a project's sessions run (its own, else Claude), by its short word (Assistants.swift).
+    private func who(_ p: HubProject) -> String { Assistants.short(p.s("assistant")) }
     /// The assistant Plans run on (state.assistants.print).
-    private var printWho: String { ((state?.raw["assistants"] as? [String: Any])?["print"] as? String) == "codex" ? "Codex" : "Claude" }
+    private var printWho: String { Assistants.short((state?.raw["assistants"] as? [String: Any])?["print"] as? String) }
 
     /// A gate the file alone passed (ticked in BRIEF.md, or taken out of it):
     /// what the file says, and the person's Reopen or Confirm.
@@ -295,7 +295,7 @@ final class PlanPage: FormPage {
         let sig = "new|\(project)|\(busy)|\(own)|\(commentFor ?? "")|\(dropAsk)|\(d.map { stableText($0) } ?? "-")|\(p?.brief.map { stableText($0["plan"]) + stableText($0["goal"]) } ?? "")"
         draw(sig) {
             if let bz = busyD {
-                let who = bz["who"] as? String == "codex" ? "Codex" : "Claude"
+                let who = Assistants.short(bz["who"] as? String)
                 let stop = RButton(t("newplan.stop")) { [weak self] in self?.post("halt") }
                 stop.isEnabled = busy.isEmpty; buttons["stop"] = stop
                 var rows: [NSView] = []

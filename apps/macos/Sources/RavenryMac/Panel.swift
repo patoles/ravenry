@@ -216,7 +216,8 @@ final class PanelView: Box {
                 lastKnown[pid] = (pr, f.session.raw)
             }
             // "Claude Opus 5.5": the assistant and the model it runs (hub/server/models.mjs), the assistant alone before it named one.
-            let local = f.session.machine == nil && f.project.machine == nil && ["claude", "codex"].contains(f.session.assistant ?? "")
+            // The setup lines are the hub's rows (GET /api/setup/skills), for any assistant it lists.
+            let local = f.session.machine == nil && f.project.machine == nil && Assistants.isKnown(f.session.assistant)
             setHead(f.project.name, tag: f.session.modelTitle ?? f.session.assistant.map(assistantName), machine: f.session.machine ?? f.project.machine, pinKey: k, setupKey: local ? k : nil)
             rows = sessionBody(st, f.project, f.session, key: k, pane: pane)
         } else if let st = state, let k = front, k.hasPrefix("project:"), let p = st.project(String(k.dropFirst(8))) {
@@ -253,7 +254,8 @@ final class PanelView: Box {
         body.set(rows)
     }
 
-    private func assistantName(_ a: String) -> String { a == "claude" ? "Claude" : a == "codex" ? "Codex" : a.prefix(1).uppercased() + a.dropFirst() }
+    /// The assistant's tag as the hub lists it ("Claude"), else the kind with a capital.
+    private func assistantName(_ a: String) -> String { Assistants.word(a) ?? a }
 
     private func tagView(_ s: String) -> NSView {
         let b = assistantChip(s)
@@ -448,7 +450,7 @@ final class PanelView: Box {
             if s.alsoOpen != nil { let keep = RButton(t("move.keep", ["other": other]), small: true) { [weak self] in self?.move(p, s, keep: "outside") }; buttons["keep"] = keep; acts.append(keep) }
             acts.append(spring())
             out.append(sec(nil, [para(s.alsoOpen != nil ? t("panel.alsoOpen", ["other": other]) : t("panel.wentOn", ["other": other])), hstack(acts, spacing: 8)]))
-        } else if s.machine == nil, p.machine == nil, let sid = s.sessionId, let a = s.assistant, a.hasPrefix("claude") || a.hasPrefix("codex"),
+        } else if s.machine == nil, p.machine == nil, let sid = s.sessionId, let a = s.assistant, let ak = Assistants.prefixed(a), Assistants.can(ak, "resume"),
                   let pid = s.pane, let version = host?.olderDaemon(pid) {
             // On an older daemon that drains for a newer one (an update): its
             // fixes reach the session once it runs on the newest, so one click
@@ -458,7 +460,7 @@ final class PanelView: Box {
             let move = RButton(busy ? t("move.moving") : t("move.here"), .primary, small: true) { [weak self] in self?.onMoveNewer?(p, s) }
             move.isEnabled = !busy
             buttons["moveNewer"] = move
-            let line = s.group == "work" ? t("panel.olderRavenryBusy", ["version": version, "who": assistantName(a.hasPrefix("codex") ? "codex" : "claude")])
+            let line = s.group == "work" ? t("panel.olderRavenryBusy", ["version": version, "who": assistantName(ak)])
                 : t("panel.olderRavenry", ["version": version])
             out.append(sec(nil, [para(line), hstack([move, spring()], spacing: 8)]))
         }
@@ -466,7 +468,7 @@ final class PanelView: Box {
         if p.raw["unowned"] as? Bool ?? false { out.append(notInProject(st, p)) }
         // What the first-launch step set up for its assistant, on this machine.
         // Shown only when a line is off (with its fix), just turned on, or opened from the head's chip.
-        if s.machine == nil, p.machine == nil, let a = s.assistant, a == "claude" || a == "codex", let sl = host?.setup(a), shown == nil || setupOpen.contains(key) {
+        if s.machine == nil, p.machine == nil, let a = s.assistant, Assistants.isKnown(a), let sl = host?.setup(a), shown == nil || setupOpen.contains(key) {
             let rows = setupLines(a, sl, open: setupOpen.contains(key))
             if !rows.isEmpty {
                 let settings = RButton(t("side.settings"), .link) { [weak self] in self?.host?.openPage("settings", t("side.settings")) }
@@ -854,7 +856,7 @@ final class PanelView: Box {
         readLast(p.id)
         if let c = lastConv[p.id] {
             if let l = c.last {
-                let who = (l["assistant"] as? String) == "codex" ? "Codex" : "Claude"
+                let who = Assistants.short(l["assistant"] as? String)
                 out.append(sec(t("panel.lastConversation"), [para(l["title"] as? String ?? ""),
                                                              label(t("panel.stopped", ["who": who, "when": When.stopped(l["stoppedAt"] as? String)]), Fonts.pt(12), "tx3")]))
             } else { out.append(sec(nil, [label(t("panel.noConversation"), Fonts.pt(12), "tx3", lines: 2)])) }
@@ -927,7 +929,7 @@ final class PanelView: Box {
             if let x = last["text"] as? String { rows.append(para(x.count > 240 ? String(x.prefix(239)) + "..." : x)) }
             if !rows.isEmpty { out.append(sec(nil, rows)) }
         }
-        let canMove = s.sessionId != nil && (s.assistant ?? "claude").range(of: "^(claude|codex)", options: .regularExpression) != nil && !s.surfaceId.hasPrefix("ravenry:")
+        let canMove = s.sessionId != nil && Assistants.can(Assistants.prefixed(s.assistant ?? "claude"), "resume") && !s.surfaceId.hasPrefix("ravenry:")
         if canMove {
             let b = RButton(t("move.here"), .primary, small: true) { [weak self] in self?.move(p, s, keep: "ravenry") }
             buttons["move"] = b
@@ -939,12 +941,12 @@ final class PanelView: Box {
     /// The assistant a pane was started for as a session ("" when the label names none), else nil.
     private func newSessionKind(_ pn: (id: String, name: String, cwd: String, command: [String])) -> String? {
         guard let l = host?.paneLabels(pn.id), let v = l["ravenry.session"] ?? l["ravenry.agent"] else { return nil }
-        return v.contains("codex") ? "codex" : v.contains("claude") ? "claude" : ""
+        return Assistants.list.first { v.contains($0.id) }?.id ?? ""
     }
 
     private func newSessionBody(_ pn: (id: String, name: String, cwd: String, command: [String]), kind: String) -> [NSView] {
         var rows: [NSView?] = [kv(t("panel.folder"), tilde(pn.cwd), mono: true)]
-        if !kind.isEmpty { rows.append(kv(t("panel.assistant"), kind == "codex" ? "Codex" : "Claude Code")) }
+        if !kind.isEmpty { rows.append(kv(t("panel.assistant"), Assistants.name(kind))) }
         if !kind.isEmpty, let sl = host?.setup(kind) { rows += setupLines(kind, sl, open: setupOpen.contains("new:\(pn.id)")) }
         var out: [NSView] = [stateLine("idle", t("panel.readyFirst")), sec(t("panel.thisSession"), rows)]
         if let typed = typedHere(pn.id) { out.append(typed) }
@@ -1016,7 +1018,7 @@ final class PanelView: Box {
         whoRows = [:]
         for r in rows {
             var name: [NSView?] = []
-            if r.value != "always" { name.append(Box(fill: r.who.cls == "claude" || r.who.cls == "codex" ? "work" : "idle", radius: 3.5)) }
+            if r.value != "always" { name.append(Box(fill: Assistants.isKnown(r.who.cls) ? "work" : "idle", radius: 3.5)) }
             let col = vstack([label(r.who.who, Fonts.pt(12.5)), r.who.place.map { label($0, Fonts.pt(11.5), "tx3") }], spacing: 1)
             name.append(col)
             if let dot = name.first as? Box { dot.translatesAutoresizingMaskIntoConstraints = false; dot.widthAnchor.constraint(equalToConstant: 7).isActive = true; dot.heightAnchor.constraint(equalToConstant: 7).isActive = true }

@@ -203,6 +203,7 @@ final class HubState {
     let pages: [NavPage]
     init(_ d: [String: Any]) {
         raw = d
+        Assistants.take(d)
         let sb = d["sidebar"] as? [String: Any] ?? [:]
         sections = (sb["sections"] as? [[String: Any]] ?? []).map(SideSection.init)
         counts = (sb["counts"] as? [String: Any] ?? [:]).compactMapValues { ($0 as? NSNumber)?.intValue }

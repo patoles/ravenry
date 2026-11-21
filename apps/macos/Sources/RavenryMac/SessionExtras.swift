@@ -125,7 +125,7 @@ final class ReplyBox: Box, NSTextFieldDelegate {
     init(key: String, project: HubProject, session: HubSession, hub: HubClient?, width: CGFloat, say: @escaping (String) -> Void) {
         self.key = key; self.project = project; self.session = session; self.hub = hub; self.say = say
         super.init(fill: "card", radius: 10)
-        field.placeholderString = t("panel.replyPlaceholder", ["who": session.assistant == "codex" ? "Codex" : "Claude"])
+        field.placeholderString = t("panel.replyPlaceholder", ["who": Assistants.short(session.assistant)])
         field.stringValue = ReplyBox.drafts[key] ?? ""
         field.font = Fonts.pt(12.5)
         field.isBordered = true

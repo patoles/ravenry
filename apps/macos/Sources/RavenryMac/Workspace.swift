@@ -343,7 +343,7 @@ final class Workspace: NSObject {
 
     /// An assistant as people say it (app.ts assistantName).
     static func assistantName(_ kind: String) -> String {
-        kind == "claude" ? "Claude" : kind == "codex" ? "Codex" : kind.prefix(1).uppercased() + kind.dropFirst()
+        Assistants.word(kind) ?? kind
     }
 
     /// The board (Board sets it; else the app's): which session a pane runs.

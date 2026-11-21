@@ -186,7 +186,7 @@ final class IdeaPage: FormPage {
             if thread.isEmpty { th.append(wrap(t("idea.nothing"), Fonts.pt(13), "tx3")) }
             for msg in thread {
                 let who = msg["who"] as? String ?? "claude"
-                let whoWord = ["you", "board", "codex"].contains(who) ? t("idea.who.\(who)") : t("idea.who.claude")
+                let whoWord = ["you", "board", "codex", "claude"].contains(who) ? t("idea.who.\(who)") : Assistants.of(who)?.short ?? t("idea.who.claude")
                 let line = label(t("idea.whoWhen", ["who": whoWord, "when": When.day(msg["at"] as? String) ?? ""]), Fonts.pt(12), "tx3")
                 let err = msg["error"] as? Bool ?? false
                 let text = msg["text"] as? String ?? ""
@@ -265,7 +265,7 @@ final class IdeaPage: FormPage {
     /// The Mockups card: the round being drawn (Stop), one that did not come back (Try again), or a round's pictures (Pick, Another round).
     private func mockups(_ it: [String: Any], _ m: [String: Any], secs: Int, pending: Bool) -> NSView {
         let rounds = m["rounds"] as? [[String: Any]] ?? []
-        let who = (m["job"] as? [String: Any])?["who"] as? String == "codex" ? "Codex" : "Claude"
+        let who = Assistants.short((m["job"] as? [String: Any])?["who"] as? String)
         if let job = m["job"] as? [String: Any] {
             let stop = RButton(t("idea.stopRound")) { [weak self] in self?.post("mockups/stop", [:]) { _ in self?.toast?(t("idea.roundStopped")) } }
             stop.isEnabled = busy.isEmpty

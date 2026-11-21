@@ -70,7 +70,7 @@ final class InputMarks {
         guard let src = r["source"] as? [String: Any], src["kind"] as? String != "person",
               !InputMarks.personClients.contains(src["client"] as? String ?? "") else { return nil }
         let name = whoOf?(src) ?? (src["kind"] as? String == "agent" ? "An agent" : src["client"] as? String ?? "A program")
-        return (name, name == "Claude" ? "claude" : name == "Codex" ? "codex" : "other")
+        return (name, Assistants.list.first { $0.chip == name }?.id ?? "other")
     }
 
     /// A new stream: everything starts over; the records are kept.

@@ -12,7 +12,7 @@ import AppKit
 struct Who {
     var who: String
     var place: String?
-    /// claude, codex, other, you.
+    /// An assistant's kind the hub lists (claude, codex), other, you.
     var cls: String
     /// As said mid-sentence: "an agent", "a program", "you"; a name stays as it is.
     var mid: String { ["You", "An agent", "A program"].contains(who) ? who.lowercased() : who }
@@ -102,9 +102,9 @@ extension Board {
             }
             let i = ws.paneInfo(pane)
             kind = kind ?? i?.agent ?? i?.labels["ravenry.agent"]
-            let who = kind == "claude" ? "Claude" : kind == "codex" ? "Codex" : kind.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "An agent"
+            let who = Assistants.word(kind) ?? "An agent"
             if place == nil, i != nil { place = ws.label(pane).name }
-            return Who(who: who, place: place == who ? nil : place, cls: kind == "claude" || kind == "codex" ? kind! : "other")
+            return Who(who: who, place: place == who ? nil : place, cls: Assistants.isKnown(kind) ? kind! : "other")
         }
         if s["client"] as? String == "ravenry-hub" { return Who(who: "Ravenry", place: nil, cls: "other") }
         return Who(who: s["client"] as? String ?? "A program", place: nil, cls: "other")

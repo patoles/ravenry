@@ -223,7 +223,8 @@ final class OutsideView: MiddleView {
             buttons["open"] = b
             acts.append(b)
         }
-        let kindOk = (s.assistant ?? "claude").hasPrefix("claude") || (s.assistant ?? "").hasPrefix("codex")
+        // An assistant the hub lists that can resume a conversation (the registry's caps.resume).
+        let kindOk = Assistants.can(Assistants.prefixed(s.assistant ?? "claude"), "resume")
         // In a terminal outside Ravenry, or in a pane of a ravenryd this window
         // does not draw (an older one after an update): Move here ends it there
         // and resumes it in a pane of this window's daemon (POST /api/sessions/move).
@@ -236,7 +237,7 @@ final class OutsideView: MiddleView {
             let busy = moving.contains(s.sessionId ?? "")
             let w = s.moving?["waiting"] as? Bool ?? false
             // Ended there: nothing to move, the conversation goes on here (Continue).
-            let b = RButton(w ? t("move.waiting", ["who": s.assistant == "codex" ? "Codex" : "Claude", "other": fromName]) : busy ? t("move.moving") : ended ? t("project.continue") : t("move.here"),
+            let b = RButton(w ? t("move.waiting", ["who": Assistants.short(s.assistant), "other": fromName]) : busy ? t("move.moving") : ended ? t("project.continue") : t("move.here"),
                             canResume && !w ? .primary : .normal) { [weak self] in self?.onMove?(p, s) }
             b.isEnabled = canResume && !busy && !w
             buttons["move"] = b
@@ -257,7 +258,7 @@ final class OutsideView: MiddleView {
         var rows: [NSView] = [head]
         if canResume {
             // Waiting for its turn to end (amber, a clock), else what Move here does (green, a check).
-            let who = s.assistant == "codex" ? "Codex" : "Claude"
+            let who = Assistants.short(s.assistant)
             let text = waiting ? t("else.movesWhen", ["who": who, "where": fromName]) : ended ? t("else.continueNote") : open || why != nil ? t("else.moveNote", ["where": fromName]) : t("else.moveNoteEnded")
             let n = label(text, Fonts.pt(12.5, .medium), waiting ? "you" : "ok", lines: 2)
             noteText = text
@@ -461,7 +462,7 @@ final class ProjectPageView: MiddleView {
             content.set(centred(vstack(head + [label(t("project.noEarlier"), Fonts.pt(13)), canWrite ? label(t("project.noBrief"), Fonts.pt(12.5), "tx3") : nil, hstack(acts, spacing: 10)], spacing: 14)))
             return
         }
-        let who = (l["assistant"] as? String) == "codex" ? "Codex" : "Claude"
+        let who = Assistants.short(l["assistant"] as? String)
         let openIn = l["openIn"] as? [String: Any]
         let inRavenry = (openIn?["ravenry"] as? Bool ?? false) ? openIn?["pane"] as? String : nil
         let outside = openIn.flatMap { ($0["ravenry"] as? Bool ?? false) ? nil : ($0["name"] as? String ?? "another terminal") }
@@ -524,7 +525,7 @@ final class ProjectPageView: MiddleView {
     /// Revive from the brief: a new tab running the project's assistant on its brief; off with the reason.
     private func reviveButton(_ p: HubProject) -> RButton? {
         guard p.machine == nil else { return nil }
-        let who = (pasWant(p)) == "codex" ? "Codex" : "Claude"
+        let who = Assistants.short(pasWant(p))
         let b = RButton(reviving ? t("project.continuing") : t("project.revive")) { [weak self] in self?.revive(p) }
         if p.folder == nil { b.isEnabled = false; b.toolTip = t("project.reviveNoFolder", ["name": p.name]) }
         else if p.brief == nil { b.isEnabled = false; b.toolTip = t("project.reviveNoBrief") }
@@ -560,16 +561,17 @@ final class ProjectPageView: MiddleView {
         return (p.raw["assistantWants"] as? String) ?? (p.raw["assistant"] as? String) ?? "claude"
     }
 
-    /// "New sessions:" Claude Code or Codex, saved at once (POST /api/project/assistant).
+    /// "New sessions:" a segment per assistant the hub lists, by its name (Claude Code | Codex), saved at once (POST /api/project/assistant).
     private func assistantLine(_ p: HubProject) -> NSView? {
         guard p.machine == nil, p.raw["unowned"] as? Bool != true else { return nil }
-        let seg = NSSegmentedControl(labels: ["Claude Code", "Codex"], trackingMode: .selectOne, target: PopTarget.shared, action: #selector(PopTarget.segmented(_:)))
-        seg.selectedSegment = pasWant(p) == "codex" ? 1 : 0
+        let kinds = Assistants.list
+        let seg = NSSegmentedControl(labels: kinds.map(\.name), trackingMode: .selectOne, target: PopTarget.shared, action: #selector(PopTarget.segmented(_:)))
+        seg.selectedSegment = kinds.firstIndex { $0.id == Assistants.kind(pasWant(p)) } ?? 0
         seg.controlSize = .small
         seg.setAccessibilityLabel(t("project.newSessions"))
         PopTarget.shared.run[ObjectIdentifier(seg)] = { [weak self, weak seg] in
-            guard let seg else { return }
-            self?.setAssistant(p, seg.selectedSegment == 1 ? "codex" : "claude")
+            guard let seg, seg.selectedSegment >= 0, seg.selectedSegment < kinds.count else { return }
+            self?.setAssistant(p, kinds[seg.selectedSegment].id)
         }
         assistantSwitch = seg
         let note = (p.raw["assistantNote"] as? String).map { " " + $0 } ?? ""

@@ -1402,7 +1402,7 @@ final class FilePage: FormPage {
         if brainstormState == nil || Date().timeIntervalSince(brainstormState!.at) > 4 { readBrainstorm(k) }
         if let r = brainstormState?.running {
             let secs = When.date(r["startedAt"] as? String).map { max(0, Int(Date().timeIntervalSince($0))) } ?? 0
-            rows.append(hstack([wrap(t("pg.bsThinking", ["who": r["who"] as? String == "codex" ? "Codex" : "Claude", "seed": r["seed"] as? String ?? "", "secs": "\(secs)"]), Fonts.pt(12.5), "work"), spring()], spacing: 8))
+            rows.append(hstack([wrap(t("pg.bsThinking", ["who": Assistants.short(r["who"] as? String), "seed": r["seed"] as? String ?? "", "secs": "\(secs)"]), Fonts.pt(12.5), "work"), spring()], spacing: 8))
         } else if let e = brainstormState?.error {
             let clear = btn("bs:clear", t("pg.bsClear")) { [weak self] in
                 self?.send("/api/ideas/brainstorm/clear", [:], fail: t("page.didNotWork"), reload: false) { code, _ in

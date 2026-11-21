@@ -83,7 +83,7 @@ final class WorktreeCards {
         var out: [NSView] = []
         let key = "\(p.id)/\(s.surfaceId)"
         if let wt = s.worktree {
-            let who = s.assistant == "claude" ? "Claude" : s.assistant == "codex" ? "Codex" : "The agent"
+            let who = Assistants.of(s.assistant)?.short ?? "The agent"
             let topic = s.topic ?? p.name
             let base = wt["baseBranch"] as? String ?? "main"
             let branch = (wt["branch"] as? String ?? "").replacingOccurrences(of: "^ravenry/", with: "", options: .regularExpression)
@@ -178,7 +178,7 @@ final class WorktreeCards {
                 pl.textColor = Design.color("you")
                 rows.append(hstack([Icon("warn", "you", size: 13), pl, spring(), counts(num(f, "added"), num(f, "removed"))], spacing: 8))
                 let a = c["assistant"] as? String
-                let who = (a == "claude" ? "Claude" : a == "codex" ? "Codex" : "Another agent") + ((c["topic"] as? String).map { ", in \($0)," } ?? "")
+                let who = (Assistants.of(a)?.short ?? "Another agent") + ((c["topic"] as? String).map { ", in \($0)," } ?? "")
                 let when = (c["at"] as? String).map { When.ago($0) == "now" ? " just now" : " \(When.ago($0)) ago" } ?? ""
                 let same = c["same"] as? Bool ?? false
                 let txt = label("\(who) changed this file too\(when). \(same ? t("files.sameFolder") : t("files.ownCopy"))", Fonts.pt(12.5), "tx", lines: 0, select: true)
@@ -527,7 +527,7 @@ final class ReviewView: Box, BackLinked {
             (fh.arrangedSubviews[1] as? NSTextField)?.textColor = NSColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
             dv.append(fh)
             if f["binary"] as? Bool ?? false { dv.append(pad(label(t("review.binary"), Fonts.pt(12), "tx3"))) }
-            let who = s.assistant == "claude" ? "Claude" : s.assistant == "codex" ? "Codex" : "the agent"
+            let who = Assistants.of(s.assistant)?.short ?? "the agent"
             let fl = (d?["lines"] as? [String: Any])?[path] as? [[String: Any]] ?? []
             body.minWidth = fl.map { DiffLine.width(of: $0["text"] as? String ?? "") }.max() ?? 0
             for l in fl {
@@ -689,7 +689,7 @@ final class FilesGridPage: FormPage {
             }
             g.append([label(t("files.file"), Fonts.pt(12, Fonts.w650), "tx2")] + cols.map { c in
                 let a = c["assistant"] as? String
-                return headCell(c["topic"] as? String ?? "Session", a == "claude" ? "Claude" : a == "codex" ? "Codex" : nil)
+                return headCell(c["topic"] as? String ?? "Session", Assistants.of(a)?.chip)
             } + [headCell("You", nil)])
             for r in rows {
                 let clash = r["clash"] as? Bool ?? false

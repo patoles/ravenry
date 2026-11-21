@@ -6,7 +6,7 @@
 //   board's folders, then the ones that look like projects, the one asked
 //   for first) as radio rows, Choose another folder, or one dropped on the
 //   card;
-// - 2 Assistant: Claude Code and Codex, found and signed in or not;
+// - 2 Assistant: each one the hub lists (Claude Code, Codex), found and signed in or not;
 // - the branch line when another session already works in that folder's
 //   project (the hub's `busy` on the folder, sidebar.busyIn): it gets its
 //   own copy of the code (POST /api/sessions/start with worktree and
@@ -251,7 +251,10 @@ final class StartView: MiddleView {
         modelPicked["\(folder ?? "")|\(k)"] = id
         draw()
     }
-    private func name(_ kind: String) -> String { kind == "claude" ? "Claude" : kind == "codex" ? "Codex" : kind.prefix(1).uppercased() + kind.dropFirst() }
+    /// The assistant's short word ("Claude"): the hub's answer's, else the state's list (Assistants.swift), else the kind with a capital.
+    private func name(_ kind: String) -> String {
+        (assistants.first { $0["kind"] as? String == kind }?["short"] as? String) ?? Assistants.word(kind) ?? kind
+    }
     private var folderName: String? { folder.map { ($0 as NSString).lastPathComponent } }
 
     func draw() {
@@ -529,9 +532,9 @@ final class StartView: MiddleView {
         // 2 Assistant: a card each, the ones not here dimmed.
         let a = assistantPicked
         var col2: [NSView] = [label(t("start.assistant"), Fonts.pt(13.5, Fonts.w650))]
-        // On a machine: the hub starts Claude Code or Codex there, whatever this Mac has.
+        // On a machine: the hub starts any assistant it lists there, whatever this Mac has.
         let onMachine = machine != nil
-        let offered: [[String: Any]] = onMachine ? [["kind": "claude", "name": "Claude Code", "found": true, "signedIn": true], ["kind": "codex", "name": "Codex", "found": true, "signedIn": true]] : assistants
+        let offered: [[String: Any]] = onMachine ? Assistants.list.map { ["kind": $0.id, "name": $0.name, "found": true, "signedIn": true] } : assistants
         if offered.contains(where: { $0["found"] as? Bool == true }) {
             let cards = offered.map { x -> NSView in
                 let kind = x["kind"] as? String ?? ""

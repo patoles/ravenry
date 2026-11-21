@@ -3,7 +3,8 @@
 // its checkpoints no `words`, its briefs no `nextParts`, its hand-off
 // entries no `full` (their text the whole entry). The window then
 // runs the hub's own code for them, the same files the hub runs
-// (hub/server/sidebar.mjs, cpwords.mjs, briefnext.mjs, handoffline.mjs,
+// (hub/server/sidebar.mjs, cpwords.mjs with the assistant registry it reads,
+// assistants.mjs, briefnext.mjs, handoffline.mjs,
 // bundled with the app), in JavaScriptCore (no web view): withGroups, marksOf
 // and build for the sidebar, wordsOf for each checkpoint, nextParts for each
 // brief, handoffLine for each hand-off entry. So
@@ -17,7 +18,7 @@ final class OlderHub {
     private let ctx: JSContext?
 
     init() {
-        let names = ["cpwords", "sidebar", "briefnext", "handoffline"]
+        let names = ["assistants", "cpwords", "sidebar", "briefnext", "handoffline"]
         var src = "var process = { platform: 'darwin', env: {} };\n"
         // The hub's own name for its computer (phone.mjs hubName: the host name's first part), for words.machine.away.
         var host = [CChar](repeating: 0, count: 256)
@@ -28,7 +29,7 @@ final class OlderHub {
         src += "var EN = \(en);\nfunction t(key, vars) { var s = EN[key]; if (typeof s !== 'string') return key; for (var k in (vars || {})) s = s.split('{' + k + '}').join(String(vars[k])); return s; }\n"
         for n in names {
             guard let u = Bundle.main.url(forResource: n, withExtension: "mjs"), let s = try? String(contentsOf: u, encoding: .utf8) else { ctx = nil; return }
-            // As a plain script: no imports (all three are here), no exports.
+            // As a plain script: no imports (all of them are here), no exports.
             let body = s.split(separator: "\n", omittingEmptySubsequences: false)
                 .filter { !$0.hasPrefix("import ") }
                 .map { $0.hasPrefix("export ") ? String($0.dropFirst(7)) : String($0) }

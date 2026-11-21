@@ -216,7 +216,7 @@ final class SessionsPage: FormPage {
         if r.tag == "draft" { chips.append(pill(t("sess.tagDraft"), "you")) }
         if r.tag == "asked" { chips.append(pill(t("sess.tagAsked"), "you")) }
         if !can, let b = r.blocked { let p = pill(b.range(of: "^(Outside|In) \\S+$", options: .regularExpression) != nil ? b : t("sess.cannotCloseShort"), nil); p.toolTip = b; chips.append(p) }
-        if let a = r.assistant { chips.append(assistantChip(a == "codex" ? "Codex" : "Claude")) }
+        if let a = r.assistant { chips.append(assistantChip(Assistants.chip(a))) }
         let top = hstack([name, line] + chips, spacing: 8)
         // How long it has been quiet over its memory, both whole, flush right.
         let right = NSStackView(views: [fixedLabel(idleWord(r), Fonts.pt(12).withTabularDigits, "tx3"), fixedLabel(SessionProc.mem(r.memKb), Fonts.pt(12, .medium).withTabularDigits, "tx2")])
@@ -286,7 +286,7 @@ final class SessionsPage: FormPage {
         name.setContentCompressionResistancePriority(.init(240), for: .horizontal)
         name.setContentHuggingPriority(.required, for: .horizontal)
         var items: [NSView?] = [ring, name, yields(label(r.line, Fonts.pt(12.5), "tx2"))]
-        if let a = r.assistant { items.append(assistantChip(a == "codex" ? "Codex" : "Claude")) }
+        if let a = r.assistant { items.append(assistantChip(Assistants.chip(a))) }
         let v = infoRow(items, mem: r.memKb, tip: [r.folder, r.sessionId.map { "session \($0.prefix(8))" }, "pid \(r.pid)"].compactMap { $0 }.joined(separator: ", "))
         if let pid = r.projectId, let sf = r.surfaceId, hub?.state?.find("\(pid)/\(sf)") != nil, let p = v as? PressRow {
             p.run = { [weak self] in self?.openSession?("\(pid)/\(sf)") }
@@ -508,7 +508,7 @@ extension Board {
         let shellish = i.map { ($0.command.first ?? "").range(of: "(^|/)(zsh|bash|sh|fish|login)$", options: .regularExpression) != nil || $0.labels["ravenry.kind"] == "shell" } ?? false
         var what: String
         if let st = hub.state, let s = st.projects.flatMap({ $0.sessions }).first(where: { $0.pane == pane && $0.machine == nil }) {
-            what = t("checkpoint.whatSession", ["who": s.assistant == "codex" ? "Codex" : s.assistant == "claude" || s.assistant == nil ? "Claude" : s.assistant!])
+            what = t("checkpoint.whatSession", ["who": s.assistant == nil ? Assistants.chip("claude") : Assistants.word(s.assistant)!])
         } else if byPerson { what = shellish ? t("checkpoint.whatShell") : t("checkpoint.whatYours") }
         else { what = t("checkpoint.whatOwn", ["who": sourceOf(c).who]) }
         if i == nil, pane.isEmpty { what = "" }

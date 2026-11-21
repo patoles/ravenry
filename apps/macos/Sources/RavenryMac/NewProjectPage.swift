@@ -111,8 +111,9 @@ final class NewProjectPage: FormPage {
         briefFor = nil; ideaId = nil; ideaName = nil; stage = nil
         state = st
         let starts = (st?.raw["assistants"] as? [String: Any])?["startWith"] as? String
-        asDefault = starts == "codex" ? "codex" : "claude"
-        assistant = f?.assistant.map { $0.contains("codex") ? "codex" : "claude" } ?? asDefault
+        asDefault = Assistants.kind(starts)
+        // The session's own assistant: the one the hub lists whose kind it names, else Claude Code.
+        assistant = f?.assistant.map { a in Assistants.list.first { a.contains($0.id) }?.id ?? "claude" } ?? asDefault
         folderMode = f != nil ? "existing" : "new"
         kind = "Web game"; pick = nil; parent = nil; finder = []; showAll = false; error = nil; made = nil; starting = false
         for k in ["name", "kindText", "goal", "doneMeans", "milestones", "rules"] { clear(k) }
@@ -161,7 +162,7 @@ final class NewProjectPage: FormPage {
     /// The board's terminal by name ("cmux", "Ravenry") and where Start puts the first session.
     private var boardTerm: String { (state?.raw["board"] as? [String: Any])?["name"] as? String ?? "cmux" }
     private var newPlace: String { boardTerm == "Rex" ? t("np.placeRex") : boardTerm == "cmux" ? t("np.placeCmux") : t("np.placeTab", ["term": boardTerm]) }
-    private var who: String { assistant == "codex" ? "Codex" : "Claude" }
+    private var who: String { Assistants.short(assistant) }
     private var root: String { known?["projectsRoot"] as? String ?? meta?["projectsRoot"] as? String ?? "~/Projects" }
 
     private func folderList() -> [[String: Any]] {
@@ -238,9 +239,11 @@ final class NewProjectPage: FormPage {
         segFolder = sf
         out.append(titled(t("np.folder"), [hstack([sf, spring()], spacing: 0)] + folderBody(slug: slug)))
 
-        // Assistant: Claude | Codex.
-        let sa = seg(["Claude", "Codex"], assistant == "codex" ? 1 : 0) { [weak self] i in
-            self?.assistant = i == 1 ? "codex" : "claude"
+        // Assistant: one segment per assistant the hub lists (Claude | Codex), by its short word.
+        let kinds = Assistants.list
+        let sa = seg(kinds.map(\.short), kinds.firstIndex { $0.id == assistant } ?? 0) { [weak self] i in
+            guard i >= 0, i < kinds.count else { return }
+            self?.assistant = kinds[i].id
             self?.redraw()
         }
         sa.setAccessibilityLabel(t("np.assistant"))
@@ -503,7 +506,7 @@ final class NewProjectPage: FormPage {
                 return
             }
             self.made = j
-            let w = (j["assistant"] as? String) == "codex" ? "Codex" : "Claude"
+            let w = Assistants.short(j["assistant"] as? String)
             let said = (j["partial"] as? Bool ?? false) ? j["error"] as? String : j["message"] as? String
             self.toast?(said ?? t("np.made", ["name": name, "folder": j["folder"] as? String ?? "", "who": w, "where": j["workspaceRef"] as? String ?? self.boardTerm]))
             self.redraw()
