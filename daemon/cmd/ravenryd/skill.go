@@ -293,10 +293,10 @@ Code and Codex session; there are Linux builds and an Android app too.
   start with, where new projects go.
 - **Onboarding and Learn**: the first launch reaches a working session with
   no terminal command; Learn Ravenry (the ?, or Help) has short cards.
-- **Phone pairing**: the Ravenry app on Android shows the projects and a
-  session's live screen, starts a session, and answers questions,
-  approvals and picks, from its notifications too (a phone's browser gets
-  the board on the Mac's Wi-Fi only; no iPhone app yet).
+- **Phone pairing**: the Ravenry app on Android, iPhone and iPad shows the
+  projects and a session's live screen, starts a session, and answers
+  questions, approvals and picks, from its notifications too (a phone's
+  browser gets the board on the Mac's Wi-Fi only).
   - Pair: on the Mac, Alerts > Pair your phone, then scan the QR code with
     the app (or type its code). That turns phone access on.
   - On the Mac's Wi-Fi the phone connects directly, nothing else to set up.

@@ -16,8 +16,8 @@ the same time. Answer from either one.
   splits. Sessions keep running when you quit or update the app.
 - **One board.** Every session, grouped as Needs you, Working and Idle,
   with its live screen.
-- **Your phone.** The Android app shows every project and answers from the
-  notification; an iPhone gets the alerts.
+- **Your phone.** The Android and iPhone apps show every project and answer
+  from the notification.
 - **Your machines.** Linux and Mac machines over ssh, on the same board.
 
 A short video: [docs/media/ravenry-30s.mp4](docs/media/ravenry-30s.mp4).
@@ -25,7 +25,8 @@ A short video: [docs/media/ravenry-30s.mp4](docs/media/ravenry-30s.mp4).
 ## Download
 
 Ravenry is in an early test: get the Mac app (Apple silicon, macOS 13 or
-later) and the Android app from **https://patoles.github.io/ravenry/**.
+later), the Android app and the iPhone and iPad app from
+**https://patoles.github.io/ravenry/**.
 The Mac app updates itself. It works with Claude Code and Codex, installed
 and signed in.
 

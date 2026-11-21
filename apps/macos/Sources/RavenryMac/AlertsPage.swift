@@ -7,8 +7,8 @@
 //   why, not allowed with Open Notifications settings), Send a test, and
 //   the switch.
 // - Phones (docs/PHONE.md section 4): each phone that gets alerts, with how
-//   (an Android phone through the Ravenry app, an iPhone through ntfy) and
-//   its last one, Send a test, Remove for an iPhone; Pair an Android phone
+//   (a phone through the Ravenry app, an iPhone through ntfy) and
+//   its last one, Send a test, Remove for an iPhone; Pair a phone
 //   (the phone card) and Add an iPhone, whose setup opens under the list:
 //   the steps, what the iPhone gets, the QR (the board's Safari sign-in
 //   link + #iphone, only while phone access is on) and Copy the code
@@ -171,7 +171,7 @@ final class AlertsPage: FormPage {
     // MARK: Phones
 
     /// The Phones card: one row per phone with how it gets alerts, then
-    /// Pair an Android phone and Add an iPhone, and that setup when open.
+    /// Pair a phone and Add an iPhone, and that setup when open.
     private func phonesCard(_ a: [String: Any]) -> NSView {
         // A hub before `phones`: its apps' names, each through the Ravenry app.
         let list = a["phones"] as? [[String: Any]] ?? (a["apps"] as? [String] ?? []).map { ["name": $0, "transport": "app"] }

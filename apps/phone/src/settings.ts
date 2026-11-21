@@ -58,7 +58,7 @@ export function settingsScreen(): Screen {
 
   function paint(): void {
     const name = st.me?.hub?.name || sh.hello.hub.name;
-    // An iPhone has no UnifiedPush and no held connection: its alerts are iOS's own, while the app is open (docs/PHONE.md section 9).
+    // An iPhone has no UnifiedPush and no held connection: its alerts are iOS's own, on the live stream while the app is open and through APNs while it is closed (docs/PHONE.md section 9, PHONE-042).
     const ios = sh.hello.platform === 'ios';
     const up = hub.live.link === 'up';
     const me = deviceWord(sh.hello.form);
@@ -76,7 +76,7 @@ export function settingsScreen(): Screen {
       h('div.scroll', h('div.setgs',
         demo ? h('div.setg', h('div.setr', h('div.tx', h('div', name), h('div.s', t('demo.settings.mac'))), h('span.r', t('demo.bar.lead').replace(/\.$/, '')))) : h('div.setg',
           h('div.setr', h('div.tx', h('div', name), h('div.s', `Paired as ${device}`)), h(`span.r${up ? '.ok' : ''}`, up ? 'Connected' : 'Not connected')),
-          ...(ios ? [h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', 'While Ravenry is open, as iOS allows them')), h('span.r', st.alerts ? 'On' : 'Off'))] : [
+          ...(ios ? [h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', 'As iOS allows them, even with Ravenry closed')), h('span.r', st.alerts ? 'On' : 'Off'))] : [
             h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', pushSub)), toggle(pushOn, !!st.push && st.push.distributors.length > 0, () => void setPush(!pushOn), 'Alerts by push')),
             h('div.setr', h('div.tx', h('div', 'Stay connected'), h('div.s', 'Shows alerts at once without push; a silent notification says so')), toggle(!!st.conn, st.conn !== null, () => void setConn(!st.conn), 'Stay connected'))])),
         h('div.setg',
