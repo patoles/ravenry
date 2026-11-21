@@ -48,20 +48,20 @@ const idsUnder = (env) => {
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', "const a = await import(process.argv[1]); console.log(JSON.stringify(a.IDS));", path.join(ROOT, 'server/assistants.mjs')], { env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' });
   try { return JSON.parse(r.stdout); } catch { return r.stderr; }
 };
-check('a real user: Claude Code, Codex and OpenCode, in that order', JSON.stringify(idsUnder({})) === '["claude","codex","opencode"]', JSON.stringify(idsUnder({})));
-check('asking for the stand-in outside a test: not registered', JSON.stringify(idsUnder({ TEST_RAVENRY_ASSISTANT: 'fake' })) === '["claude","codex","opencode"]');
-check('a test that does not ask: not registered', JSON.stringify(idsUnder({ TEST_RAVENRY: '1' })) === '["claude","codex","opencode"]');
-check('a test that asks: registered last', JSON.stringify(idsUnder({ TEST_RAVENRY: '1', TEST_RAVENRY_ASSISTANT: 'fake' })) === '["claude","codex","opencode","fake"]');
+check('a real user: Claude Code, Codex, OpenCode and Antigravity CLI, in that order', JSON.stringify(idsUnder({})) === '["claude","codex","opencode","antigravity"]', JSON.stringify(idsUnder({})));
+check('asking for the stand-in outside a test: not registered', JSON.stringify(idsUnder({ TEST_RAVENRY_ASSISTANT: 'fake' })) === '["claude","codex","opencode","antigravity"]');
+check('a test that does not ask: not registered', JSON.stringify(idsUnder({ TEST_RAVENRY: '1' })) === '["claude","codex","opencode","antigravity"]');
+check('a test that asks: registered last', JSON.stringify(idsUnder({ TEST_RAVENRY: '1', TEST_RAVENRY_ASSISTANT: 'fake' })) === '["claude","codex","opencode","antigravity","fake"]');
 
 // This process did not ask, so its registry is a real user's.
 const reg = await import('../server/assistants.mjs');
 const v = reg.views();
-check('views: what each client is sent, Claude Code and Codex as their words were, OpenCode third',
-  v.length === 3 && v[2].id === 'opencode' && v[2].name === 'OpenCode' && v[2].hooks === 'opencode' && !v[2].caps.print && v[0].id === 'claude' && v[0].name === 'Claude Code' && v[0].short === 'Claude' && v[0].chip === 'Claude' && v[0].rules === 'CLAUDE.md' && v[0].hooks === 'claude'
+check('views: what each client is sent, Claude Code and Codex as their words were, OpenCode third, Antigravity CLI fourth',
+  v.length === 4 && v[3].id === 'antigravity' && v[3].name === 'Antigravity CLI' && v[3].hooks === 'antigravity' && !v[3].caps.print && v[3].limits.length > 0 && v[2].id === 'opencode' && v[2].name === 'OpenCode' && v[2].hooks === 'opencode' && !v[2].caps.print && v[0].id === 'claude' && v[0].name === 'Claude Code' && v[0].short === 'Claude' && v[0].chip === 'Claude' && v[0].rules === 'CLAUDE.md' && v[0].hooks === 'claude'
   && v[1].id === 'codex' && v[1].name === 'Codex' && v[1].short === 'Codex' && v[1].chip === 'Codex' && v[1].rules === 'AGENTS.md' && v[1].hooks === 'codex'
   && v.slice(0, 2).every((a) => a.caps.resume && a.caps.model && a.caps.permission && a.caps.context && a.caps.handoff && a.caps.print && !a.test), JSON.stringify(v));
 check('words: resume and model as each CLI takes them', JSON.stringify([reg.words('claude', 'resume', 'x'), reg.words('codex', 'resume', 'x'), reg.words('claude', 'model', 'm'), reg.words('codex', 'model', 'm')]) === '[["--resume","x"],["resume","x"],["--model","m"],["-m","m"]]');
-check('refusal words name all three', reg.idsSaid() === 'claude, codex or opencode' && reg.namesSaid() === 'Claude Code, Codex and OpenCode' && reg.idsSaid(['claude', 'codex']) === 'claude or codex' && reg.namesSaid(['claude', 'codex']) === 'Claude Code and Codex');
+check('refusal words name all four', reg.idsSaid() === 'claude, codex, opencode or antigravity' && reg.namesSaid() === 'Claude Code, Codex, OpenCode and Antigravity CLI' && reg.idsSaid(['claude', 'codex']) === 'claude or codex' && reg.namesSaid(['claude', 'codex']) === 'Claude Code and Codex');
 {
   const ss = await import('../server/sessionstart.mjs');
   const launch = (p, k) => ({ kind: k || 'claude', command: k === 'codex' ? 'codex' : 'claude' });
@@ -70,7 +70,7 @@ check('refusal words name all three', reg.idsSaid() === 'claude, codex or openco
   const x = ss.plan({ folder: '/tmp/x', assistant: 'codex', resume: id }, { launch });
   check('resume lines unchanged: claude --resume, codex resume', c.line === `claude --resume ${id}` && JSON.stringify(c.args) === JSON.stringify(['--resume', id]) && x.line === `codex resume ${id}` && JSON.stringify(x.args) === JSON.stringify(['resume', id]), `${c.line} | ${x.line}`);
   const f = ss.plan({ folder: '/tmp/x', assistant: 'fake' }, { launch });
-  check('a real user\'s hub refuses the stand-in', f.ok === false && f.status === 400 && f.error === 'assistant is claude, codex or opencode.', JSON.stringify(f));
+  check('a real user\'s hub refuses the stand-in', f.ok === false && f.status === 400 && f.error === 'assistant is claude, codex, opencode or antigravity.', JSON.stringify(f));
   const m = await import('../server/models.mjs');
   check('model words unchanged', m.withModel('claude', 'claude', 'opus') === 'claude --model opus' && m.withModel('codex', 'codex', 'gpt-5.4') === 'codex -m gpt-5.4');
 }
@@ -138,14 +138,14 @@ if (!first) process.exit(1);
 
 // Listed by the hub, in the registry's order.
 const list = first.assistants && first.assistants.list;
-check('state: assistants.list is the registry, the stand-in last', Array.isArray(list) && list.map((a) => a.id).join() === 'claude,codex,opencode,fake' && list[3].name === 'Stand-in Agent' && list[3].short === 'Stand-in' && list[3].chip === 'Stand-in' && list[3].hooks === 'state' && list[3].test === true, JSON.stringify(list && list.map((a) => a.id)));
+check('state: assistants.list is the registry, the stand-in last', Array.isArray(list) && list.map((a) => a.id).join() === 'claude,codex,opencode,antigravity,fake' && list[4].name === 'Stand-in Agent' && list[4].short === 'Stand-in' && list[4].chip === 'Stand-in' && list[4].hooks === 'state' && list[4].test === true, JSON.stringify(list && list.map((a) => a.id)));
 const sv = await get('/api/setup/start');
 const sa = (sv.body.assistants || []).map((a) => `${a.kind}:${a.found}:${a.signedIn}`);
-check('New session\'s answer lists it last, found and signed in (nothing to sign in to)', sa.length === 4 && sa[0].startsWith('claude:') && sa[1].startsWith('codex:') && sa[2].startsWith('opencode:') && sa[3] === 'fake:true:true' && sv.body.assistants[3].name === 'Stand-in Agent', sa.join());
+check('New session\'s answer lists it last, found and signed in (nothing to sign in to)', sa.length === 5 && sa[0].startsWith('claude:') && sa[1].startsWith('codex:') && sa[2].startsWith('opencode:') && sa[3].startsWith('antigravity:') && sa[4] === 'fake:true:true' && sv.body.assistants[4].name === 'Stand-in Agent', sa.join());
 check('New session\'s words name it', sv.body.words && sv.body.words.names && sv.body.words.names.fake === 'Stand-in Agent', JSON.stringify(sv.body.words && sv.body.words.names));
 check('no Model menu for an assistant without one', sv.body.models && !('fake' in sv.body.models) && Array.isArray(sv.body.models.claude), JSON.stringify(Object.keys(sv.body.models || {})));
 const as = await get('/api/settings/assistant');
-check('Settings lists it', as.status === 200 && (as.body.list || []).map((a) => a.id).join() === 'claude,codex,opencode,fake');
+check('Settings lists it', as.status === 200 && (as.body.list || []).map((a) => a.id).join() === 'claude,codex,opencode,antigravity,fake');
 
 // A project set to it: the next session starts its command.
 const pa = await post('/api/project/assistant', { projectId: 'proj', assistant: 'fake' });
@@ -160,7 +160,7 @@ const ranLine = await until(async () => (fs.existsSync(RAN) ? fs.readFileSync(RA
 check('it ran its command in the project\'s folder, with the brief to read', !!ranLine && ranLine.startsWith(`${fs.realpathSync(PROJ)}|`) || (ranLine || '').startsWith(`${PROJ}|`), ranLine);
 check('with the brief prompt as its one word', /\|Read BRIEF\.md \(Hand-off section first\) and continue\./.test(ranLine || ''), ranLine);
 const refused = await post('/api/sessions/start', { projectId: 'proj', assistant: 'nope' });
-check('an assistant nobody registered is refused, naming the three', refused.status === 400 && refused.body.error === 'assistant is claude, codex, opencode or fake.', refused.text);
+check('an assistant nobody registered is refused, naming them all', refused.status === 400 && refused.body.error === 'assistant is claude, codex, opencode, antigravity or fake.', refused.text);
 
 // Its hooks are its own ('state'): Set up never writes Claude Code's or Codex's for it.
 {
@@ -214,7 +214,7 @@ else {
   await p.tap('[data-act="pn-new-session"]');
   await p.waitForSelector('.ps-ac', { timeout: 10000 });
   const cards = await p.$$eval('.ps-ac', (xs) => xs.map((x) => `${x.dataset.psAsst}:${x.disabled ? 'off' : 'on'}:${x.innerText.replace(/\s+/g, ' ').trim()}`));
-  check('New session at 390 px: a card per assistant the hub lists, the stand-in last', cards.length === 4 && cards[3] === 'fake:on:Stand-in Agent Signed in', cards.join(' | '));
+  check('New session at 390 px: a card per assistant the hub lists, the stand-in last', cards.length === 5 && cards[4] === 'fake:on:Stand-in Agent Signed in', cards.join(' | '));
   await p.tap('.ps-ac[data-ps-asst="fake"]');
   const go = await p.textContent('#ps-go');
   check('picked, Start names it', /^Start Stand-in Agent in /.test(go || ''), go);

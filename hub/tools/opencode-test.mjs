@@ -50,7 +50,7 @@ const reg = await import('../server/assistants.mjs');
 const oc = await import('../server/opencode.mjs');
 {
   const a = reg.get('opencode');
-  check('registered: OpenCode, third, with its own words', reg.IDS.join() === 'claude,codex,opencode' && a && a.name === 'OpenCode' && a.hooks === 'opencode' && a.caps.resume && a.caps.model && a.caps.handoff && !a.caps.print, reg.IDS.join());
+  check('registered: OpenCode, third, with its own words', reg.IDS.join() === 'claude,codex,opencode,antigravity' && a && a.name === 'OpenCode' && a.hooks === 'opencode' && a.caps.resume && a.caps.model && a.caps.handoff && !a.caps.print, reg.IDS.join());
   check('its first message goes after --prompt, a dash one as --prompt=',
     JSON.stringify(reg.promptArgs('opencode', 'Read BRIEF.md')) === '["--prompt","Read BRIEF.md"]' && JSON.stringify(reg.promptArgs('opencode', '-x')) === '["--prompt=-x"]'
     && JSON.stringify(reg.promptArgs('claude', '-x')) === '["--","-x"]' && JSON.stringify(reg.promptArgs('codex', 'hi')) === '["hi"]');
@@ -154,7 +154,7 @@ const proj = async () => (await state()).projects.find((x) => x.id === 'proj');
 const first = await until(async () => { const r = await get('/api/state'); return r.body && r.body.generatedAt ? r.body : null; }, 20000);
 check('the board answers', !!first, boardLog.slice(-800));
 if (!first) process.exit(1);
-check('state lists OpenCode third', (first.assistants.list || []).map((a) => a.id).join() === 'claude,codex,opencode');
+check('state lists OpenCode third', (first.assistants.list || []).map((a) => a.id).join() === 'claude,codex,opencode,antigravity');
 
 // Set up: the plugin in OpenCode's plugins folder, and the doctor's row.
 const PLUGIN = path.join(OCHOME, 'plugins', 'ravenry.js');
