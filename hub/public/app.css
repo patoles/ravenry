@@ -111,7 +111,13 @@ a{color:#0A84FF}a:hover{color:#409CFF}
   .ns-tg~span[style*="flex: 1"]{flex:1 1 40px !important}
   .composer:has(.ns-tg) #note{margin-left:auto}
 }
-.toast{z-index:30;position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--card2);color:var(--tx);padding:10px 16px;border-radius:10px;font-size:13.5px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.4);max-width:calc(100vw - 32px);box-sizing:border-box}
+/* A toast is over every layer (a page, a sheet, the full-screen Live
+   screen, a menu), so one said while any of them is open is seen. Every
+   toast takes this one value; no layer goes above it. */
+:root{--z-toast:100}
+.toast{z-index:var(--z-toast);position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--card2);color:var(--tx);padding:10px 16px;border-radius:10px;font-size:13.5px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.4);max-width:calc(100vw - 32px);box-sizing:border-box}
+.toast .tk{display:inline-flex;vertical-align:-2px;margin-right:8px;color:var(--ok)}
+.toast .tk svg{width:15px;height:15px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .sess{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid var(--sep);color:var(--tx)}
 .sess:hover{background:var(--sel)}
@@ -552,6 +558,7 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .fresh.live i{animation:breathe 1.6s ease-in-out infinite}
 .fresh.slow{color:var(--you)}.fresh.slow i{background:var(--you)}
 .fresh.stale{color:var(--bad)}.fresh.stale i{background:var(--bad)}
+.fresh.held{color:var(--you)}.fresh.held i{width:6px;height:9px;border-radius:0;background:linear-gradient(90deg,var(--you) 0 2px,transparent 2px 4px,var(--you) 4px);animation:none}
 .fresh.watch{color:var(--tx2)}.fresh.watch i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--idle)}
 @media (prefers-reduced-motion: reduce){.fresh.live i{animation:none}}
 .lv-tap{all:unset;cursor:pointer;display:none;align-items:center;gap:5px;font-size:12px;color:var(--tx3);padding:6px 8px 6px 4px;border-radius:6px}
@@ -626,6 +633,16 @@ a{color:#0A84FF}a:hover{color:#409CFF}
      the check in its top right corner, in room kept for it so nothing moves. */
   .lv .cb{flex:1 1 auto;position:relative;padding-right:22px}
   .lv .cd.cb.done{color:#30D158;background:rgba(48,209,88,.10);box-shadow:inset 0 0 0 1px rgba(48,209,88,.45)}
+  /* A file path (a path in the text, a file:// URL or file hyperlink) is
+     dotted; a tap copies it, and it rings green with a check as a chip does. */
+  .lv .fp{text-decoration:underline dotted;text-decoration-color:rgba(242,242,244,.5);text-underline-offset:3px;cursor:pointer;-webkit-tap-highlight-color:transparent;border-radius:3px}
+  .lv .fp.done{color:#30D158;text-decoration-color:rgba(48,209,88,.6);background:rgba(48,209,88,.10);box-shadow:inset 0 0 0 1px rgba(48,209,88,.45)}
+  .lv .fp.done::after{content:'';display:inline-block;width:11px;height:11px;margin-left:4px;vertical-align:-1px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat}
+  /* Full screen: only the screen's text can be selected, so the phone's
+     Select All stays in it; the message box still takes its text. */
+  html.lv-lock body{-webkit-user-select:none;user-select:none}
+  html.lv-lock #lv-lines{-webkit-user-select:text;user-select:text}
+  html.lv-lock .lv-fs textarea,html.lv-lock .lv-fs input,html.lv-lock .lv-fs [contenteditable]{-webkit-user-select:text;user-select:text}
   .lv .cd.cb.done::after{content:'';position:absolute;right:7px;top:7px;width:11px;height:11px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat}
 }
 .lv-empty{color:#6E6E75}
@@ -1377,7 +1394,7 @@ body.iph-on{overflow:hidden}
 .ps-spin{width:14px;height:14px;border-radius:50%;box-sizing:border-box;border:2px solid var(--sep);border-top-color:var(--work);flex:none;animation:psSpin 1s linear infinite}
 @keyframes psSpin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){.ps-spin{animation:none}}
-.ps-toast{z-index:60;position:fixed;left:16px;right:16px;bottom:calc(290px + env(safe-area-inset-bottom, 0px));background:var(--card2);color:var(--tx);padding:12px 14px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.4);display:flex;gap:10px;align-items:center;line-height:1.35}
+.ps-toast{z-index:var(--z-toast);position:fixed;left:16px;right:16px;bottom:calc(290px + env(safe-area-inset-bottom, 0px));background:var(--card2);color:var(--tx);padding:12px 14px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.4);display:flex;gap:10px;align-items:center;line-height:1.35}
 .ps-toast[hidden]{display:none}
 .mc.light .ps-ac,.mc.light .ps-rows{box-shadow:inset 0 0 0 1px var(--sep)}
 .mc.light .ps-ac.on{box-shadow:inset 0 0 0 2px var(--work)}

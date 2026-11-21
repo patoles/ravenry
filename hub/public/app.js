@@ -491,6 +491,7 @@ function showKept() {
   ok.addEventListener('click', () => { toastKept.delete(at); t.hidden = true; });
   t.append(ok);
   t.classList.add('wide');
+  toastPlace(t);
   t.hidden = false;
 }
 // "Decision replaced: the hull tilt." or "Saved your decision: ...", the
@@ -510,6 +511,7 @@ function decisionToast(d, undoUntil) {
     t.append(u);
   }
   t.classList.remove('wide');
+  toastPlace(t);
   t.hidden = false;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.hidden = true; }, Math.max(6000, Math.min(left, 60000)));
@@ -519,9 +521,23 @@ function toast(msg, ms = 3200, wide = false) {
   const t = $('#toast');
   t.textContent = undash(String(msg ?? ''));
   t.classList.toggle('wide', wide);
+  toastPlace(t);
   t.hidden = false;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.hidden = true; }, ms);
+}
+// "Copied", with its check, for 1.5 s.
+function toastCopied() {
+  toast('', 1500);
+  $('#toast').innerHTML = `<span class="tk">${LV_CHECK}</span>Copied`;
+}
+// A toast said while the Live screen is full screen on a phone sits over
+// the screen's text, at its foot, so it never covers the key bar, the
+// status row or the message box under it.
+function toastPlace(t) {
+  let sc = null;
+  try { sc = lv.full && LV_PHONE.matches ? $('#lv-fs #lv-scroll') : null; } catch { /* the page is still loading */ }
+  t.style.bottom = sc ? `${Math.round(window.innerHeight - sc.getBoundingClientRect().bottom + 12)}px` : '';
 }
 
 // X-Mission-Control is the guard header's name from before the rename, sent
@@ -1258,6 +1274,8 @@ const lv = {
   pending: false,
   full: false,
   empty: '',       // the message shown when there is no screen
+  held: false,     // text is selected in the screen: new lines wait (lvHold)
+  later: null,     // the entries that came while held, put on screen when it ends
 };
 
 // Mac time minus the board's time, from each snapshot, so a phone with a
@@ -1266,7 +1284,7 @@ function serverNow() { return Date.now() - (ui.skew || 0); }
 
 function buildLive() {
   if (lv.full) closeFull({ back: false });
-  lv.sid = null; lv.key = null; lv.watch = false; lv.at = null; lv.away = null; lv.ver = null; lv.keys = []; lv.base = []; lv.counts = []; lv.follow = true; lv.fresh = 0; lv.empty = '';
+  lv.sid = null; lv.key = null; lv.watch = false; lv.at = null; lv.away = null; lv.ver = null; lv.keys = []; lv.base = []; lv.counts = []; lv.follow = true; lv.fresh = 0; lv.empty = ''; lv.later = null;
   const card = document.createElement('div');
   card.className = 'card lv-card';
   card.id = 'lv-card';
@@ -1289,7 +1307,7 @@ function buildLive() {
   card.querySelector('#lv-tap').addEventListener('click', (e) => { e.stopPropagation(); openFull(); });
   // On a phone the whole card opens full screen; a drag still scrolls it.
   card.addEventListener('click', (e) => {
-    if (!LV_PHONE.matches || lv.full || e.target.closest('a, button, .cd, .ps-band')) return;
+    if (!LV_PHONE.matches || lv.full || e.target.closest('a, button, .cd, .fp, .ps-band')) return;
     openFull();
   });
 }
@@ -1329,6 +1347,8 @@ function renderJump() {
 // it promises no read: "Watch only" in every form.
 function freshWords(form) {
   if (lv.watch) return { kind: 'watch', text: 'Watch only' };
+  // Text selected in the screen holds it still (lvHold).
+  if (lv.held && !lv.empty) return { kind: 'held', text: form === 'long' ? 'Held while text is selected' : 'Held' };
   if (lv.away) return { kind: 'stale', text: form === 'tiny' ? 'Reconnecting' : form === 'short' ? `Reconnecting to ${lv.away.machine}` : lv.away.words };
   if (lv.at == null) return { kind: 'stale', text: form === 'tiny' ? 'No read' : 'Not read yet' };
   const age = Math.max(0, serverNow() - lv.at) / 1000;
@@ -1346,7 +1366,7 @@ function renderFresh() {
     const f = freshWords(form);
     kind = f.kind;
     el.className = 'fresh ' + f.kind;
-    el.title = lv.watch ? lv.empty : `The board reads ${asWord(lv.asst)}'s screen every 2 s`;
+    el.title = lv.watch ? lv.empty : f.kind === 'held' ? 'New lines wait while text is selected' : `The board reads ${asWord(lv.asst)}'s screen every 2 s`;
     const t = el.querySelector('span');
     if (t.textContent !== f.text) t.textContent = f.text;
     el.hidden = !!lv.empty && !lv.watch;
@@ -1357,12 +1377,48 @@ function renderFresh() {
 setInterval(() => { if ($('#lv')) renderFresh(); }, 1000);
 
 // A line of terminal text: links made clickable, the rest verbatim.
-function lvText(s) {
-  const parts = String(s).split(/(https?:\/\/[^\s<>"'`]+)/);
+// `links`: the pane's hyperlinks (OSC 8) on this line, [{ t, u }] (the
+// server's `lk`, server/screenlinks.mjs): their text opens or copies their
+// target. A web address is a link the phone's browser opens; a file (a
+// path, a file:// URL, a file hyperlink) is a dotted path that a tap
+// copies on a phone, ringing green as code does (docs/FEATURES.md
+// TERM-021).
+function lvText(s, links) {
+  s = String(s);
+  for (const k of links || []) {
+    const at = k.t ? s.indexOf(k.t) : -1;
+    if (at >= 0) return lvText(s.slice(0, at), links) + lvLink(k.t, k.u) + lvText(s.slice(at + k.t.length), links);
+  }
+  const parts = s.split(/(https?:\/\/[^\s<>"'`]+)/);
   return parts.map((x, k) => {
-    if (k % 2 === 0) return escRaw(x);
+    if (k % 2 === 0) return lvPaths(x);
     const m = x.match(/^(.*?)([.,;:!?)\]]*)$/);
     return `<a class="lnk" href="${escRaw(m[1])}" target="_blank" rel="noopener noreferrer">${escRaw(m[1])}</a>${escRaw(m[2])}`;
+  }).join('');
+}
+// A hyperlink's text: a web link, or a file's dotted path copying the file's path.
+function lvLink(text, uri) {
+  if (/^https?:/i.test(uri)) return `<a class="lnk" href="${escRaw(uri)}" target="_blank" rel="noopener noreferrer">${escRaw(text)}</a>`;
+  return lvPath(text, lvFilePath(uri));
+}
+// The path a file:// URL names (its host dropped, its escapes read).
+function lvFilePath(uri) {
+  try { return decodeURIComponent(new URL(uri).pathname); } catch { return String(uri).replace(/^file:\/\/[^/]*/i, ''); }
+}
+const lvPath = (text, copy) => `<span class="fp" data-lv-chip="${escRaw(copy)}">${escRaw(text)}</span>`;
+// A file path in the text: absolute (two parts at least, so a "/restart"
+// is not one), from home or here, or relative with a file name that has an
+// extension, a ":line" or ":line:col" after it; or a file:// URL.
+const LV_ABS = /^(?:~\/|\.{1,2}\/|\/[\w.@%+=,-]+\/)(?:[\w.@%+=,-]+\/)*[\w.@%+=,-]*(?::\d+(?::\d+)?)?$/;
+const LV_REL = /^(?:[\w.@%+=,-]+\/)+[\w@%+=,-][\w.@%+=,-]*\.[A-Za-z][A-Za-z0-9]{0,9}(?::\d+(?::\d+)?)?$/;
+function lvPaths(x) {
+  return x.split(/(\s+)/).map((w, k) => {
+    if (k % 2 || !/[/~]/.test(w)) return escRaw(w);
+    const m = w.match(/^([(\[{"'`]*)(.*?)([.,;:!?)\]}"'`]*)$/);
+    const core = m[2];
+    if (/^file:\/\//i.test(core)) return escRaw(m[1]) + lvPath(core, lvFilePath(core)) + escRaw(m[3]);
+    if (!/[\w]/.test(core) || !(LV_ABS.test(core) || LV_REL.test(core))) return escRaw(w);
+    return escRaw(m[1]) + lvPath(core, core) + escRaw(m[3]);
   }).join('');
 }
 // Code spans (docs/design/LiveCode.dc.html, C): the server marks, in each
@@ -1400,21 +1456,23 @@ function lvBlock(shown, span, i, indent) {
   return `<div class="cbw"${indent ? ` style="margin-left: ${indent}ch"` : ''}><div class="cd cb" data-lv-chip="${t}" data-lv-i="${i}"><span class="cbt">${escRaw(shown)}</span><button class="cp" data-lv-copy="${t}" aria-label="Copy ${t}" title="Copy">${lvCopyIn(false)}</button></div></div>`;
 }
 // One line of text from `from` on, with its marks ([start, end, span, last]).
-function lvMarked(x, from, marks) {
-  if (!marks || !marks.length) return lvText(x.slice(from));
+function lvMarked(x, from, marks, links) {
+  if (!marks || !marks.length) return lvText(x.slice(from), links);
   let out = '';
   let at = from;
   for (const [a0, b, span, last, i] of marks) {
     const a = Math.max(a0, at);
     if (b <= a) continue;
-    out += lvText(x.slice(at, a)) + lvChip(x.slice(a, b), span, last, i);
+    out += lvText(x.slice(at, a), links) + lvChip(x.slice(a, b), span, last, i);
     at = b;
   }
-  return out + lvText(x.slice(at));
+  return out + lvText(x.slice(at), links);
 }
 // Logical lines with a hanging indent for list items; tables and frames
 // stay as drawn, in a box that scrolls sideways.
-function lvLines(l, cs) {
+function lvLines(l, cs, lk) {
+  const linksOn = new Map(); // line -> its hyperlinks (OSC 8)
+  for (const k of lk || []) { if (!linksOn.has(k.i)) linksOn.set(k.i, []); linksOn.get(k.i).push(k); }
   const byLine = new Map();
   const blocks = new Map(); // first line -> { span, i, hi }
   for (const [i, span] of (cs || []).entries()) {
@@ -1459,19 +1517,19 @@ function lvLines(l, cs) {
       const [a, b, span, , i] = marks[0];
       if (span.cmd && span.r.length === 1 && a === m[1].length && b === x.length) { out.push(lvBlock(x.slice(a, b), span, i, m[1].length)); continue; }
     }
-    out.push(`<div${pad ? ` style="padding-left: ${pad}ch; text-indent: -${hang}ch"` : ''}>${lvMarked(x, m[1].length, marks)}</div>`);
+    out.push(`<div${pad ? ` style="padding-left: ${pad}ch; text-indent: -${hang}ch"` : ''}>${lvMarked(x, m[1].length, marks, linksOn.get(li))}</div>`);
   }
   flush();
   return out.join('');
 }
 function lvEntry(e) {
   const row = (cls, g, body) => `<div class="e ${cls}"><span class="g">${g}</span><span class="x">${body}</span></div>`;
-  if (e.k === 'u') return row('u', '❯', lvLines(e.l));
-  if (e.k === 'c') return row('c', e.orphan ? ' ' : '⏺', lvLines(e.l, e.cs));
-  if (e.k === 'r') return row('r', '※', lvLines(['recap: ' + (e.l[0] || ''), ...e.l.slice(1)]));
+  if (e.k === 'u') return row('u', '❯', lvLines(e.l, null, e.lk));
+  if (e.k === 'c') return row('c', e.orphan ? ' ' : '⏺', lvLines(e.l, e.cs, e.lk));
+  if (e.k === 'r') return row('r', '※', lvLines(['recap: ' + (e.l[0] || ''), ...e.l.slice(1)], null, e.lk));
   if (e.k === 's') return row('s', escRaw(e.g || '✻'), escRaw(e.t));
   if (e.k === 'o') return row('s', '⎿', escRaw(e.t));
-  if (e.k === 'todo') return row('s', '⎿', lvLines(e.l));
+  if (e.k === 'todo') return row('s', '⎿', lvLines(e.l, null, e.lk));
   if (e.k === 't') {
     // A run of the same notice (server/screen.mjs foldNotices): the text
     // gives way to the count, which stays in view.
@@ -1480,7 +1538,7 @@ function lvEntry(e) {
     const more = e.m ? ` <span class="more">+${e.m} line${e.m > 1 ? 's' : ''}</span>` : '';
     return row('t mini', '⏺', `<span class="tl">${label}${more}</span>`);
   }
-  return `<div class="e p"><span class="x">${lvLines(e.l || [])}</span></div>`;
+  return `<div class="e p"><span class="x">${lvLines(e.l || [], null, e.lk)}</span></div>`;
 }
 const lvCount = (e) => (e.l ? e.l.length : 1);
 // What an entry is, without its code spans: the entries are matched on this,
@@ -1522,12 +1580,12 @@ function lvShowCopied() {
     b.classList.toggle('done', done);
     b.innerHTML = lvCopyIn(done);
   }
-  for (const c of document.querySelectorAll('#lv-lines .cd.pl, #lv-lines .cd.cb')) c.classList.toggle('done', on && c.dataset.lvChip === lvCopied.text);
+  for (const c of document.querySelectorAll('#lv-lines .cd.pl, #lv-lines .cd.cb, #lv-lines .fp')) c.classList.toggle('done', on && c.dataset.lvChip === lvCopied.text);
 }
 document.addEventListener('click', (e) => {
   // A button copies anywhere; on a phone a tap on the chip itself does too
   // (the card's open-full-screen tap leaves chips alone).
-  const b = e.target.closest('[data-lv-copy]') || (LV_PHONE.matches && e.target.closest('#lv-lines .cd[data-lv-chip]'));
+  const b = e.target.closest('[data-lv-copy]') || (LV_PHONE.matches && e.target.closest('#lv-lines .cd[data-lv-chip], #lv-lines .fp[data-lv-chip]'));
   if (!b) return;
   e.preventDefault();
   e.stopPropagation();
@@ -1561,6 +1619,37 @@ function lvHover(c) {
 }
 document.addEventListener('mouseover', (e) => { if (!LV_PHONE.matches) lvHover(e.target.closest && e.target.closest('#lv-lines .cd[data-lv-i]')); });
 document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) lvHover(null); });
+
+// Text selected in the screen holds it still: a read that comes meanwhile
+// waits (lv.later) instead of redrawing the lines under the selection, and
+// the freshness chip says Held. When the selection ends the screen catches
+// up with the last read. Select All counts too (it reaches the screen).
+function lvSelected() {
+  const box = $('#lv-lines');
+  const sel = window.getSelection && window.getSelection();
+  if (!box || !sel || sel.isCollapsed || !sel.rangeCount) return false;
+  for (let i = 0; i < sel.rangeCount; i++) if (sel.getRangeAt(i).intersectsNode(box)) return true;
+  return false;
+}
+function lvHold() {
+  const held = lvSelected();
+  if (held === lv.held) return;
+  lv.held = held;
+  if (!held && lv.later) { const e = lv.later; lv.later = null; if ($('#lv-lines')) applyLive(e); }
+  renderFresh();
+}
+document.addEventListener('selectionchange', lvHold);
+// On a phone, the system's Copy on text of the screen: a short "Copied"
+// over the screen, and the selection let go so the screen catches up.
+document.addEventListener('copy', () => {
+  if (!LV_PHONE.matches || !lvSelected()) return;
+  setTimeout(() => {
+    toastCopied();
+    const sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+    lvHold();
+  }, 0);
+});
 
 // Puts new entries on screen. Entries that scrolled off the top go, a last
 // entry that grew is replaced, new ones are appended; while the user reads
@@ -1648,7 +1737,8 @@ async function fetchLive(sid) {
     if (!j.same) {
       lv.status = j.status;
       if (!j.entries.length) { lv.empty = j.at == null ? `${lv.term} has not read this tab yet.` : 'Nothing on screen yet.'; showEmpty(); }
-      else { if (lv.empty) { lv.empty = ''; $('#lv-lines').innerHTML = ''; lv.keys = []; lv.base = []; } applyLive(j.entries); }
+      else if (lv.held && !lv.empty) lv.later = j.entries;
+      else { if (lv.empty) { lv.empty = ''; $('#lv-lines').innerHTML = ''; lv.keys = []; lv.base = []; } lv.later = null; applyLive(j.entries); }
     }
     const p = project(ui.sel);
     if (p) renderLiveStatus(p);
@@ -1710,7 +1800,7 @@ function renderLive(p, s, state) {
   // "Not read yet" it would never keep.
   const key = sid || (watch ? 'watch:' + (s.sessionId || s.surfaceId) : 'none:' + p.id);
   if (key !== lv.key) {
-    lv.key = key; lv.sid = sid; lv.watch = watch; lv.at = null; lv.away = null; lv.ver = null; lv.keys = []; lv.base = []; lv.counts = []; lv.follow = true; lv.fresh = 0; lv.status = null; lv.term = termOf(s);
+    lv.key = key; lv.sid = sid; lv.watch = watch; lv.at = null; lv.away = null; lv.ver = null; lv.keys = []; lv.base = []; lv.counts = []; lv.follow = true; lv.fresh = 0; lv.status = null; lv.later = null; lv.term = termOf(s);
     lv.empty = !s ? 'No live session in this project.' : watch ? why : 'Reading the screen...';
     showEmpty();
   } else if (watch && lv.empty !== why) { lv.empty = why; showEmpty(); }

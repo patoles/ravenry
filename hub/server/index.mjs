@@ -27,6 +27,7 @@ import * as asst from './assistant.mjs';
 import * as assistantsReg from './assistants.mjs';
 import { words as regWords } from './assistants.mjs';
 import { markEntries, keepPersonTurns, spansGen } from './codespans.mjs';
+import { linkEntries, usableLinks } from './screenlinks.mjs';
 import * as registry from './registry.mjs';
 import { readBrief, appendNote, parseBrief, tickTask, writeBriefSafe } from './brief.mjs';
 import { nextParts } from './briefnext.mjs';
@@ -403,6 +404,9 @@ async function readSurface(tab) {
   const full = raw != null ? (want ? term.joinedRead(tab) ?? raw : null) : prev ? prev.full : null;
   const src = full ?? (raw != null ? text : prev ? prev.text : null);
   const prevSrc = prev ? prev.full ?? prev.text : undefined;
+  // Its hyperlinks (OSC 8), for the Live screen (server/screenlinks.mjs).
+  const links = raw != null ? usableLinks(term.readLinks(tab)) : prev ? prev.links : [];
+  const linkSig = JSON.stringify(links);
   // Which assistant draws this tab: its session's, when a live session
   // reported from it, else the screen's own (server/assistant.mjs, parseAny;
   // Claude Code's reading first, as before).
@@ -412,8 +416,8 @@ async function readSurface(tab) {
   screens.set(surfaceId, {
     text, at: now, live: parsed.claudeLive, prompt, assistant: kind,
     okAt: raw != null ? now : prev ? prev.okAt : null,
-    full,
-    ver: prev ? (src === prevSrc ? prev.ver : prev.ver + 1) : 1,
+    full, links, linkSig,
+    ver: prev ? (src === prevSrc && linkSig === prev.linkSig ? prev.ver : prev.ver + 1) : 1,
   });
   if (want && process.env.MC_LIVE_LOG === '1') console.log('live read', JSON.stringify({ surfaceId, lines: LIVE_LINES, ms: +readMs.toFixed(1), bytes: raw ? Buffer.byteLength(raw) : 0 }));
 }
@@ -488,7 +492,8 @@ async function liveScreen(surfaceId, ver) {
   const mkey = vkey + '\u0000' + surfaceId;
   // The person's messages the terminal lost come back from the transcript
   // (server/codespans.mjs, keepPersonTurns).
-  if (liveMarked.key !== mkey || liveMarked.src !== src) liveMarked = { key: mkey, src, entries: keepPersonTurns(markEntries(liveTrim.value.entries, tp), tp) };
+  // The pane's hyperlinks (OSC 8) on the lines that show them (server/screenlinks.mjs).
+  if (liveMarked.key !== mkey || liveMarked.src !== src || liveMarked.linkSig !== x.linkSig) liveMarked = { key: mkey, src, linkSig: x.linkSig, entries: linkEntries(keepPersonTurns(markEntries(liveTrim.value.entries, tp), tp), x.links) };
   const trimMs = performance.now() - t0;
   const body = { ok: true, surfaceId, at: x.okAt, now, ver: lvv.ver, lines: src ? src.split('\n').length - 1 : 0, ...liveTrim.value, entries: liveMarked.entries, ...(away ? { away } : {}) };
   if (process.env.MC_LIVE_LOG === '1') console.log('live trim', JSON.stringify({ surfaceId, ms: +trimMs.toFixed(2), entries: body.entries.length }));

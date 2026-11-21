@@ -257,7 +257,7 @@ export async function listTabs() {
 // blanks and blank rows trimmed, ending in a newline (as cmux's
 // read-screen); the last `lines` lines. null on failure.
 export async function readScreen(id, lines = 40) {
-  const r = await call(id, 'pane.capture', { history: Math.max(0, lines) });
+  const r = await captureLinks(id, { history: Math.max(0, lines) });
   if (!r.ok) return null;
   const ls = r.result.lines;
   // The same read with each soft-wrapped line joined (a daemon that says
@@ -265,7 +265,45 @@ export async function readScreen(id, lines = 40) {
   // reader's width (a phone's); the state rules read the rows as drawn.
   if (ls.some((l) => l.wrapped)) joinedReads.set(id, tidy(joinWrapped(ls, r.result.cols).join('\n'), 0));
   else joinedReads.delete(id);
+  linkReads.set(id, joinLinks(ls, r.result.cols));
   return tidy(ls.map((l) => l.text).join('\n'), lines);
+}
+
+// pane.capture with each row's hyperlinks (OSC 8, `links`). A daemon older
+// than that option refuses it (bad_request): it is asked without from then on.
+const linkless = new Set(); // daemons (pid:started) that refuse `links`
+async function captureLinks(id, params) {
+  const d = await daemonOf(id);
+  const key = d ? d.key || d.id : null;
+  const ask = !!d && !linkless.has(key);
+  const r = await call(id, 'pane.capture', ask ? { ...params, links: true } : params);
+  if (r.ok || !ask || !/unknown field "links"/.test(r.err)) return r;
+  linkless.add(key);
+  return call(id, 'pane.capture', params);
+}
+
+const linkReads = new Map();
+/** The hyperlinks (OSC 8) of a pane's last read: [{ t: its text, u: its URI, line: the line it is on, soft wraps joined }]. */
+export const lastLinks = (id) => linkReads.get(id) ?? [];
+
+/** Rows' hyperlinks on their lines, soft wraps joined: a link cut by the width is one link. */
+export function joinLinks(lines, cols = 0) {
+  const out = [];
+  const joined = joinWrapped(lines, cols);
+  let li = 0;
+  let open = null; // the last link, while it may run on into the next row
+  for (const [i, l] of lines.entries()) {
+    for (const k of l.links || []) {
+      if (open && open.row === i - 1 && k.col === 0 && k.uri === open.u) { open.t += k.text; open.end = k.col + k.width; open.row = i; continue; }
+      if (open) out.push(open);
+      open = { t: k.text, u: k.uri, line: joined[li] ?? '', end: k.col + k.width, row: i };
+    }
+    // Only a link that reaches the end of a soft-wrapped row runs on.
+    if (open && !(open.row === i && l.wrapped && open.end >= cols)) { out.push(open); open = null; }
+    if (!l.wrapped) li++;
+  }
+  if (open) out.push(open);
+  return out.map(({ t, u, line }) => ({ t: t.trim(), u, line })).filter((k) => k.t);
 }
 
 // The visible screen with each row's styled runs (pane.capture `styles`):
