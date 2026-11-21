@@ -464,7 +464,7 @@ final class ProjectPageView: MiddleView {
             if canWrite { acts.append(brief) }
             acts.append(reviveButton(p))
             acts.append(spring())
-            content.set(centred(vstack(head + [label(t("project.noEarlier"), Fonts.pt(13)), canWrite ? label(t("project.noBrief"), Fonts.pt(12.5), "tx3") : nil, hstack(acts, spacing: 10)], spacing: 14)))
+            content.set(centred(vstack(head + [label(t("project.noEarlier"), Fonts.pt(13)), canWrite ? label(t("project.noBrief"), Fonts.pt(12.5), "tx3") : nil, buttonRow(acts, spacing: 10)], spacing: 14)))
             return
         }
         let who = Assistants.short(l["assistant"] as? String)
@@ -499,7 +499,7 @@ final class ProjectPageView: MiddleView {
         acts.append(reviveButton(p))
         acts.append(spring())
         acts.append(brief)
-        rows.append(hstack(acts, spacing: 10))
+        rows.append(buttonRow(acts, spacing: 10))
         if let e = error { rows.append(label(e, Fonts.pt(12.5), "bad", lines: 3)) }
         let cmd = (outside.map { t("project.movesIn", ["where": $0]) } ?? t("project.continuesIn")) + (l["command"] as? String ?? "") + t("project.inFolder", ["folder": l["folderShort"] as? String ?? ""])
         rows.append(label(cmd, Fonts.pt(11.5), "tx3", lines: 3))

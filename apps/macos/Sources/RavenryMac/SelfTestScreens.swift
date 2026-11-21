@@ -89,11 +89,35 @@ extension SelfTestBoard {
                 // No words squeezed into a column (a wrapping label laid out narrow and kept so).
                 let sq = squeezed(window.contentView!)
                 check("\(name)_no_squeezed_text_\(Int(w))_\(dark ? "dark" : "light")", sq.isEmpty, sq.prefix(4).joined(separator: " | "))
+                let wb = wrappedButtons(window.contentView!)
+                check("\(name)_button_labels_one_line_\(Int(w))_\(dark ? "dark" : "light")", wb.isEmpty, wb.prefix(4).joined(separator: " | "))
                 if name == "brief" { check("brief_top_kept_\(Int(w))_\(dark ? "dark" : "light")", board.brief.scroll.contentView.bounds.origin.y == 0, "clip \(board.brief.scroll.contentView.bounds)") }
             }
         }
         NSApp.appearance = NSAppearance(named: .darkAqua)
         size(1280, 820)
+    }
+
+    /// The buttons shown whose label is taller than one line (wrapped inside
+    /// the button) or narrower than its words (the button squeezed): a row
+    /// of buttons that does not fit moves them to the next line whole.
+    func wrappedButtons(_ v: NSView) -> [String] {
+        var out: [String] = []
+        func walk(_ x: NSView) {
+            if x.isHidden || x.alphaValue == 0 { return }
+            if let b = x as? RButton, b.iconView == nil, !b.title.isEmpty, let c = b.cell {
+                let big = CGFloat.greatestFiniteMagnitude
+                let one = c.cellSize(forBounds: NSRect(x: 0, y: 0, width: big, height: big)).height
+                let here = c.cellSize(forBounds: NSRect(x: 0, y: 0, width: b.bounds.width, height: big)).height
+                let lines = Int((here / max(1, one)).rounded())
+                if lines > 1 || b.bounds.width + 0.5 < b.intrinsicContentSize.width {
+                    out.append("\(b.title.prefix(30)) (\(lines) lines, \(Int(b.bounds.width)) of \(Int(b.intrinsicContentSize.width)) pt)")
+                }
+            }
+            for s in x.subviews { walk(s) }
+        }
+        walk(v)
+        return out
     }
 
     /// The words shown in a field narrower than 80 pt while holding more

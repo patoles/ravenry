@@ -249,6 +249,9 @@ extension SelfTestBoard {
                     NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                     settle(0.3)
                     picture("native-project-switch-\(n)-\(tag)-\(dark ? "dark" : "light").png")
+                    // Each button's label on one line, whole: a row that does not fit moves its buttons down whole.
+                    let wb = wrappedButtons(pp)
+                    check(name + "_button_labels_one_line_\(dark ? "dark" : "light")", wb.isEmpty, "middle \(Int(middle)) " + wb.prefix(4).joined(separator: " | "))
                 }
                 NSApp.appearance = NSAppearance(named: .darkAqua)
             }

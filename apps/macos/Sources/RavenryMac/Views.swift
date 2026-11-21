@@ -409,6 +409,10 @@ final class RButton: NSButton, Hovers {
             widthAnchor.constraint(equalToConstant: side).isActive = true
             heightAnchor.constraint(equalToConstant: side).isActive = true
         } else {
+            // Its words on one line, never wrapped inside it (a row that does not fit moves its buttons down whole, buttonRow).
+            cell?.usesSingleLineMode = true
+            cell?.wraps = false
+            cell?.lineBreakMode = .byTruncatingTail
             self.title = title
             setTitle(title)
             if kind != .link { heightAnchor.constraint(greaterThanOrEqualToConstant: small ? 28 : 32).isActive = true }
@@ -512,9 +516,21 @@ func hstack(_ views: [NSView?], spacing: CGFloat = 8, insets: NSEdgeInsets = NSE
     return s
 }
 
+/// A row of buttons that wraps (flex-wrap): on one line as hstack lays it
+/// out while it fits, the views after a spring() at the right end; when it
+/// does not fit, the buttons move to the next line whole, never squeezed.
+func buttonRow(_ views: [NSView?], spacing: CGFloat = 8) -> FlowRow {
+    let vs = views.compactMap { $0 }
+    let at = vs.firstIndex { $0 is Spring }
+    let left = at.map { Array(vs[..<$0]) } ?? vs
+    let right = at.map { Array(vs[($0 + 1)...]).filter { !($0 is Spring) } } ?? []
+    return FlowRow(left, right: right, gap: spacing, lineGap: spacing)
+}
+
 /// A space that takes what is left (.sp).
+final class Spring: NSView {}
 func spring() -> NSView {
-    let v = NSView()
+    let v = Spring()
     v.translatesAutoresizingMaskIntoConstraints = false
     v.setContentHuggingPriority(.init(1), for: .horizontal)
     v.setContentCompressionResistancePriority(.init(1), for: .horizontal)
