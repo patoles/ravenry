@@ -19,6 +19,7 @@
 import '@xterm/xterm/css/xterm.css';
 import './app.css';
 import './phase2.css';
+import './restart.css';
 import type { AgentStatus, Checkpoint, DaemonEvent, InputRecord, Pane, RavenryClient, Source } from '@ravenry/client';
 import { api } from './api.ts';
 import type { AppConfig, AssistantInfo, FolderPick, HubStatus, StartView } from './api.ts';
@@ -59,6 +60,8 @@ import { Review } from './review.ts';
 import { sayPathOn } from '../../../../hub/public/homepath.mjs';
 import { wordsOf as cpWordsOf } from '../../../../hub/server/cpwords.mjs';
 import { PhoneCard } from './phonecard.ts';
+import { actOf, backOf, cardHtml, cardShows, CHECK_ICON, postFor, restartOf, RestartFollow } from './restart.ts';
+import type { RestartAct, RestartCard } from './restart.ts';
 import { t } from '../shared/strings.ts';
 import { InApp, IN_KINDS } from './inapp.ts';
 import type { InView } from './inapp.ts';
@@ -656,14 +659,14 @@ function dropToast(t: ToastItem): void {
  * `ms` (12 s at least; Infinity: until pressed). `key` names what it is
  * about: a newer toast with the same key replaces it.
  */
-function showToast(text: string, actions: ToastAction[] = [], opts: { key?: string; ms?: number } = {}): void {
+function showToast(text: string, actions: ToastAction[] = [], opts: { key?: string; ms?: number; icon?: string } = {}): void {
   const el = toastBox();
   const plain = actions.length === 0;
   const key = opts.key || (plain ? 'plain' : `say:${text}`);
   for (const t of toasts.filter((x) => x.key === key)) dropToast(t);
   const ms = plain ? opts.ms ?? PLAIN_MS : Math.max(opts.ms ?? ACTION_MS, ACTION_MS);
   const item: ToastItem = { key, el: h('div.ti'), ms, left: ms, since: Date.now(), plain };
-  replace(item.el, h('span.tt', text),
+  replace(item.el, opts.icon ? h('span.ok-i', svg(opts.icon)) : null, h('span.tt', text),
     ...actions.map((a) => h('button.lk', { on: { click: () => { dropToast(item); a.run(); } } }, a.label)),
     plain ? null : h('button.tx', { title: 'Dismiss', 'aria-label': 'Dismiss', on: { click: () => dropToast(item) } }, svg(I.CLOSE)));
   toasts.push(item);
@@ -1458,7 +1461,7 @@ function renderTabs(): void {
     extra.length && !stripTabs().some(sessTab) ? extra : null,
     stripTabs().map((t, i) => {
       const l = tabLabel(t);
-      const on = active && active.id === t.id;
+      const on = active && active.id === t.id && !restartInMiddle();
       if (on && t.kind === 'shell') t.activity = false;
       const tk = t.kind === 'session' ? t.key : sessionOfPane(S.hub, t.pane)?.key || `tab:${t.id}`;
       return h(`div.tab${on ? '.on' : ''}`, { role: 'tab', 'aria-selected': on ? 'true' : 'false', 'data-key': tk, 'data-tab': t.id, draggable: 'true', title: i < 9 ? `${l.name} (${isMac() ? '⌘' : 'Alt+'}${i + 1})` : l.name, on: { click: () => setView({ kind: 'tab', id: t.id }), auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) closeTab(t.id); }, dragstart: (e: Event) => tabDragStart(e as DragEvent, t), dragend: () => tabDragEnd(), dragover: (e: Event) => tabDragOver(e as DragEvent, t), drop: (e: Event) => tabDrop(e as DragEvent, t) } },
@@ -1712,6 +1715,7 @@ function stepTab(d: number): void {
 // the front as a tab, which stays until it is closed; clicking a tab only
 // brings it to the front. Here, the one place every caller goes through.
 function setView(v: View): void {
+  restartAsideOn(v);
   // A Review or Brief of no session, or a session with neither a key nor a
   // pane, shows nothing: it changes nothing (it used to add a tab of no
   // session, saved as pinned: [null], which stopped the next launch).
@@ -2148,6 +2152,8 @@ async function renderCentre(): Promise<void> {
     renderStrip();
     return;
   }
+  // The restart card takes the middle (SESS-053), above Start.
+  if (restartInMiddle()) { hideTerms(); shownKey = ''; show('start'); renderStart(); return; }
   if (npmTakesCentre() || firstRun() || v.kind === 'start') { hideTerms(); shownKey = ''; show('start'); renderStart(); return; }
   if (v.kind === 'none') { hideTerms(); shownKey = ''; show('none'); renderNone(); focusPending(); return; }
   if (v.kind === 'pane') {
@@ -2506,6 +2512,7 @@ function openStart(folder?: string): void {
 }
 
 function renderStart(): void {
+  $('start').classList.remove('with-rc');
   // The switch from the npm board takes the first-launch place (npmswitch.ts).
   if (npmTakesCentre()) { renderNpmCentre($('start')); return; }
   // The hub waits for macOS to say whether it may read a folder: the card alone
@@ -2514,7 +2521,7 @@ function renderStart(): void {
   const need = npmNeed();
   if (need) { renderNpmPointer($('start'), need, { url: S.config?.hubUrl || 'http://localhost:4600', reachable: !!S.hubStatus?.reachable, newShell: () => void newShell(), openUrl: (u) => api().openExternal(u) }); return; }
   const st = S.start;
-  if (S.setup) { replace($('start'), setupCard(S.setup)); return; }
+  if (S.setup) { putStart(setupCard(S.setup)); return; }
   const first = firstRun();
   const folderName = st.folder ? base(st.folder) : null;
   const a = st.assistants.find((x) => x.kind === st.assistant) || null;
@@ -2558,7 +2565,7 @@ function renderStart(): void {
     !first ? h('button.btn.ghost', { on: { click: () => { const t = S.tabs[0]; setView(t ? { kind: 'tab', id: t.id } : { kind: 'none' }); } } }, 'Cancel') : null);
 
   const card = h('div.fl-card', { on: { dragover: (e: Event) => e.preventDefault(), drop: (e: Event) => onDrop(e as DragEvent) } }, folderRow, asstRow, why, go);
-  replace($('start'), h('div.fl',
+  putStart(h('div.fl',
     svg(I.APP_ICON),
     h('h2', first ? 'Start your first session' : 'Start a session'),
     h('p.lead', 'Pick a folder and an assistant. It opens in a real terminal here, and the list on the left keeps every session in order, the ones that need you first.'),
@@ -2567,6 +2574,119 @@ function renderStart(): void {
     card,
     st.error ? h('p.err', st.error) : null,
     h('div.fl-foot', 'Keeping cmux, iTerm2 or Rex? Ravenry still follows the sessions you run there.')));
+}
+
+// ---- resume after a restart (SESS-053, restart.ts)
+// The hub's card (state.restart) is in the middle while its sessions are not
+// all back: where the tabs would be, above Start when it offers, alone while
+// they resume. The window's tab in front stays under it until the person
+// brings a tab or a session to the front themselves (a click or a key
+// outside the card, or a row's Show): the card then steps aside, and is in
+// the middle again once no tab is in front. Each session that comes back
+// opens as a tab, behind; once all are back the card goes, the first one is
+// in front and the hub's toast says so, once.
+const rcFollow = new RestartFollow();
+let rcAside: string | null = null;
+let rcInput = { at: 0, inCard: false };
+for (const ev of ['pointerdown', 'keydown']) {
+  document.addEventListener(ev, (e) => { const el = e.target instanceof Element ? e.target : null; rcInput = { at: Date.now(), inCard: !!el?.closest('.rc-card') }; }, true);
+}
+
+const restartNow = (): RestartCard | null => restartOf(S.hub);
+
+function restartInMiddle(): boolean {
+  const r = restartNow();
+  if (!cardShows(r)) return false;
+  const k = S.view.kind;
+  if (k === 'none' || k === 'start') return true;
+  return k === 'tab' && rcAside !== r.id;
+}
+
+/** The person brought a tab or a session to the front (not the card's own clicks): the card steps aside. */
+function restartAsideOn(v: View): void {
+  const r = restartNow();
+  if (!cardShows(r) || (v.kind !== 'tab' && v.kind !== 'session' && v.kind !== 'pane')) return;
+  if (Date.now() - rcInput.at < 2000 && !rcInput.inCard) rcAside = r.id;
+}
+
+function followRestart(): void {
+  const r = restartNow();
+  const step = rcFollow.step(r);
+  for (const b of step.open) {
+    // Behind the card: a tab is added, the front stays.
+    const id = tabForSession(b.key, b.pane || undefined);
+    api().log(`window: restart: ${b.sessionId} is back in ${b.key || b.pane}, its tab ${id}`);
+  }
+  if (step.open.length) save();
+  if (step.front) {
+    api().log(`window: restart: all back, ${step.front.key || step.front.pane} in front`);
+    setView(step.front.key ? { kind: 'session', key: step.front.key, ...(step.front.pane ? { pane: step.front.pane } : {}) } : { kind: 'session', key: '', pane: step.front.pane! });
+  }
+  if (step.toast && r) {
+    // Said on the view now in front, so the switch to it does not take it away.
+    toastFollows(here());
+    showToast(step.toast, [], { key: `restart:${r.id}`, icon: CHECK_ICON });
+  }
+}
+
+/** Start's middle: the restart card over it while it is in the middle (alone while its sessions resume). */
+let rcWrap: HTMLElement | null = null;
+let rcBox: HTMLElement | null = null;
+let rcSlot: HTMLElement | null = null;
+let rcHtml = '';
+function putStart(node: HTMLElement): void {
+  const el = $('start');
+  const r = restartInMiddle() ? restartNow() : null;
+  el.classList.toggle('with-rc', !!r);
+  if (!r) { replace(el, node); return; }
+  if (!rcWrap || !rcBox || !rcSlot) {
+    rcBox = h('div.rc-box', { on: { click: (e: Event) => onRestartClick(e) } });
+    rcSlot = h('div.rc-slot');
+    rcWrap = h('div.rc-wrap', rcBox, rcSlot);
+    rcHtml = '';
+  }
+  if (el.firstElementChild !== rcWrap || el.childElementCount !== 1) replace(el, rcWrap);
+  // Drawn again only when it changed: a hover, the focus and a spinner stay.
+  const html = cardHtml(r);
+  if (html !== rcHtml) { rcBox.innerHTML = html; rcHtml = html; }
+  if (r.phase === 'offer') replace(rcSlot, node); else replace(rcSlot);
+}
+
+function onRestartClick(e: Event): void {
+  const el = e.target instanceof Element ? e.target.closest('[data-act]') : null;
+  if (!el || (el as HTMLButtonElement).disabled) return;
+  const a = actOf(el.getAttribute('data-act'), el.getAttribute('data-sid'));
+  if (a) void restartAct(a);
+}
+
+async function restartAct(a: RestartAct): Promise<void> {
+  const r = restartNow();
+  if (!r) return;
+  if (a.act === 'show') {
+    const row = r.rows.find((x) => x.sessionId === a.sessionId);
+    const b = row ? backOf(row) : null;
+    if (!b) return;
+    rcAside = r.id;
+    api().log(`window: restart: Show ${b.sessionId}`);
+    setView(b.key ? { kind: 'session', key: b.key, ...(b.pane ? { pane: b.pane } : {}) } : { kind: 'session', key: '', pane: b.pane! });
+    return;
+  }
+  const p = postFor(a, { cols: term.term.cols, rows: term.term.rows });
+  if (!p) return;
+  api().log(`window: restart: ${a.act}${'sessionId' in a ? ` ${a.sessionId}` : ''}`);
+  try {
+    const res = await api().hubCall('POST', p.path, p.body);
+    const body = (res.body && typeof res.body === 'object' ? res.body : {}) as { error?: string; restart?: unknown };
+    if (res.status >= 400) {
+      api().log(`window: restart: ${p.path} answered ${res.status}: ${body.error || ''}`);
+      if (body.error) toast(body.error);
+      return;
+    }
+    // The card as the hub has it now, before its next state.
+    if (S.hub && 'restart' in body) { S.hub = { ...S.hub, restart: body.restart } as HubState; followRestart(); render(); }
+  } catch (err) {
+    api().log(`window: restart: ${p.path} failed: ${(err as Error).message}`);
+  }
 }
 
 /** A session already working in a folder's project here, if any (33 B decides a worktree then). */
@@ -3225,6 +3345,8 @@ function onHubState(next: HubState): void {
       arrivedAt(arrived[arrived.length - 1]);
     }
   }
+  // Resume after a restart: the tabs of the sessions that came back, and the first in front once all are.
+  followRestart();
   render();
 }
 
