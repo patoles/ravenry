@@ -173,6 +173,41 @@ export function withStubMachine(env = {}) {
   return { ...env, MC_PS_BIN: stubbed(env.MC_PS_BIN) ? env.MC_PS_BIN : STUB_PS, MC_LSOF_BIN: stubbed(env.MC_LSOF_BIN) ? env.MC_LSOF_BIN : STUB_PS };
 }
 
+// ------------------------------------------------------------ the assistants
+
+// The commands of the assistants a board finds on its PATH and starts in a
+// pane (hub/server/assistants.mjs `bin`). The test assistant is no one's.
+const ASSISTANT_BINS = ['claude', 'codex', 'agy', 'opencode'];
+
+/**
+ * A PATH for a test board on which every assistant is a stand-in: the
+ * person's own Claude Code, Codex, Antigravity CLI or OpenCode is never
+ * found there nor run (and never spends their quota). On 2026-11-21 the
+ * native sidetest's New session started the person's OpenCode (it needs no
+ * sign-in, so it was the first signed in) in a test pane, and it called its
+ * model. Each assistant the PATH holds in a test's folder (a test's own
+ * stand-in) is kept; for each other one a stand-in in `dir`, first on the
+ * PATH, says what it is and waits (`--version`, `models` and the like
+ * answer at once, with nothing).
+ */
+export function assistantStandIns(dir, PATH = process.env.PATH || '', env = process.env) {
+  fs.mkdirSync(dir, { recursive: true });
+  const own = (bin) => PATH.split(path.delimiter).some((d) => d && isTestPath(d, env) && fs.existsSync(path.join(d, bin)));
+  for (const bin of ASSISTANT_BINS) {
+    if (own(bin)) continue;
+    fs.writeFileSync(path.join(dir, bin), `#!/bin/sh
+# A stand-in for ${bin} on a test board (tools/test-env.mjs assistantStandIns).
+case "$1" in
+  --version|-v|version) echo "0.0.0 (a stand-in)"; exit 0 ;;
+  models|debug|login|logout|auth|mcp) exit 0 ;;
+esac
+echo "${bin} (a stand-in on a test board): $*"
+exec /bin/sleep 3600
+`, { mode: 0o755 });
+  }
+  return `${dir}${path.delimiter}${PATH}`;
+}
+
 /** Why a board started with this environment would read the machine's own processes, or null. */
 export function machineProblem(file, args = [], env = process.env) {
   if (childKind(file, args, env) !== 'hub') return null;

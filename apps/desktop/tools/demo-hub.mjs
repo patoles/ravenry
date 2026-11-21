@@ -22,7 +22,7 @@
 // before the board starts. `cmuxIds` gives the cmux workspaces and tabs
 // UUIDs, as real cmux has, and each session's process its CMUX_SURFACE_ID,
 // for a board that follows cmux from outside (Ravenry mode).
-import { guardSpawns } from '../../../tools/test-env.mjs';
+import { guardSpawns, assistantStandIns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -241,6 +241,8 @@ export async function startDemoHub({ dir, port, hubDir = HUB, empty = false, pan
     ...(runtime ? { RAVENRY_RUNTIME_DIR: runtime } : {}),
     ...moreEnv,
   };
+  // Every assistant a New session there can start is a stand-in, never the person's own.
+  env.PATH = assistantStandIns(path.join(dir, 'assistants'), env.PATH, env);
   const child = spawn(process.execPath, [path.join(hubDir, 'server', 'index.mjs')], { cwd: HOME, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += d; });

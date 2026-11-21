@@ -107,6 +107,10 @@ export function sessbHub({ tmp, APP, run, base }) {
       extra: [...(base.extra || []), { id: 'harbour-light', name: 'harbour-light' }],
       prepare: (a) => {
         if (first) first(a);
+        // The stand-in Claude stands for a Claude Code that is signed in, as the person's is: New
+        // session offers the first assistant signed in, and OpenCode (no sign-in) comes before a
+        // Claude that is not.
+        fs.writeFileSync(path.join(a.HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'you@example.com' } }));
         fs.mkdirSync(path.join(a.ROOT, 'old-notes'), { recursive: true });
         fs.writeFileSync(path.join(a.ROOT, 'old-notes', 'BRIEF.md'), '# Old notes\n\nGoal: Keep the notes from before the app.\n');
         fs.mkdirSync(path.join(a.ROOT, 'harbour-light'), { recursive: true });

@@ -35,7 +35,7 @@
 // - the hub refuses none of it to a phone, and still refuses Add a machine
 //   (MACH-010).
 // Pictures at 390 x 844 in OUT: dark, and New session light too.
-import { guardSpawns } from '../../../tools/test-env.mjs';
+import { guardSpawns, assistantStandIns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -189,7 +189,8 @@ execFileSync(BIN, ['serve', '--detach'], { env: localEnv });
 const PORT = await freePort();
 const STANDIN = await freePort();
 const hubEnv = {
-  PATH: `${STAND}:${process.env.PATH}`, HOME, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '0', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
+  // Claude and Codex are this check's stand-ins; Antigravity CLI and OpenCode stand-ins too, never the person's own.
+  PATH: assistantStandIns(path.join(WORK, 'assistants'), `${STAND}:${process.env.PATH}`), HOME, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '0', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
   RAVENRY_TERMINAL: 'ravenry', MC_APPS: 'cmux,ravenry', RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'hub-state'),
   RAVENRY_SSH: path.join(FAKESSH, 'ssh'), RAVENRY_DAEMON_BIN: BIN, RAVENRY_MACHINE_RETRY_MS: '300',
   CMUX_BIN: path.join(T, 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: CLAUDE, MC_CODEX_HOME: path.join(HOME, '.codex'),
@@ -261,7 +262,7 @@ try {
   await p.tap('[data-act="pn-new"]');
   await p.waitForSelector('.ps-newmenu', { timeout: 5000 });
   const items = await p.$$eval('.ps-newmenu .pn-mi', (xs) => xs.map((x) => x.innerText.replace(/\s+/g, ' ').trim()));
-  check('plus_menu_two_items', items.length === 2 && /^New session Claude Code or Codex, in a project$/.test(items[0]) && /^New project A new folder and its brief$/.test(items[1]), JSON.stringify(items));
+  check('plus_menu_two_items', items.length === 2 && /^New session Claude Code, Codex, Antigravity CLI or OpenCode, in a project$/.test(items[0]) && /^New project A new folder and its brief$/.test(items[1]), JSON.stringify(items));
   await shot('01a-plus-menu');
   // ---- 02a: New session, full screen, from the + (paper-boat busy: own copy)
   await p.tap('[data-act="pn-new-session"]');
@@ -272,7 +273,7 @@ try {
   const why = await p.textContent('.ps-why');
   check('own_copy_line', /It gets its own copy of the code, on a new branch, because Hull tilt is already working in paper-boat\./.test(why || ''), why);
   const cards = await p.$$eval('.ps-ac', (xs) => xs.map((x) => x.innerText.replace(/\s+/g, ' ').trim()));
-  check('assistants_signed_in', cards.join('|') === 'Claude Code Signed in|Codex Signed in', cards.join('|'));
+  check('assistants_signed_in', cards.join('|') === 'Claude Code Signed in|Codex Signed in|Antigravity CLI Not signed in|OpenCode Signed in', cards.join('|'));
   const go0 = await p.textContent('#ps-go');
   check('start_button_words', go0 === 'Start Claude Code in paper-boat', go0);
   await p.evaluate(() => window.scrollTo(0, 0));
