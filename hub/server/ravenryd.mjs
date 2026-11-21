@@ -34,6 +34,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { HOME_OVERRIDE, RAVENRY_HOME } from './home.mjs';
 import { record, deferredTasks } from './hookrecord.mjs';
+import { stateInput } from './assistanthook.mjs';
+import * as assistants from './assistants.mjs';
 import { runningTasksAsync, logTasks } from './tasks.mjs';
 import { decideStop } from './handoffstop.mjs';
 import * as machines from './machines.mjs';
@@ -660,7 +662,12 @@ function recordOfReport(rep, tasks = true) {
   if (!rep) return null;
   if (rep.source === 'hook' && rep.data && typeof rep.data.session_id === 'string') {
     const paneEnv = rep.pane ? { RAVENRY_PANE: rep.pane, TERM_PROGRAM: 'ravenry' } : {};
-    const r = record(rep.assistant, rep.data, { env: paneEnv, ppid: rep.pid || 0, daemon: !rep.pane, home: RAVENRY_HOME, at: rep.at, tasks });
+    // An assistant that reports its state with `--state` (registry hooks
+    // 'state'): its report as the board's event of that meaning.
+    const byState = assistants.get(rep.assistant) && assistants.get(rep.assistant).hooks === 'state';
+    const input = byState ? stateInput(rep) : rep.data;
+    if (!input) return null;
+    const r = record(rep.assistant, input, { env: paneEnv, ppid: rep.pid || 0, daemon: !rep.pane, home: RAVENRY_HOME, at: rep.at, tasks });
     // The daemon passes on no tool input (PROTOCOL.md, agent.report), so a
     // Codex approval's line ("Run <command>") comes from the report's
     // message, which ravenryd hook made from it.
@@ -686,7 +693,8 @@ function recordOfReport(rep, tasks = true) {
 // file it names is on that machine too.
 export async function handoffDecider(rep, { machine = null, client = null } = {}) {
   if (!rep || rep.source !== 'hook' || rep.event !== 'Stop' || !rep.data) return null;
-  if (rep.assistant !== 'claude' && rep.assistant !== 'codex') return null;
+  // Only an assistant whose Stop hook can hold a session (registry caps.handoff).
+  if (!assistants.can(rep.assistant, 'handoff')) return null;
   const io = machine && client ? await remoteIo(client, rep.data) : null;
   if (machine && client && !io) return null; // cannot read there in time: let it stop
   const out = await decideStop(rep.data, {

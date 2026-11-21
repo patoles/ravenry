@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { RAVENRY_HOME, SCRATCH_DATA, assertDataWrite, inRepoTmp, repoTmpPaths } from './home.mjs';
 import { isBroadFolder } from './folders.mjs';
+import * as assistants from './assistants.mjs';
 
 export { RAVENRY_HOME };
 export const REGISTRY_PATH = path.join(RAVENRY_HOME, 'projects.json');
@@ -322,13 +323,16 @@ export function checkHandoffPatch(patch, current) {
 
 // ------------------------------------------------------------ assistant settings
 // Which assistant the board starts (docs/ASSISTANTS.md, "Starting
-// sessions"): `startWith` ('claude' | 'codex', Claude Code when unset) and
+// sessions"): `startWith` (an id of the assistant registry,
+// server/assistants.mjs: 'claude' | 'codex'; Claude Code when unset) and
 // `codexModel`, the model Codex runs when the one in its config.toml is
 // refused (empty: Codex's own default). A project may name its own
-// `assistant` (the New project form's choice).
+// `assistant` (the New project form's choice). A stored id the registry
+// does not have (an assistant this build does not know) is read as unset
+// and never rewritten.
 
 export const ASSISTANT_KEYS = ['startWith', 'codexModel'];
-export const ASSISTANT_KINDS = ['claude', 'codex'];
+export const ASSISTANT_KINDS = assistants.IDS;
 const MODEL_NAME = /^[A-Za-z0-9][\w.:-]{0,79}$/;
 
 // The assistant a project names for itself, or null (then startWith, else
@@ -351,7 +355,7 @@ export function checkAssistantPatch(patch) {
   if (!keys.length) return 'Nothing to change.';
   const unknown = keys.filter((k) => !ASSISTANT_KEYS.includes(k));
   if (unknown.length) return `Not a setting the board changes: ${unknown.join(', ')}.`;
-  if ('startWith' in patch && !ASSISTANT_KINDS.includes(patch.startWith)) return `startWith must be ${ASSISTANT_KINDS.join(' or ')}.`;
+  if ('startWith' in patch && !ASSISTANT_KINDS.includes(patch.startWith)) return `startWith must be ${assistants.idsSaid()}.`;
   if ('codexModel' in patch && patch.codexModel != null && patch.codexModel !== '' && !(typeof patch.codexModel === 'string' && MODEL_NAME.test(patch.codexModel))) return 'codexModel must be a model name like gpt-5.6-luna, or empty.';
   return null;
 }
@@ -367,14 +371,14 @@ export function saveAssistantSettings(patch) {
   return { ok: true, settings: assistantSettings(w.reg && w.reg.settings), backup: w.backup, reg: w.reg };
 }
 
-// Sets the assistant a project names for itself ('claude' or 'codex'), or
+// Sets the assistant a project names for itself (a registry id), or
 // clears it (null: startWith, else Claude Code). Its next New
 // session, Revive and plan start use it; running sessions are not touched.
 // The same write path as the settings: a backup (at most one per burst),
 // then only that key of that project, through update().
 // Returns { ok, project, assistant, backup, reg } or { ok: false, status, error }.
 export function saveProjectAssistant(projectId, assistant) {
-  if (assistant !== null && !ASSISTANT_KINDS.includes(assistant)) return { ok: false, status: 400, error: `assistant must be ${ASSISTANT_KINDS.join(' or ')}, or null to follow Settings.` };
+  if (assistant !== null && !ASSISTANT_KINDS.includes(assistant)) return { ok: false, status: 400, error: `assistant must be ${assistants.idsSaid()}, or null to follow Settings.` };
   const cur = load();
   if (!cur || !cur.projects.some((p) => p && p.id === projectId)) return { ok: false, status: 404, error: 'No such project.' };
   let backup = null;
@@ -403,7 +407,7 @@ export function saveProjectAssistant(projectId, assistant) {
 // Returns { ok, project, models, reg } or { ok: false, status, error }.
 const START_MODEL = /^[A-Za-z0-9][\w.:-]{0,79}(?:\[1m\])?$/;
 export function saveProjectModel(projectId, kind, model) {
-  if (!ASSISTANT_KINDS.includes(kind)) return { ok: false, status: 400, error: `assistant must be ${ASSISTANT_KINDS.join(' or ')}.` };
+  if (!ASSISTANT_KINDS.includes(kind)) return { ok: false, status: 400, error: `assistant must be ${assistants.idsSaid()}.` };
   if (model != null && model !== '' && !(typeof model === 'string' && START_MODEL.test(model))) return { ok: false, status: 400, error: 'model must be a model name like opus or gpt-5.4, or empty for the default.' };
   const cur = load();
   const was = cur && cur.projects.find((p) => p && p.id === projectId);

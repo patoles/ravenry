@@ -36,6 +36,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as assistants from './assistants.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const SETTINGS_FILE = () => process.env.MC_CLAUDE_SETTINGS || path.join(os.homedir(), '.claude', 'settings.json');
@@ -382,15 +383,22 @@ export function status(json, { root = ROOT } = {}) {
 // is on every one of its events with its binary there. What the Settings
 // window's row, the panel's "This session" and GET /api/setup/hooks all
 // say (one answer for every route). null: not an assistant Ravenry sets up.
+// Which installer is the registry's `hooks` (server/assistants.mjs):
+// 'claude' (settings.json) or 'codex' (hooks.json); an assistant whose
+// hooks report with `ravenryd hook --state` ('state') has no installer here
+// yet, so null.
+export const INSTALLERS = ['claude', 'codex'];
+export const installerOf = (kind) => { const a = assistants.get(kind); return a && INSTALLERS.includes(a.hooks) ? a.hooks : null; };
 export function hooksOn(kind, { root = ROOT } = {}) {
+  const how = installerOf(kind);
   const leaves = (json, ours) => Object.values((json && json.hooks) || {}).some((l) => (Array.isArray(l) ? l : []).some((e) => ((e && e.hooks) || []).some((h) => ours.some((o) => isOurs(h, o, { root })) && splitCommand(h.command).includes('--ravenryd'))));
   const daemonOk = (rv, json, ours) => rv.state === 'ok' || (rv.state === 'missing' && !leaves(json, ours));
-  if (kind === 'claude') {
+  if (how === 'claude') {
     const cur = readSettings();
     const s = status(cur.json, { root });
     return { file: cur.file, on: s.state === 'ok' && daemonOk(s.ravenryd, cur.json, OURS), state: s.state, daemon: s.ravenryd.state };
   }
-  if (kind === 'codex') {
+  if (how === 'codex') {
     // Asked for a row the Settings window shows (Codex found): off until set up, even with no hooks.json yet.
     const s = codexStatus({ root });
     return { file: s.file, on: s.state === 'ok' && !s.hooksOff && daemonOk(s.ravenryd, cx.readHooks().json, CODEX_OURS), state: s.state, daemon: s.ravenryd.state, hooksOff: !!s.hooksOff };

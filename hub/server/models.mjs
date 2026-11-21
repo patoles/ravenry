@@ -13,11 +13,14 @@
 //
 // Starting: New session's Model (the Mac's Start screen, the board's
 // project head) is remembered per project and per assistant in the
-// registry (`models: { claude, codex }`); the session starts with
-// `claude --model <m>` or `codex -m <m>`. Switching during a session stays
-// the CLI's own /model.
+// registry (`models: { claude, codex }`); the session starts with the
+// assistant registry's model words (server/assistants.mjs: `claude --model
+// <m>`, `codex -m <m>`). An assistant with none (caps.model false) has no
+// Model menu and starts on its own default. Switching during a session
+// stays the CLI's own /model.
 
 import { assistantName } from './cpwords.mjs';
+import * as assistants from './assistants.mjs';
 
 // A model id as a command line takes it: letters, digits, . _ : - and a
 // "[1m]" suffix.
@@ -72,12 +75,14 @@ export function modelView(id, kind) {
 
 // ------------------------------------------------------------ starting with one
 
-/** The launch command with the model to start on: `--model` for Claude Code, `-m` for Codex (any one it had replaced). */
+/** The launch command with the model to start on: the registry's words, `--model` for Claude Code, `-m` for Codex (any one it had replaced); as it is for an assistant with none. */
 export function withModel(command, kind, model) {
   const m = typeof model === 'string' ? model.trim() : '';
   if (!m || !MODEL_ID.test(m)) return command;
-  const flag = kind === 'codex' ? '-m' : '--model';
-  const rest = String(command || (kind === 'codex' ? 'codex' : 'claude')).replace(/\s+(?:-m|--model)(?:=|\s+)(?:'[^']*'|\S+)/g, '');
+  const a = assistants.of(kind);
+  if (!a.caps.model || !a.command.model) return command;
+  const flag = a.command.model[0];
+  const rest = String(command || a.command.start).replace(/\s+(?:-m|--model)(?:=|\s+)(?:'[^']*'|\S+)/g, '');
   return `${rest} ${flag} ${/^[\w.:-]+$/.test(m) ? m : `'${m}'`}`;
 }
 
@@ -121,5 +126,9 @@ export function startMenus({ seen = [], codexDefault = null, picked = [] } = {})
   for (const id of [...new Set([...(codexDefault ? [codexDefault] : []), ...codexIds])].sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))) {
     if (MODEL_ID.test(id)) codex.push({ id, label: id });
   }
-  return { claude, codex };
+  // Every other assistant with a Model menu: its own default only, until
+  // its adapter knows its models.
+  const out = { claude, codex };
+  for (const k of assistants.IDS) if (!out[k] && assistants.can(k, 'model')) out[k] = [{ id: '', label: `${assistants.nameOf(k)}'s default` }];
+  return out;
 }

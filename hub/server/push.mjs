@@ -35,6 +35,7 @@ import { sayFolder } from './homes.mjs';
 import { keyLine, keyParts } from '../public/keys.mjs';
 import { CHANNELS } from './channels.mjs';
 import { KINDS as WORDS, CHECKPOINT_LINES } from './alertwords.mjs';
+import * as assistants from './assistants.mjs';
 
 const env = process.env;
 const num = (v, d) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
@@ -386,8 +387,10 @@ export const ready = () => phone.alertRecords().length > 0;
 
 // ------------------------------------------------------------ messages (section 5)
 
-const ASSISTANT = { claude: 'Claude', codex: 'Codex' };
-const who = (a) => ASSISTANT[String(a || '').toLowerCase()] || 'The agent';
+const who = (a) => assistants.chipOf(String(a || '').toLowerCase()) || 'The agent';
+// A message's session with its assistant's word from the registry
+// (`assistantName`: "Claude"), so an app draws it without a list of its own.
+const withName = (x) => { const n = assistants.chipOf(String(x.assistant || '').toLowerCase()); return n ? { ...x, assistantName: n } : x; };
 const clip = (s, n) => { const t = String(s ?? ''); return t.length > n ? t.slice(0, Math.max(0, n - 3)) + '...' : t; };
 const hhmm = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
@@ -442,7 +445,7 @@ export function checkpointMessage(cp, { project = null, machine = null, paneName
     title: '', body: head || '', detail: null, line: CHECKPOINT_LINES.answer,
     project: project ? { id: project.id, name: project.name } : null,
     machine: machine || null,
-    session: s ? { surfaceId: s.surfaceId, topic, assistant: s.assistant || cp.assistant || null } : (cp.pane ? { surfaceId: `ravenry:${cp.pane}`, topic: null, assistant: cp.assistant || null } : null),
+    session: s ? withName({ surfaceId: s.surfaceId, topic, assistant: s.assistant || cp.assistant || null }) : (cp.pane ? withName({ surfaceId: `ravenry:${cp.pane}`, topic: null, assistant: cp.assistant || null }) : null),
     checkpoint: { id: cp.id, kind: cp.kind, expires_at: cp.expires_at || null },
     actions: [], reply: null,
   };
@@ -528,7 +531,7 @@ export function projectMessage(alert, p) {
     v: 1, type: 'alert', id, at: new Date().toISOString(), kind,
     title: `${name} needs you`, body: '', detail: null, line: WORDS[kind] || null,
     project: { id: p.id, name: p.name }, machine: p.machine || (s && s.machine) || null,
-    session: s ? { surfaceId: s.surfaceId, topic, assistant: s.assistant || null } : null,
+    session: s ? withName({ surfaceId: s.surfaceId, topic, assistant: s.assistant || null }) : null,
     checkpoint: null, actions: [], reply: null,
   };
   if (kind === 'permission') {

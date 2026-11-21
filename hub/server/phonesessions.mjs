@@ -8,10 +8,14 @@
 //
 // Pure: every input is given.
 import { t as word } from './strings.mjs';
+import * as assistants from './assistants.mjs';
 
-const NAME = { claude: 'Claude Code', codex: 'Codex' };
-const WHO = { claude: 'Claude', codex: 'Codex' };
-const kindOf = (k) => (k === 'codex' ? 'codex' : 'claude');
+// The names are the assistant registry's (server/assistants.mjs).
+const NAME = Object.fromEntries(assistants.IDS.map((k) => [k, assistants.nameOf(k)]));
+const WHO = Object.fromEntries(assistants.IDS.map((k) => [k, assistants.chipOf(k)]));
+const kindOf = (k) => (assistants.isId(k) ? k : assistants.DEFAULT);
+// The registered assistant a session's kind names ("claude", "codex-..."), or null.
+const known = (k) => assistants.IDS.find((id) => k.startsWith(id)) || null;
 
 /** The computer the hub runs on, as a phone says it: "your Mac", else "your computer". */
 export const computerWord = (platform = process.platform) => word(platform === 'darwin' ? 'psess.yourMac' : 'psess.yourComputer');
@@ -29,9 +33,10 @@ const vars = (platform, x = {}) => ({ computer: computerWord(platform), ...x });
  */
 export function moveView(s, { platform = process.platform } = {}) {
   if (!s || !s.sessionId || s.machine) return null;
-  const k = String(s.assistant || 'claude');
-  if (!/^(claude|codex)/.test(k)) return null;
-  const who = WHO[kindOf(k)];
+  // Only an assistant that can resume a conversation can move.
+  const k = known(String(s.assistant || 'claude'));
+  if (!k || !assistants.can(k, 'resume')) return null;
+  const who = WHO[k];
   const m = s.moving;
   if (m && m.waiting) {
     // Kept there: the other terminal's name (the move's own name is the copy it ends).

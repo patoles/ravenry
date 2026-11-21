@@ -40,6 +40,29 @@ export function shape(assistant, input) {
   return null;
 }
 
+// An assistant that reports its state through `ravenryd hook --assistant
+// <id> --state <state>` (its registry `hooks` is 'state', server/
+// assistants.mjs): the daemon's report as the input of the board's event
+// with that meaning, so every rule that reads Claude Code's events reads
+// it the same. working is a turn going on (UserPromptSubmit), needs_you a
+// Notification (a permission, or a question for any other need), idle the
+// turn's end (Stop; SessionStart at its start) and ended SessionEnd.
+// `rep` is the daemon's agent report; null when it says no state.
+export function stateInput(rep) {
+  if (!rep || !rep.data || typeof rep.data.session_id !== 'string') return null;
+  const ev = rep.event;
+  const base = { ...rep.data };
+  if (rep.state === 'working') return { ...base, hook_event_name: 'UserPromptSubmit' };
+  if (rep.state === 'needs_you') {
+    const need = rep.need && rep.need.kind === 'permission' ? 'permission_prompt' : 'agent_needs_input';
+    const msg = (rep.need && rep.need.message) || rep.message || undefined;
+    return { ...base, hook_event_name: 'Notification', notification_type: need, ...(msg ? { message: msg } : {}) };
+  }
+  if (rep.state === 'idle') return { ...base, hook_event_name: ev === 'SessionStart' ? 'SessionStart' : 'Stop' };
+  if (rep.state === 'ended') return { ...base, hook_event_name: 'SessionEnd' };
+  return null;
+}
+
 // The process that ran this hook: the assistant (Claude Code or Codex, or
 // Codex's app-server). Claude Code and Codex run a hook through `sh -c`,
 // which execs the single command, so that is the hook's parent, except

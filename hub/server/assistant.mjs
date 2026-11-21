@@ -6,10 +6,14 @@
 // menus, its rules file and what it can show at all. Nothing else imports an
 // adapter.
 //
-// Adapters: server/claude.mjs (Claude Code, the first) and server/codex.mjs
-// (OpenAI Codex). A session carries `assistant` ('claude' | 'codex') from
-// its hook events (hooks/events.mjs), the way it carries `terminal`; a
-// session or event with none is Claude Code, so every session recorded
+// Which assistants there are is the registry's (server/assistants.mjs: ids,
+// names, commands, capabilities, as data the clients are sent). Adapters:
+// server/claude.mjs (Claude Code, the first) and server/codex.mjs (OpenAI
+// Codex); a registered assistant with no adapter of its own gets the
+// hook-only one (server/hookonly.mjs). A session carries `assistant` (a
+// registry id) from its hook events (hooks/events.mjs, `ravenryd hook`),
+// the way it carries `terminal`; a session or event with none, or with an
+// id the registry does not have, is Claude Code, so every session recorded
 // before there was a second assistant reads as it did.
 //
 // A tab's screen is read before the board knows its session, so the screen
@@ -19,15 +23,20 @@
 
 import * as claude from './claude.mjs';
 import * as codex from './codex.mjs';
+import * as hookonly from './hookonly.mjs';
+import * as registry from './assistants.mjs';
 import { chooseOption as choose, readMenu as menuOf } from './choose.mjs';
 import { tailLines } from './screen.mjs';
 
-const ADAPTERS = { claude, codex };
-// Tried in this order on a screen no session names.
-const ORDER = ['claude', 'codex'];
+// The adapters written for one assistant; every other registered one is
+// followed by its hooks alone.
+const OWN = { claude, codex };
+const ADAPTERS = Object.fromEntries(registry.IDS.map((k) => [k, OWN[k] || hookonly.make(k)]));
+// Tried in this order on a screen no session names: Claude Code first.
+const ORDER = registry.IDS;
 
-export const DEFAULT = 'claude';
-export const KINDS = Object.keys(ADAPTERS);
+export const DEFAULT = registry.DEFAULT;
+export const KINDS = registry.IDS;
 
 // The assistant of a session summary, an event line, or a kind string;
 // anything unknown or missing is Claude Code.
@@ -41,6 +50,11 @@ export function of(kind) {
 }
 
 export const nameOf = (kind) => of(kind).NAME;
+// The registry's data of it (server/assistants.mjs): short, chip, caps, command.
+export const entryOf = (kind) => registry.of(kindOf(kind));
+export const can = (kind, cap) => registry.can(kindOf(kind), cap);
+// What the clients are sent: every registered assistant, in order.
+export const views = registry.views;
 // What the board can show for this assistant's sessions (SUPPORTS in each
 // adapter): suggestion, pictures, backgroundTasks, processes, recap, handoff.
 export const supports = (kind, what) => !!of(kind).SUPPORTS[what];
@@ -129,8 +143,8 @@ export const launchCommand = (kind, settings) => of(kind).launchCommand(settings
 
 // ------------------------------------------------------------ starting sessions
 // Which assistant the board starts (docs/ASSISTANTS.md, "Starting
-// sessions"): `startWith` in the registry settings for a new project ('claude'
-// or 'codex', Claude Code when unset), the New project form's choice over
+// sessions"): `startWith` in the registry settings for a new project (a
+// registry id, 'claude' or 'codex'; Claude Code when unset), the New project form's choice over
 // it; a new session for a project (Revive, start from brief, New session, a
 // plan's start, and the sheet's "New sessions:" switch that shows it) is the
 // project's own `assistant`, else startWith, else Claude Code. Never the
@@ -144,11 +158,11 @@ export const launchCommand = (kind, settings) => of(kind).launchCommand(settings
 // The command New project, Revive and New session run, the prompt appended.
 export const startCommand = (kind, settings) => of(kind).startCommand(settings || {});
 
-// { claude, codex }: which assistants are on this Mac. Read at most every
-// 30 s (the board asks on every tick).
+// { claude, codex, ... }: which assistants are on this Mac, one key per
+// registered one. Read at most every 30 s (the board asks on every tick).
 let seen = { at: 0, key: '', value: null };
 export function installedAll(settings = {}, env = process.env) {
-  const key = JSON.stringify([settings.claudeBin || '', settings.codexBin || '', env.PATH || '', env.MC_CLAUDE || '', env.MC_CODEX || '', env.MC_CLAUDE_BIN || '', env.MC_CODEX_BIN || '', env.MC_CODEX_HOME || '']);
+  const key = JSON.stringify([settings.claudeBin || '', settings.codexBin || '', env.PATH || '', env.MC_CLAUDE || '', env.MC_CODEX || '', env.MC_CLAUDE_BIN || '', env.MC_CODEX_BIN || '', env.MC_CODEX_HOME || '', KINDS.join()]);
   if (seen.value && seen.key === key && Date.now() - seen.at < 30000) return seen.value;
   const value = Object.fromEntries(KINDS.map((k) => [k, !!ADAPTERS[k].installed(settings, env)]));
   seen = { at: Date.now(), key, value };
@@ -168,7 +182,8 @@ export function startChoice(settings = {}, wanted = null, { from = null, install
   if (installed[want]) return out;
   const other = KINDS.find((k) => k !== want && installed[k]);
   if (other) return { ...out, kind: other, fallback: true, note: `${nameOf(want)} is not installed on this Mac, so the board starts ${nameOf(other)} instead.` };
-  return { ...out, note: `Neither Claude Code nor Codex was found on this Mac; the board runs ${nameOf(want)}'s command as set.` };
+  const none = KINDS.length === 2 ? `Neither ${nameOf(KINDS[0])} nor ${nameOf(KINDS[1])} was found` : `None of ${registry.namesSaid(KINDS, 'or')} was found`;
+  return { ...out, note: `${none} on this Mac; the board runs ${nameOf(want)}'s command as set.` };
 }
 
 // The assistant a new session for a project starts (Revive, New session, a
@@ -185,7 +200,13 @@ export function continueChoice(settings = {}, project = null, opts = {}) {
 // idea mockups) follow startWith too. Claude Code's are the `claude -p`
 // command lines in server/config.mjs, unchanged; Codex's are one `codex
 // exec` run each (server/codexexec.mjs): { ok, text, usage, model, error }.
-export const printWith = (settings = {}) => startChoice(settings).kind;
+// An assistant with no print mode (caps.print) gives way to the first
+// installed one that has one, else Claude Code.
+export function printWith(settings = {}) {
+  const ch = startChoice(settings);
+  if (registry.can(ch.kind, 'print')) return ch.kind;
+  return KINDS.find((k) => registry.can(k, 'print') && ch.installed[k]) || DEFAULT;
+}
 export const runCodex = (opts) => codex.print(opts);
 // What the board knows about Codex's model: the one config.toml names and,
 // once a call found it refused, the one the board uses instead.

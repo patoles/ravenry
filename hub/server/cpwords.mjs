@@ -47,12 +47,12 @@
 //   {pane}     (drive) the name this client shows for that pane (its tab's),
 //              else words.drive.pane.
 
-/** "Claude", "Codex", else the kind with a capital, else null. */
+import { chipOf } from './assistants.mjs';
+
+/** The registry's chip word ("Claude", "Codex", server/assistants.mjs), else the kind with a capital, else null. */
 export function assistantName(kind) {
   if (!kind) return null;
-  if (kind === 'claude') return 'Claude';
-  if (kind === 'codex') return 'Codex';
-  return kind[0].toUpperCase() + kind.slice(1);
+  return chipOf(kind) || kind[0].toUpperCase() + kind.slice(1);
 }
 
 const KINDS = new Set(['ask', 'approve', 'secret', 'drive', 'pick']);

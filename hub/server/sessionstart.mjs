@@ -12,14 +12,16 @@
 
 import path from 'node:path';
 import { shellWord } from './create.mjs';
+import * as assistants from './assistants.mjs';
 
-const ASSISTANTS = new Set(['claude', 'codex']);
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // body: { projectId, folder, machine, assistant, text, cols, rows, resume }.
 // resume: a session id to continue (Continue in Ravenry): the assistant
-// runs `claude --resume <id>` or `codex resume <id>` (each CLI's --help,
-// Claude Code 2.1.319 and Codex 0.166.0), with no prompt.
+// runs its command with the registry's resume words (server/assistants.mjs:
+// `claude --resume <id>` or `codex resume <id>`, each CLI's --help, Claude
+// Code 2.1.319 and Codex 0.166.0), with no prompt; one that cannot resume
+// (caps.resume) is refused.
 // project: the registry's (or null); launch(project, assistant): { kind,
 // command }; briefPath(project): its BRIEF.md or null; briefExists(p).
 // Returns { ok, cwd, machine, line, command, args, label, labels, cols, rows,
@@ -42,7 +44,7 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
   if (machine && !machines.includes(machine)) return { ok: false, status: 404, error: `No machine is called ${machine}. Add it first.` };
   const folder = typeof b.folder === 'string' && b.folder.trim() ? b.folder.trim() : project ? project.folder : null;
   if (!folder || !path.isAbsolute(folder)) return { ok: false, status: 400, error: 'Give the folder to start in (an absolute path).' };
-  if (b.assistant != null && !ASSISTANTS.has(b.assistant)) return { ok: false, status: 400, error: 'assistant is claude or codex.' };
+  if (b.assistant != null && !assistants.isId(b.assistant)) return { ok: false, status: 400, error: `assistant is ${assistants.idsSaid()}.` };
   if (b.resume != null && !(typeof b.resume === 'string' && SESSION_ID.test(b.resume))) return { ok: false, status: 400, error: 'resume is a session id.' };
   const L = launch(project, b.assistant || null);
   const text = typeof b.text === 'string' && b.text.trim() ? b.text.trim() : null;
@@ -60,13 +62,15 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
     prompt = prompt ? `${prompt} ${note}` : note;
   }
   const resume = b.resume ? b.resume.toLowerCase() : null;
-  const line = resume ? (L.kind === 'codex' ? `${L.command} resume ${resume}` : `${L.command} --resume ${resume}`)
+  if (resume && !assistants.can(L.kind, 'resume')) return { ok: false, status: 400, error: `${assistants.nameOf(L.kind)} cannot resume a conversation.` };
+  const resumeWords = resume ? assistants.words(L.kind, 'resume', resume) : [];
+  const line = resume ? `${L.command} ${resumeWords.join(' ')}`
     : prompt ? `${L.command} ${prompt.startsWith('-') ? '-- ' : ''}${shellWord(prompt)}` : L.command;
   // The same as the command and its words, for a pane that runs the
   // assistant as its program (server/launch.mjs).
-  const args = resume ? (L.kind === 'codex' ? ['resume', resume] : ['--resume', resume]) : prompt ? [...(prompt.startsWith('-') ? ['--'] : []), prompt] : [];
+  const args = resume ? resumeWords : prompt ? [...(prompt.startsWith('-') ? ['--'] : []), prompt] : [];
   const first = String(L.command).trim().split(/\s+/)[0];
-  const PATH = !machine && ASSISTANTS.has(first) ? binPath(first) : null;
+  const PATH = !machine && assistants.IDS.some((k) => assistants.of(k).bin === first) ? binPath(first) : null;
   const size = (n) => (Number.isInteger(n) && n >= 1 && n <= 4096 ? n : null);
   const cols = size(b.cols), rows = size(b.rows);
   return {

@@ -31,6 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { RAVENRY_HOME } from './registry.mjs';
 import { t } from './strings.mjs';
 import { modelView } from './models.mjs';
+import * as assistants from './assistants.mjs';
 
 export const RUNNING_PATH = path.join(RAVENRY_HOME, 'running.json');
 export const OFFER_PATH = path.join(RAVENRY_HOME, 'restart.json');
@@ -164,7 +165,7 @@ const lowerLead = (s) => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1
 export function chipOf(e) {
   const v = modelView(e.model, e.assistant);
   if (v.modelTitle) return v.modelTitle;
-  return e.assistant === 'codex' ? 'Codex' : 'Claude Code';
+  return assistants.nameOf(e.assistant) || assistants.nameOf(assistants.DEFAULT);
 }
 
 /**

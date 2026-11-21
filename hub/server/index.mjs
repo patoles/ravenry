@@ -24,6 +24,8 @@ import { execFile, execFileSync } from 'node:child_process';
 import * as term from './terminal.mjs';
 import * as access from './access.mjs';
 import * as asst from './assistant.mjs';
+import * as assistantsReg from './assistants.mjs';
+import { words as regWords } from './assistants.mjs';
 import { markEntries, keepPersonTurns, spansGen } from './codespans.mjs';
 import * as registry from './registry.mjs';
 import { readBrief, appendNote, parseBrief, tickTask, writeBriefSafe } from './brief.mjs';
@@ -298,7 +300,9 @@ function assistantsView() {
   const settings = reg ? reg.settings : {};
   const set = registry.assistantSettings(settings);
   const ch = asst.startChoice(settings);
-  return { ...set, starts: ch.kind, installed: ch.installed, fallback: ch.fallback, note: ch.note, print: ch.kind, codex: ch.installed.codex ? asst.codexModel(settings) : null };
+  // list: every registered assistant (server/assistants.mjs), in order, for
+  // the clients to draw (the switches, New session, the tags).
+  return { ...set, starts: ch.kind, installed: ch.installed, fallback: ch.fallback, note: ch.note, print: asst.printWith(settings), codex: ch.installed.codex ? asst.codexModel(settings) : null, list: asst.views() };
 }
 
 // New session's Model menus (server/models.mjs startMenus): the models the
@@ -1227,7 +1231,7 @@ function outsideOf(s) {
   if (e && e.pid && outsideAlive) open = outsideAlive.has(e.pid);
   if (open == null) open = !procState.at || sessRows.some((r) => r.sessionId === s.sessionId);
   const kind = asst.kindOf(s.assistant);
-  return { name: term.nameOf(s.term), open, resumable: !open && (kind === 'claude' || kind === 'codex') };
+  return { name: term.nameOf(s.term), open, resumable: !open && asst.can(kind, 'resume') };
 }
 
 // Another process on this session, outside Ravenry, while it runs in a
@@ -1522,7 +1526,7 @@ async function tick() {
       pv.assistantWants = ch.wanted;
       pv.assistantNote = ch.fallback ? ch.note : null;
       // The model each assistant's next new session starts with here (New session's Model), null for its default.
-      pv.models = { claude: models.projectModel(rp, 'claude'), codex: models.projectModel(rp, 'codex') };
+      pv.models = Object.fromEntries(asst.KINDS.map((k) => [k, models.projectModel(rp, k)]));
     }
     snapshot.startModels = startModels();
     // Resume after a restart (SESS-053): what runs now, written down, and the card.
@@ -2002,10 +2006,11 @@ async function reopenSession(body) {
     const cwd0 = rec.cwd && fs.existsSync(rec.cwd) ? rec.cwd : HOME;
     // Its assistant and model, when the record says them (a session put
     // here by the restart card's Dismiss, SESS-053); else Claude Code as before.
-    const rk = rec.assistant === 'codex' ? 'codex' : 'claude';
-    const rm = typeof rec.model === 'string' && models.MODEL_ID.test(rec.model) ? rec.model : null;
-    const rcmd = rk === 'codex' ? asst.startCommand('codex', reg ? reg.settings : {}) : cfg().launchCommand || 'claude';
-    const rargs = [...(rm ? (rk === 'codex' ? ['-m', rm] : ['--model', rm]) : []), ...(rk === 'codex' ? ['resume', id] : ['--resume', id])];
+    const rk = asst.kindOf(rec.assistant);
+    const rm = typeof rec.model === 'string' && models.MODEL_ID.test(rec.model) && asst.can(rk, 'model') ? rec.model : null;
+    const rcmd = rk === 'claude' ? cfg().launchCommand || 'claude' : asst.startCommand(rk, reg ? reg.settings : {});
+    // The registry's words (server/assistants.mjs): `--model m --resume id`, `-m m resume id`.
+    const rargs = [...(rm ? regWords(rk, 'model', rm) : []), ...regWords(rk, 'resume', id)];
     // Closed in iTerm2 or Rex, or on a board in iTerm2 mode or Rex mode: a
     // new tab there (iTerm2's current window; Rex: the old tab's session).
     const k = rec.term && rec.term !== 'cmux' && term.canDrive(rec.term) ? rec.term : term.BOARD;
@@ -2177,7 +2182,7 @@ async function lastConversation(project) {
     sessionId: best.sessionId, assistant: kind, title: best.t.title || best.t.lastPrompt && short(best.t.lastPrompt, 60) || 'Conversation',
     stoppedAt: best.at, lastPrompt: short(best.t.lastPrompt, 300) || null, lastText: short(best.t.lastText, 600) || null,
     folder: best.cwd, folderShort: homes.sayLocal(best.cwd),
-    command: kind === 'codex' ? `codex resume ${best.sessionId}` : `claude --resume ${best.sessionId}`,
+    command: [asst.entryOf(kind).command.start, ...regWords(kind, 'resume', best.sessionId)].join(' '),
     // Where it still runs: a Ravenry pane (shown), or another terminal (Move here).
     openIn: holder ? (holder.ravenryId ? { ravenry: true, pane: holder.ravenryId } : { ravenry: false, name: term.nameOf(holder.surfaceId ? 'cmux' : holder.itermId ? 'iterm' : holder.rexId ? 'rex' : 'cmux') }) : null,
   };
@@ -4342,7 +4347,7 @@ async function handleRequest(req, res) {
       if (st.size > 1024 * 1024) return sendJson(res, 413, { error: 'The brief is over 1 MB.' });
       const view = (snapshot.projects || []).find((x) => x.id === id);
       const writer = (view && view.sessions || []).find((x) => x.assistant && Date.parse(x.startedAt || x.since || 0) <= st.mtimeMs) || (view && view.sessions || [])[0] || null;
-      const by = writer ? ({ claude: 'Claude', codex: 'Codex' }[writer.assistant] || null) : null;
+      const by = writer ? assistantsReg.chipOf(writer.assistant) : null;
       const text = fs.readFileSync(file, 'utf8');
       // nextParts: its Next step split into the card's items and the page's dated entries (server/briefnext.mjs).
       return sendJson(res, 200, { project: id, file, path: homes.sayLocal(file), text, nextParts: nextParts(parseBrief(text).next), updatedAt: new Date(st.mtimeMs).toISOString(), by });
@@ -4470,7 +4475,7 @@ async function handleRequest(req, res) {
         const b = sidebar.busyIn(snapshot.projects, f.path); if (b) f.busy = b;
         // The model each assistant last started with here (New session's Model, remembered per project).
         const rp = (reg && reg.projects || []).find((x) => x.folder === f.path && !x.hidden && !x.machine);
-        if (rp) { f.models = { claude: models.projectModel(rp, 'claude'), codex: models.projectModel(rp, 'codex') }; f.projectId = rp.id; }
+        if (rp) { f.models = Object.fromEntries(asst.KINDS.map((k) => [k, models.projectModel(rp, k)])); f.projectId = rp.id; }
         return f;
       };
       for (const f of v.folders) withProject(f);
@@ -4846,7 +4851,7 @@ async function handleRequest(req, res) {
         try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
         // `only`: one assistant's (the first-launch step names the one picked).
         // Removing puts the files back exactly when nothing else changed them.
-        const only = body.only === 'claude' || body.only === 'codex' ? body.only : null;
+        const only = asst.isKind(body.only) ? body.only : null;
         const r = hookinstall.setupWithRavenryd({ ravenryd: body.ravenryd, dry: !!body.dry, remove: !!body.remove, only, undoFile: path.join(registry.RAVENRY_HOME, 'setup-undo.json') });
         return sendJson(res, r.ok ? 200 : 400, r.ok ? { ...r, claude: r.claude && { ...r.claude, backup: r.claude.backup ? short(r.claude.backup) : null } } : { error: r.error });
       }

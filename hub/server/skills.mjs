@@ -14,7 +14,10 @@
 // Routes (server/index.mjs):
 //
 //   GET /api/setup/skills
-//     -> { ok: true, skills: [Row, Row] }   // claude first, then codex
+//     -> { ok: true, skills: [Row, Row] }   // one per registered assistant
+//                                          // that takes the skill, in the
+//                                          // registry's order (server/
+//                                          // assistants.mjs): claude, codex
 //   Row: { kind: "claude" | "codex", name: "Claude Code" | "Codex",
 //          found,        // the assistant is installed here (firstlaunch.mjs)
 //          dir,          // the skill's folder, as people read it ("~/.claude/skills/ravenry")
@@ -38,18 +41,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { sayPath } from '../public/homepath.mjs';
 import { findAssistants } from './firstlaunch.mjs';
+import * as assistants from './assistants.mjs';
+import { homeDir, skillDir as regSkillDir } from './assistantfind.mjs';
 
-export const SKILL_ASSISTANTS = ['claude', 'codex'];
-const NAMES = { claude: 'Claude Code', codex: 'Codex' };
+// The assistants that take the skill: the registry's with a `skill` folder.
+export const SKILL_ASSISTANTS = assistants.IDS.filter((k) => assistants.of(k).skill);
 
-/** The assistant's own folder: ~/.claude (CLAUDE_CONFIG_DIR) or ~/.codex (CODEX_HOME). */
+/** The assistant's own folder: ~/.claude (CLAUDE_CONFIG_DIR) or ~/.codex (CODEX_HOME), from the registry. */
 export function assistantHome(a, env = process.env, home = os.homedir()) {
-  if (a === 'claude') return env.CLAUDE_CONFIG_DIR || path.join(home, '.claude');
-  return env.CODEX_HOME || path.join(home, '.codex');
+  return homeDir(a, env, home);
 }
 
 export function skillDir(a, env = process.env, home = os.homedir()) {
-  return path.join(assistantHome(a, env, home), 'skills', 'ravenry');
+  return regSkillDir(a, env, home);
 }
 
 const MARK = 'ravenry-stub';
@@ -102,7 +106,7 @@ export function skillsView(env = process.env, home = os.homedir()) {
   const found = findAssistants(env, home);
   return SKILL_ASSISTANTS.map((k) => {
     const st = skillStatus(k, env, home);
-    return { ...st, dir: sayPath(st.dir, home), name: NAMES[k], found: !!found.find((x) => x.kind === k)?.found };
+    return { ...st, dir: sayPath(st.dir, home), name: assistants.nameOf(k), found: !!found.find((x) => x.kind === k)?.found };
   });
 }
 

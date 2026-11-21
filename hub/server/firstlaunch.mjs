@@ -1,6 +1,7 @@
 // What the first-launch screen (Start a session) offers on this machine:
 // folders that look like projects, and which assistants are installed and
-// signed in. Read only. Node built-ins and public/homepath.mjs only, and no
+// signed in. Read only. Node built-ins, public/homepath.mjs and the assistant
+// registry (server/assistants.mjs, built-ins too) only, and no
 // import of home.mjs, so the desktop app can run it in process while the
 // board is not up yet (its one fallback, docs/FEATURES.md SES-001's notes).
 //
@@ -14,8 +15,11 @@
 //                                     // most recently active first), then
 //                                     // the scan's, newest first; `folder`
 //                                     // asked for comes first when missing
-//     assistants: [{ kind: "claude" | "codex", name, found, signedIn,
-//                    path: string | null }]   // always both, in that order
+//     assistants: [{ kind, name, found, signedIn, path: string | null,
+//                    ...the registry's view of it }]   // every registered
+//                                     // one, in the registry's order
+//                                     // (server/assistants.mjs): Claude
+//                                     // Code, then Codex
 //   }
 //
 // `short` is the path as people read it ("~/code/app", sayPath). A client
@@ -26,6 +30,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { sayPath } from '../public/homepath.mjs';
+import * as registry from './assistants.mjs';
+import { findBin, signedIn } from './assistantfind.mjs';
 
 const ROOTS = ['code', 'Code', 'Projects', 'projects', 'Developer', 'dev', 'src', 'repos', 'git', 'work'];
 const MARKERS = ['.git', 'package.json', 'go.mod', 'Cargo.toml', 'pyproject.toml', 'README.md'];
@@ -57,30 +63,12 @@ export function findProjectFolders(home = os.homedir(), max = 5, root) {
   return { root: null, folders: [] };
 }
 
-function onPath(bin, env, home) {
-  // A Mac app started from the Finder gets a short PATH, and so may the
-  // board's service, so the usual install folders are looked at too.
-  const dirs = [...(env.PATH || '').split(path.delimiter), path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.npm-global', 'bin'), path.join(home, '.volta', 'bin')];
-  for (const d of dirs) {
-    if (!d) continue;
-    const p = path.join(d, bin);
-    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* next */ }
-  }
-  return null;
-}
-
-/** Claude Code and Codex: installed (on the PATH or the usual folders) and signed in (their own login files exist). */
+/** Every registered assistant (server/assistants.mjs): installed (on the PATH or the usual folders) and signed in (its key, or its own login file). */
 export function findAssistants(env = process.env, home = os.homedir()) {
-  const claude = onPath('claude', env, home);
-  const codex = onPath('codex', env, home);
-  let claudeIn = !!env.ANTHROPIC_API_KEY;
-  try { claudeIn = claudeIn || /"oauthAccount"\s*:\s*\{/.test(fs.readFileSync(path.join(home, '.claude.json'), 'utf8')); } catch { /* none */ }
-  const codexHome = env.CODEX_HOME || path.join(home, '.codex');
-  const codexIn = !!env.OPENAI_API_KEY || fs.existsSync(path.join(codexHome, 'auth.json'));
-  return [
-    { kind: 'claude', name: 'Claude Code', found: !!claude, signedIn: !!claude && claudeIn, path: claude },
-    { kind: 'codex', name: 'Codex', found: !!codex, signedIn: !!codex && codexIn, path: codex },
-  ];
+  return registry.IDS.map((kind) => {
+    const p = findBin(kind, env, home);
+    return { ...registry.view(kind), kind, name: registry.nameOf(kind), found: !!p, signedIn: !!p && signedIn(kind, env, home), path: p };
+  });
 }
 
 /**
