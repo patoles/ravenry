@@ -111,6 +111,8 @@ export const ROUTES = [
   { m: 'POST', p: /^\/api\/sessions\/[^/]+\/review\/send$/, eg: '/api/sessions/x/review/send', doc: '/api/sessions/<id>/review/send', c: P, what: 'send review comments', why: 'It types the person\'s review comments into the session, as the composer does; an agent would steer another agent in the person\'s name.' },
   { m: 'POST', p: /^\/api\/sessions\/[^/]+\/filmstrip$/, eg: '/api/sessions/x/filmstrip', doc: '/api/sessions/<id>/filmstrip', c: P, what: 'send a pane\'s last seconds to a session', why: 'It types into the session, as the composer does, and puts a file in the project\'s inbox; an agent would steer another agent in the person\'s name.' },
   { m: 'POST', p: '/api/sessions/reopen', c: P, what: 'reopen a session', why: 'Reopening starts an assistant again.' },
+  { m: 'POST', p: '/api/restart/resume', c: P, what: 'resume the sessions a restart stopped', why: 'Resuming starts an assistant again, one or all of them.' },
+  { m: 'POST', p: '/api/restart/dismiss', c: P, what: 'dismiss the restart card', why: 'It moves the sessions a restart stopped to Recently closed.' },
   { m: 'POST', p: '/api/project/revive', c: P, what: 'start a session', why: 'Revive and New session start an assistant, with the person\'s first message.' },
   { m: 'POST', p: '/api/handoff', c: P, what: 'decide a hand-off', why: 'A hand-off decision is the person\'s.' },
   { m: 'POST', p: '/api/handoff/start', c: P, what: 'start a hand-off', why: 'It ends a session\'s turn and starts the fresh session now.' },

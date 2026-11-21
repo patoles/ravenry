@@ -132,6 +132,8 @@ session's review comments and the agent's replies).
 | `/api/sessions/<id>/review/send` | person | It types the person's review comments into the session, as the composer does; an agent would steer another agent in the person's name. |
 | `/api/sessions/<id>/filmstrip` | person | It types into the session, as the composer does, and puts a file in the project's inbox; an agent would steer another agent in the person's name. |
 | `/api/sessions/reopen` | person | Reopening starts an assistant again. |
+| `/api/restart/resume` | person | Resuming starts an assistant again, one or all of them. |
+| `/api/restart/dismiss` | person | It moves the sessions a restart stopped to Recently closed. |
 | `/api/project/revive` | person | Revive and New session start an assistant, with the person's first message. |
 | `/api/handoff` | person | A hand-off decision is the person's. |
 | `/api/handoff/start` | person | It ends a session's turn and starts the fresh session now. |
