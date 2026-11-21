@@ -112,7 +112,10 @@ export function startCommand(e = env, repo = REPO, run = 'npm start') {
   // The tool's own switches stay here; RAVENRY_ITERM_PYTHON is the board's too.
   // MC_PS_BIN and MC_LSOF_BIN: the stand-in ps every test tool gives its
   // children (tools/test-env.mjs), never a board's own setting.
-  const skip = new Set(['RAVENRY_ITERM_PROFILES', 'RAVENRY_ITERM_BROWSER', 'RAVENRY_ITERM_API', 'RAVENRY_OPEN_BIN', 'RAVENRY_ITERM_WAIT_MS', 'MC_TEST', 'MC_PS_BIN', 'MC_LSOF_BIN']);
+  // RAVENRY_PANE and RAVENRY_SOCKET name the Ravenry pane this was run
+  // from, never the board's: carried into the iTerm2 tab, the board would
+  // take itself for a program in that pane (server/terminal.mjs).
+  const skip = new Set(['RAVENRY_ITERM_PROFILES', 'RAVENRY_ITERM_BROWSER', 'RAVENRY_ITERM_API', 'RAVENRY_OPEN_BIN', 'RAVENRY_ITERM_WAIT_MS', 'MC_TEST', 'MC_PS_BIN', 'MC_LSOF_BIN', 'RAVENRY_PANE', 'RAVENRY_SOCKET']);
   // Only a fake iTerm2 (a test) ever gets a test's scratch values.
   const fake = !!e.ITERM_OSASCRIPT_BIN;
   const pass = Object.keys(e).filter((k) => (k === 'PORT' || /^(RAVENRY|MC)_/.test(k)) && !skip.has(k) && (fake || !inRepoTmp(e[k]))).sort();
