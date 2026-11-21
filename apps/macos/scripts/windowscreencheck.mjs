@@ -8,6 +8,7 @@
 import { spawn, execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { standInPath } from '../../../tools/test-env.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..');
 const T = path.join(REPO, '.tmp', 'windowscreen');
@@ -15,7 +16,8 @@ const APP = path.join(REPO, 'apps', 'macos', 'build', 'RavenryMac.app');
 const BIN = path.join(APP, 'Contents/MacOS/ravenryd'), EXE = path.join(APP, 'Contents/MacOS/RavenryMac');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const env = {
-  HOME: `${T}/user`, PATH: '/usr/bin:/bin', SHELL: '/bin/zsh', LANG: 'en_US.UTF-8',
+  // A stand-in first for each assistant the PATH would find as the person's own (tools/test-env.mjs).
+  HOME: `${T}/user`, PATH: standInPath({ PATH: '/usr/bin:/bin', HOME: `${T}/user` }), SHELL: '/bin/zsh', LANG: 'en_US.UTF-8',
   RAVENRY_RUNTIME_DIR: `${T}/run`, RAVENRY_STATE_DIR: `${T}/state`, RAVENRY_DESKTOP_DATA: `${T}/desktop`,
   RAVENRY_HUB_URL: 'http://127.0.0.1:9', RAVENRY_UPDATES: '0',
 };

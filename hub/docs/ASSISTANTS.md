@@ -708,8 +708,9 @@ below).
   Ravenry pane is not followed; Esc is seen only from the screen (at rest
   20 s after); the context window is the one from Settings.
 
-`node tools/antigravity-test.mjs [--keep] [--no-model] [OUT]` runs it on
-the real `agy` (skipped when it is not installed or lists no models):
+`node tools/antigravity-test.mjs [--keep] (--model | --no-model) [OUT]` runs it on
+the real `agy` only when asked (with neither flag, the part without a
+board only; skipped when it is not installed or lists no models):
 the registry's words, its screens, its transcript and the hooks file
 without a board, then a scratch board with a real ravenryd and a scratch
 HOME: Set up and the doctor's row, the skill listed by agy, New session's
@@ -719,4 +720,13 @@ Hand off now and its Stop's "continue", the hand-off written and the
 fresh session started, the model chip, context and last turns, Continue
 by its id with a message from the board, Remove back to the file's bytes,
 and no browser opened (a PATH shim stands in for `open`). About ten model
-calls on the cheapest model it lists; `--no-model` makes none.
+calls on the cheapest model it lists with `--model`; `--no-model` makes none.
+
+Every other test finds only stand-ins: each assistant a test, its board,
+its ravenryd or its app would find as the person's own (on the PATH or in
+the install folders the hub and the Mac app look in) gets a stand-in first
+on their PATH (`tools/test-env.mjs`, guardSpawns; `node tools/test-env.mjs
+path` for selftest.sh), and the person's own binary named by its path is
+refused. Only `opencode-test` (OpenCode) and `antigravity-test` (agy) opt
+in, with `useRealAssistant`. `node tools/assistants-guard-test.mjs` fails
+when a test board could reach a real assistant without that.

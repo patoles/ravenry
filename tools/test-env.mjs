@@ -174,36 +174,158 @@ export function withStubMachine(env = {}) {
 }
 
 // ------------------------------------------------------------ the assistants
+//
+// A test never finds or runs the person's own Claude Code, Codex,
+// Antigravity CLI or OpenCode, which would call a model on their account.
+// On 2026-11-21 the native sidetest's New session started the person's
+// OpenCode (it needs no sign-in, so it was the first signed in) in a test
+// pane, and it called its model: the test board had the person's PATH.
+//
+// So guardSpawns() hands every child (and the tool itself) a PATH on which
+// each assistant it would find is a stand-in: for each one that resolves to
+// the person's own binary (on the PATH, or in the folders its installer uses
+// that the hub and the Mac app also look in: assistantfind.mjs findBin,
+// StartView.swift onPath), a stand-in folder of this repository's .tmp goes
+// first. An assistant a test's PATH does not find stays not found (a test of
+// "not installed" still works), and a test's own stand-in (any file of this
+// repository, of a test root or of the system's temporary folders) is kept.
+// The person's own binary, named by its path, is refused outright.
+//
+// Opting in: only the two end-to-end tests of a real assistant may reach
+// one, each its own, and only by calling useRealAssistant first
+// (REAL_ASSISTANT_TESTS). hub/tools/assistants-guard-test.mjs fails when a
+// test board could resolve a real assistant without that.
 
 // The commands of the assistants a board finds on its PATH and starts in a
 // pane (hub/server/assistants.mjs `bin`). The test assistant is no one's.
-const ASSISTANT_BINS = ['claude', 'codex', 'agy', 'opencode'];
+export const ASSISTANT_BINS = ['claude', 'codex', 'agy', 'opencode'];
+// The tests that may opt in, and to which assistant: hub/tools only.
+export const REAL_ASSISTANT_TESTS = { 'opencode-test.mjs': ['opencode'], 'antigravity-test.mjs': ['agy'] };
+const realAllowed = new Set();
 
-/**
- * A PATH for a test board on which every assistant is a stand-in: the
- * person's own Claude Code, Codex, Antigravity CLI or OpenCode is never
- * found there nor run (and never spends their quota). On 2026-11-21 the
- * native sidetest's New session started the person's OpenCode (it needs no
- * sign-in, so it was the first signed in) in a test pane, and it called its
- * model. Each assistant the PATH holds in a test's folder (a test's own
- * stand-in) is kept; for each other one a stand-in in `dir`, first on the
- * PATH, says what it is and waits (`--version`, `models` and the like
- * answer at once, with nothing).
- */
-export function assistantStandIns(dir, PATH = process.env.PATH || '', env = process.env) {
-  fs.mkdirSync(dir, { recursive: true });
-  const own = (bin) => PATH.split(path.delimiter).some((d) => d && isTestPath(d, env) && fs.existsSync(path.join(d, bin)));
-  for (const bin of ASSISTANT_BINS) {
-    if (own(bin)) continue;
-    fs.writeFileSync(path.join(dir, bin), `#!/bin/sh
-# A stand-in for ${bin} on a test board (tools/test-env.mjs assistantStandIns).
+export const STAND_INS = path.join(REPO, '.tmp', 'assistant-stand-ins');
+const standInText = (bin) => `#!/bin/sh
+# A stand-in for ${bin} on a test board (tools/test-env.mjs): the person's own
+# assistant is never run by a test.
 case "$1" in
   --version|-v|version) echo "0.0.0 (a stand-in)"; exit 0 ;;
   models|debug|login|logout|auth|mcp) exit 0 ;;
 esac
 echo "${bin} (a stand-in on a test board): $*"
 exec /bin/sleep 3600
-`, { mode: 0o755 });
+`;
+
+function writeStandIn(file, bin) {
+  const text = standInText(bin);
+  try { if (fs.readFileSync(file, 'utf8') === text) return; } catch { /* write it */ }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text, { mode: 0o755 });
+  fs.renameSync(tmp, file);
+}
+
+/** The folder holding the guard's stand-in for one assistant (written if missing). */
+export function standInDir(bin) {
+  const dir = path.join(STAND_INS, bin);
+  writeStandIn(path.join(dir, bin), bin);
+  return dir;
+}
+
+const TEMP_ROOTS = [...new Set([os.tmpdir(), '/tmp', '/private/tmp', '/var/folders', '/private/var/folders'].map((d) => { try { return fs.realpathSync(d); } catch { return d; } }))];
+/** Whether this executable is a test's stand-in, not a person's assistant:
+ * a file of this repository (its tools, its .tmp), of a test root, or of
+ * the system's temporary folders, its links followed. */
+export function isStandIn(file, env = process.env) {
+  let real;
+  try { real = fs.realpathSync(file); } catch { return true; }
+  return [REPO, realOr(REPO), ...testRoots(env), ...TEMP_ROOTS].some((d) => inside(real, d));
+}
+
+const executable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
+
+/** Where a board with this environment would find each assistant: its PATH,
+ * then the install folders the hub (assistantfind.mjs) and the Mac app
+ * (StartView.swift) also look in, under its HOME. { bin: file|null }.
+ * homeDirs false: the folders under HOME are left out (a child that is not
+ * a board, a hook say, finds a program on its PATH only; the system-wide
+ * install folders stay, a shell's path_helper puts them on its PATH). */
+export function assistantsFound(env = process.env, { homeDirs = true } = {}) {
+  const home = env.HOME || REAL_HOME;
+  const under = homeDirs ? [path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local'), path.join(home, '.npm-global', 'bin'), path.join(home, '.volta', 'bin'), path.join(home, '.opencode', 'bin')] : [];
+  const dirs = [...String(env.PATH || '').split(path.delimiter), ...under.slice(0, 2), '/opt/homebrew/bin', '/usr/local/bin', ...under.slice(2)];
+  const out = {};
+  for (const bin of ASSISTANT_BINS) {
+    out[bin] = null;
+    for (const d of dirs) {
+      if (!d || !path.isAbsolute(d)) continue;
+      const p = path.join(d, bin);
+      if (executable(p)) { out[bin] = p; break; }
+    }
+  }
+  return out;
+}
+
+/** The person's own assistants a board with this environment would find and
+ * run, not opted in: [{ bin, file }]. `isStand` decides what a stand-in is. */
+export function realAssistantsIn(env = process.env, { allowed = realAllowed, isStand = (f) => isStandIn(f, env), homeDirs = true } = {}) {
+  return Object.entries(assistantsFound(env, { homeDirs })).filter(([bin, f]) => f && !allowed.has(bin) && !isStand(f)).map(([bin, file]) => ({ bin, file }));
+}
+
+/** `env`'s PATH with the guard's stand-in first for each assistant it would
+ * find as the person's own (not opted in); the same PATH when there is none. */
+export function standInPath(env = process.env, opts = {}) {
+  const real = realAssistantsIn(env, opts);
+  const PATH = String(env.PATH || '');
+  if (!real.length) return PATH;
+  const add = real.map((r) => standInDir(r.bin));
+  // No PATH at all: a child looks in the system's default one, kept after.
+  const rest = (PATH || '/usr/bin:/bin').split(path.delimiter).filter((d) => d && !add.includes(d));
+  return [...add, ...rest].join(path.delimiter);
+}
+
+/**
+ * A test that drives one real assistant end to end opts in to it, before it
+ * looks for it: only the tests in REAL_ASSISTANT_TESTS, each its own
+ * assistant. Its own process and its children may then find that one (the
+ * other three stay stand-ins). Anything else ends the tool.
+ */
+export function useRealAssistant(bin, script = process.argv[1] || '') {
+  const name = path.basename(script);
+  const mine = path.relative(path.join(REPO, 'hub', 'tools'), path.resolve(script)) === name && (REAL_ASSISTANT_TESTS[name] || []).includes(bin);
+  if (!mine) throw new Error(`Refused: ${name || 'this tool'} may not run the person's own ${bin}. Only ${Object.entries(REAL_ASSISTANT_TESTS).map(([t, b]) => `hub/tools/${t} (${b.join(', ')})`).join(' and ')} opt in to a real assistant (tools/test-env.mjs REAL_ASSISTANT_TESTS).`);
+  realAllowed.add(bin);
+  const dir = path.join(STAND_INS, bin);
+  process.env.PATH = String(process.env.PATH || '').split(path.delimiter).filter((d) => d !== dir).join(path.delimiter);
+}
+
+/** Why this child is the person's own assistant, named by its path (or a
+ * shell command line running one), not opted in; or null. */
+function realAssistantChild(file, args, env) {
+  const f = String(file || '');
+  const base = path.basename(f);
+  if (ASSISTANT_BINS.includes(base) && !realAllowed.has(base)) {
+    if (path.isAbsolute(f) || f.includes('/')) return isStandIn(path.resolve(f), env) ? null : f;
+  }
+  if (/^(ba|z|da)?sh$/.test(base) && args[0] === '-c') {
+    const re = new RegExp(`(?:^|[\\s;&|('"=])(/[^\\s;&|()'"]*/(${ASSISTANT_BINS.join('|')}))(?=['"\\s;&|)]|$)`, 'g');
+    for (const m of String(args[1] || '').matchAll(re)) if (!realAllowed.has(m[2]) && executable(m[1]) && !isStandIn(m[1], env)) return m[1];
+  }
+  return null;
+}
+
+/**
+ * A PATH for a test board on which every assistant is a stand-in, even one
+ * the person does not have (a board that must list all four): each
+ * assistant the PATH holds as a test's own stand-in is kept; for each other
+ * one a stand-in in `dir`, first on the PATH, says what it is and waits
+ * (`--version`, `models` and the like answer at once, with nothing).
+ */
+export function assistantStandIns(dir, PATH = process.env.PATH || '', env = process.env) {
+  fs.mkdirSync(dir, { recursive: true });
+  const found = assistantsFound({ ...env, PATH });
+  for (const bin of ASSISTANT_BINS) {
+    if (found[bin] && isStandIn(found[bin], env) && PATH.split(path.delimiter).some((d) => d && path.join(d, bin) === found[bin])) continue;
+    writeStandIn(path.join(dir, bin), bin);
   }
   return `${dir}${path.delimiter}${PATH}`;
 }
@@ -371,7 +493,27 @@ function check(file, args, opts) {
   const kind = childKind(file, args, env);
   if (kind) assertTestEnv(env, `${NAMES[kind]} (${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''})`, { app: kind === 'app' });
   checkTerminal(file, args, env, kind);
+  const own = realAssistantChild(file, args || [], env);
+  if (own) throw new Error(`Refused to start ${own}: it is the person's own assistant, which a test never runs (a stand-in is on the PATH: tools/test-env.mjs). Only ${Object.keys(REAL_ASSISTANT_TESTS).join(' and ')} opt in to one (useRealAssistant).`);
+  const left = realAssistantsIn(env, { homeDirs: !!kind });
+  if (left.length) throw new Error(`Refused to start ${path.basename(String(file))}: it could find the person's own ${left.map((r) => `${r.bin} (${r.file})`).join(', ')}.`);
   return { kind, env };
+}
+
+// The options a child starts with, its PATH holding a stand-in first for
+// each assistant it would otherwise find as the person's own. A child that
+// inherits this process's environment gets the fix in process.env itself.
+// The folders under HOME count for a board, ravenryd or an app (where the
+// hub and the Mac app look), and for a child inheriting this process's
+// environment (the tool's own, as guardSpawns() made it).
+function withStandIns(file, args, opts) {
+  if (!opts || typeof opts !== 'object' || !opts.env) {
+    const PATH = standInPath(process.env);
+    if (PATH !== String(process.env.PATH || '')) process.env.PATH = PATH;
+    return opts;
+  }
+  const PATH = standInPath(opts.env, { homeDirs: !!childKind(file, args, opts.env) });
+  return PATH === String(opts.env.PATH || '') ? opts : { ...opts, env: { ...opts.env, PATH } };
 }
 
 // ------------------------------------------------------------ nothing left running
@@ -434,13 +576,17 @@ export function guardSpawns() {
   guarded = true;
   // Children that inherit this process's environment read the stand-in.
   for (const k of ['MC_PS_BIN', 'MC_LSOF_BIN']) if (!stubbed(process.env[k])) process.env[k] = STUB_PS;
+  // And a stand-in for each assistant they would find as the person's own.
+  process.env.PATH = standInPath(process.env);
   const cp = createRequire(import.meta.url)('node:child_process');
   origSync = cp.execFileSync;
   const split = (args, opts) => (Array.isArray(args) ? [args, opts] : [[], args]);
   for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
     const orig = cp[name];
     cp[name] = function guardedChild(file, a, b, ...rest) {
-      const [args, opts] = split(a, b);
+      const [args, given] = split(a, b);
+      const opts = withStandIns(given && given.shell ? '/bin/sh' : file, given && given.shell ? ['-c', [file, ...args].join(' ')] : args, given);
+      if (opts !== given) { if (Array.isArray(a)) b = opts; else a = opts; }
       const c = opts && opts.shell ? check('/bin/sh', ['-c', [file, ...args].join(' ')], opts) : check(file, args, opts);
       const r = orig.call(this, file, a, b, ...rest);
       remember(c.kind, c.env, name === 'spawn' || name === 'execFile' ? r : null);
@@ -449,7 +595,9 @@ export function guardSpawns() {
   }
   const fork = cp.fork;
   cp.fork = function guardedFork(mod, a, b, ...rest) {
-    const [args, opts] = split(a, b);
+    const [args, given] = split(a, b);
+    const opts = withStandIns(process.execPath, [String(mod), ...args], given);
+    if (opts !== given) { if (Array.isArray(a)) b = opts; else a = opts; }
     const c = check(process.execPath, [String(mod), ...args], opts);
     const r = fork.call(this, mod, a, b, ...rest);
     remember(c.kind, c.env, r);
@@ -461,10 +609,18 @@ export function guardSpawns() {
   }
   for (const name of ['exec', 'execSync']) {
     const orig = cp[name];
-    cp[name] = function guardedExec(command, opts, ...rest) {
-      check('/bin/sh', ['-c', String(command)], typeof opts === 'object' ? opts : null);
-      return orig.call(this, command, opts, ...rest);
+    cp[name] = function guardedExec(command, given, ...rest) {
+      const opts = withStandIns('/bin/sh', ['-c', String(command)], typeof given === 'object' ? given : null);
+      check('/bin/sh', ['-c', String(command)], opts);
+      return orig.call(this, command, opts && opts !== given ? opts : given, ...rest);
     };
   }
   syncBuiltinESMExports();
+}
+
+// For a launcher that is not Node (apps/macos/scripts/selftest.sh):
+//   node tools/test-env.mjs path PATH HOME
+// prints PATH with the stand-ins first, as guardSpawns() gives a child.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv[2] === 'path') {
+  console.log(standInPath({ PATH: process.argv[3] || '', HOME: process.argv[4] || REAL_HOME }));
 }

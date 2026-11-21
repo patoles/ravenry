@@ -22,15 +22,23 @@
 //   started a daemon with the real HOME, which made the real
 //   ~/Library/Application Support/Ravenry. withTestHome(env) gives a
 //   board the test's own scratch HOME.
+// - Every child, and the test itself, finds a stand-in for each assistant
+//   it would find as the person's own (tools/test-env.mjs, the
+//   assistants): on 2026-11-21 a test board started the person's OpenCode,
+//   which called its model.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { guardSpawns, isTestPath, paneVarsIn, requireRealTerminal, withStubMachine } from '../../tools/test-env.mjs';
+import { guardSpawns, isTestPath, paneVarsIn, requireRealTerminal, useRealAssistant, withStubMachine } from '../../tools/test-env.mjs';
 
 // A test that drives the person's real cmux, iTerm2 or Rex on purpose
 // calls this first: it ends the test unless RAVENRY_TEST_REAL_TERMINAL=1.
-export { requireRealTerminal, withStubMachine };
+// Every assistant the test and its children would find (Claude Code,
+// Codex, Antigravity CLI, OpenCode) is a stand-in on their PATH; only
+// opencode-test and antigravity-test opt in to their own real one, with
+// useRealAssistant('opencode' | 'agy') before they look for it.
+export { requireRealTerminal, useRealAssistant, withStubMachine };
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TMP = path.join(REPO, '.tmp');

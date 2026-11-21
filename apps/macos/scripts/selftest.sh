@@ -28,7 +28,11 @@ rm -f "$out/selftest.json"
 mkdir -m 700 "$dir/user" "$dir/run" "$dir/state"
 printf '%s\n' "PROMPT='~ > '" > "$dir/user/.zshrc"
 printf '%s\n' "skip_global_compinit=1" > "$dir/user/.zshenv"
-envs="HOME=$dir/user PATH=/usr/bin:/bin SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state RAVENRY_DESKTOP_DATA=$dir/desktop"
+# Each assistant this PATH would find as the person's own (Claude Code,
+# Codex, Antigravity CLI, OpenCode) is a stand-in first on it, as for every
+# test (tools/test-env.mjs, the assistants).
+testpath=$(node "$repo/tools/test-env.mjs" path /usr/bin:/bin "$dir/user")
+envs="HOME=$dir/user PATH=$testpath SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state RAVENRY_DESKTOP_DATA=$dir/desktop"
 # The app's event log goes to the test's folder, never the person's Library.
 appenv="RAVENRY_MAC_EVENTS_LOG=$dir/events.log"
 # Named after its version: 0.0.0-dev from build.sh, the release's in a package.

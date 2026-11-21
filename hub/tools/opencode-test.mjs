@@ -15,6 +15,9 @@
 // resumes by its id in a new pane. Uninstall takes the plugin out.
 //
 // Skips cleanly (exit 0) when opencode or ravenryd is not on this machine.
+// It is one of the two tests that opt in to the person's own assistant
+// (useRealAssistant, tools/test-env.mjs); Claude Code, Codex and
+// Antigravity CLI stay stand-ins.
 // A model call goes to OpenCode's free model (OPENCODE_TEST_MODEL, else
 // the first "-free" one it lists).
 //
@@ -23,7 +26,7 @@
 // permission's Needs you card; with OUT, their pictures go there.
 //
 //   node tools/opencode-test.mjs [--keep] [OUT]
-import { withStubMachine } from './test-guard.mjs';
+import { withStubMachine, useRealAssistant } from './test-guard.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,6 +34,9 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
+// The one assistant this test runs for real (tools/test-env.mjs): the other
+// three stay stand-ins on its PATH and its board's.
+useRealAssistant('opencode');
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const REPO = path.dirname(ROOT);
 let fails = 0;

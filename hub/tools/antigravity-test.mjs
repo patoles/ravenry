@@ -33,10 +33,15 @@
 // Antigravity CLI picked and its Model menu, and the permission's Needs
 // you; with OUT, their pictures go there.
 //
-//   node tools/antigravity-test.mjs [--keep] [--no-model] [OUT]
+//   node tools/antigravity-test.mjs [--keep] (--model | --no-model) [OUT]
 //
-// --no-model stops before the first model call.
-import { withStubMachine } from './test-guard.mjs';
+// The person's own agy runs only when the run asks for it: --model for the
+// whole run, its model calls included; --no-model for the real agy up to
+// the first model call (its models listed, set up, the skill, no turn).
+// With neither, only the part without a board runs, and agy stays a
+// stand-in (tools/test-env.mjs; it is one of the two tests that may opt in
+// to a real assistant, with useRealAssistant).
+import { withStubMachine, useRealAssistant } from './test-guard.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -132,6 +137,9 @@ const SCREEN = {
 }
 
 // ------------------------------------------------------------ the board
+const NO_MODEL = process.argv.includes('--no-model');
+if (!NO_MODEL && !process.argv.includes('--model')) { console.log('SKIP  the board part: the real agy runs only when asked (--model, or --no-model to stop before the first model call)'); process.exit(fails ? 1 : 0); }
+useRealAssistant('agy');
 const findOn = (bin) => { for (const d of String(process.env.PATH || '').split(':')) { const p = path.join(d, bin); try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* next */ } } return null; };
 const AGY = process.env.ANTIGRAVITY_BIN || findOn('agy') || [path.join(os.homedir(), '.local', 'bin', 'agy')].find((p) => fs.existsSync(p));
 const BIN = path.resolve(process.env.RAVENRYD_BIN || path.join(REPO, 'daemon', 'ravenryd'));
@@ -139,7 +147,6 @@ const RAVENRY = path.join(path.dirname(BIN), 'ravenry');
 if (!AGY) { console.log('SKIP  the board part: agy is not installed here'); process.exit(fails ? 1 : 0); }
 if (!fs.existsSync(BIN)) { console.log(`SKIP  the board part: no ravenryd at ${BIN}`); process.exit(fails ? 1 : 0); }
 const KEEP = process.argv.includes('--keep');
-const NO_MODEL = process.argv.includes('--no-model');
 const OUT = process.argv.slice(2).filter((a) => !a.startsWith('--'))[0] ? path.resolve(process.argv.slice(2).filter((a) => !a.startsWith('--'))[0]) : null;
 let pw = null;
 try { pw = process.env.RAVENRY_PLAYWRIGHT ? await import(process.env.RAVENRY_PLAYWRIGHT) : createRequire(path.join(ROOT, 'package.json'))('playwright'); } catch { pw = null; }
