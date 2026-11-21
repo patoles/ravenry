@@ -11,6 +11,9 @@
 //   node scripts/sidetest.mjs [OUT]      (after scripts/build.sh)
 //   node scripts/sidetest.mjs --screen brief [OUT]
 //
+// --screen start also gets the assistant registry with its test-only third
+// assistant (RAVENRY_MAC_ASSISTANTS, SelfTestStart.swift screenStartThird).
+//
 // With --screen, one screen's checks only (SelfTestScreens.swift), on the
 // demo hub with its running plan, its idea and the lighthouse project, whose
 // brief has every shape a brief takes (LIGHTHOUSE_BRIEF below).
@@ -1026,8 +1029,15 @@ function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d,
 // --screen daemons: no --socket (every daemon of the runtime folder).
 // --screen openon (SelfTestOpenOn.swift, NAV-009): two shells in the daemon, the window's tabs.
 if (OPENON) for (const n of ['oo-1', 'oo-2']) execFileSync(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['new', '--socket', sock, '--label', 'ravenry.kind=shell', '--cwd', user, '--json', '--name', n, '--', '/bin/zsh', '-l'], { env });
+// --screen start: the assistant registry as a test's hub has it (hub/server/assistants.mjs, the
+// test-only stand-in registered third), read in a process of its own that asks for it.
+function testAssistants() {
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', "const a = await import(process.argv[1]); process.stdout.write(JSON.stringify(a.views()));", path.join(REPO, 'hub', 'server', 'assistants.mjs')],
+    { env: { PATH: process.env.PATH, TEST_RAVENRY: '1', TEST_RAVENRY_ASSISTANT: 'fake' }, encoding: 'utf8' });
+  return out;
+}
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS || GONE ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' || SCREEN === 'pickzoom' || SCREEN === 'pickvideo' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(ANSWERS ? { RAVENRY_MAC_ANSWERS: JSON.stringify({ fake: hub.fake, argv: STAND_IN + '.argv' }) } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}), ...(LAB ? { RAVENRY_MAC_TAILNET_LAB: LAB.admin } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' || SCREEN === 'pickzoom' || SCREEN === 'pickvideo' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(ANSWERS ? { RAVENRY_MAC_ANSWERS: JSON.stringify({ fake: hub.fake, argv: STAND_IN + '.argv' }) } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'start' ? { RAVENRY_MAC_ASSISTANTS: testAssistants() } : {}), ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}), ...(LAB ? { RAVENRY_MAC_TAILNET_LAB: LAB.admin } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;

@@ -145,7 +145,52 @@ extension SelfTestBoard {
         click(st.go)
         check("start_shell_tab", wait(5) { self.board.ws.tabs.count == tabs + 1 && self.board.front == .tab } && !sent().contains { $0.path == "/api/sessions/start" }, "\(board.ws.tabs.count) \(board.front)")
 
+        // A third assistant, as the hub's registry has it under a test (hub/server/assistants.mjs, the
+        // stand-in: sidetest.mjs passes its views in RAVENRY_MAC_ASSISTANTS): a card in New session, Start
+        // naming it, and a segment more in the project's "New sessions:" and in Settings.
+        screenStartThird(a0, asst)
+
         hub.testAnswers = [:]
         hub.testPostAnswers = [:]
+    }
+
+    private func screenStartThird(_ a0: [String: Any], _ asst: [[String: Any]]) {
+        let hub = board.hub
+        let st = board.start
+        guard let raw = ProcessInfo.processInfo.environment["RAVENRY_MAC_ASSISTANTS"], let d = raw.data(using: .utf8),
+              let views = (try? JSONSerialization.jsonObject(with: d)) as? [[String: Any]] else { check("third_registry", false, "no RAVENRY_MAC_ASSISTANTS"); return }
+        check("third_registry", views.map { $0["id"] as? String ?? "" } == ["claude", "codex", "fake"], "\(views.map { $0["id"] ?? "" })")
+        guard let fake = views.first(where: { $0["id"] as? String == "fake" }) else { return }
+        // New session's answer as the hub sends it: the registry's view with kind, found and signed in.
+        var third = fake
+        third["kind"] = "fake"; third["found"] = true; third["signedIn"] = true; third["path"] = "/usr/local/bin/ravenry-stand-in"
+        var a3 = a0
+        a3["assistants"] = asst + [third]
+        hub.testAnswers["/api/setup/start"] = a3
+        board.openStart(nil)
+        check("third_card", wait(5) { st.controls["assistant:fake"] != nil && st.controls["assistant:claude"] != nil && st.controls["assistant:codex"] != nil }
+              && shows(st, "Stand-in Agent"), texts(st).joined(separator: " | "))
+        if let c = st.controls["assistant:fake"] { click(c) }
+        check("third_pick", st.assistant == "fake" && st.go.title == "Start Stand-in in notes-app", st.go.title)
+        pictures("start-third")
+
+        // The state lists three: the project's switch and Settings draw a segment each.
+        Assistants.take(["assistants": ["list": views]])
+        board.pickProject("notes-app")
+        let pp = board.projectPage
+        if let p = hub.state?.project("notes-app") { pp.show(p) }
+        let seg = pp.assistantSwitch
+        check("third_project_switch", seg?.segmentCount == 3 && seg?.label(forSegment: 0) == "Claude Code" && seg?.label(forSegment: 1) == "Codex" && seg?.label(forSegment: 2) == "Stand-in Agent",
+              "\(seg.map { s in (0..<s.segmentCount).map { s.label(forSegment: $0) ?? "" } } ?? [])")
+        let sw = board.settings
+        sw.show("handoff")
+        _ = wait(8) { sw.ho.cur != nil && sw.ho.assistant != nil }
+        sw.ho.assistant = (sw.ho.assistant ?? [:]).merging(["list": views]) { $1 }
+        sw.draw()
+        check("third_settings_switch", sw.controls["ho:as:claude"] != nil && sw.controls["ho:as:codex"] != nil && sw.controls["ho:as:fake"]?.accessibilityLabel() == "Stand-in",
+              sw.controls.keys.filter { $0.hasPrefix("ho:as:") }.sorted().joined(separator: ","))
+        sw.window.orderOut(nil)
+        if let r = hub.state?.raw { Assistants.take(r) }
+        board.openStart(nil)
     }
 }
