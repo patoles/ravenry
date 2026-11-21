@@ -431,12 +431,12 @@ function uninstall(purge: boolean): object {
   const mcHome = process.env.RAVENRY_HOME || process.env.MC_HOME || path.join(os.homedir(), '.ravenry');
   const tilde = (p: string) => sayPath(p, os.homedir());
   // The hooks, Claude Code's and Codex's: put back as they were, else only ours out (backed up);
-  // OpenCode's plugin file, when it is Ravenry's.
+  // OpenCode's plugin file, when it is Ravenry's; Antigravity CLI's group in its hooks.json.
   try {
-    const r = setupWithRavenryd({ remove: true, undoFile: path.join(mcHome, 'setup-undo.json') }) as { ok: boolean; error?: string; claude?: { file: string; changes: string[]; restored?: boolean; backup?: string | null } | null; codex?: { file: string; changes: string[]; restored?: boolean; backups?: string[] } | null; opencode?: { file: string; changes: string[]; backups?: string[] } | null };
+    const r = setupWithRavenryd({ remove: true, undoFile: path.join(mcHome, 'setup-undo.json') }) as { ok: boolean; error?: string; claude?: { file: string; changes: string[]; restored?: boolean; backup?: string | null } | null; codex?: { file: string; changes: string[]; restored?: boolean; backups?: string[] } | null; opencode?: { file: string; changes: string[]; backups?: string[] } | null; antigravity?: { file: string; changes: string[]; restored?: boolean; backup?: string | null } | null };
     if (!r.ok) left.push(`the hooks: ${r.error}`);
     if (r.opencode && r.opencode.changes.length) did.push(`OpenCode's plugin: ${tilde(r.opencode.file)} taken out`);
-    for (const [name, x] of [['Claude Code', r.claude], ['Codex', r.codex]] as const) {
+    for (const [name, x] of [['Claude Code', r.claude], ['Codex', r.codex], ['Antigravity CLI', r.antigravity]] as const) {
       if (!x) continue;
       if (x.restored) did.push(`${name}'s hooks: ${tilde(x.file)} put back as it was before Ravenry`);
       else if (x.changes.length) did.push(`${name}'s hooks: Ravenry's ${x.changes.length} entr${x.changes.length === 1 ? 'y' : 'ies'} taken out of ${tilde(x.file)}${'backup' in x && x.backup ? ` (backup ${tilde(x.backup)})` : 'backups' in x && x.backups && x.backups.length ? ` (backup ${x.backups.map(tilde).join(', ')})` : ''}`);
