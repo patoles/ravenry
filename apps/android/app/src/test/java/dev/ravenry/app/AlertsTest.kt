@@ -111,6 +111,13 @@ class AlertsTest {
         assertEquals("Phone preview wants to type in dev server", plain.title)
         assertEquals("Claude says: Because.", plain.body)
         assertEquals(null, plain.says)
+        // The assistant's word is the hub's (its registry): a third assistant reads as the hub names it.
+        val third = Drive.of("close", "Let the agent close \"dev server\" (pane pdef5678)?", "", null, null, "Done with it.", "fake", "Stand-in")
+        assertEquals("Stand-in wants to close dev server", third.title)
+        assertEquals("Stand-in says: Done with it.", third.says)
+        // An older hub sends only the id: Claude and Codex as before.
+        val codex = Drive.of("close", "Let the agent close \"dev server\" (pane pdef5678)?", "", null, null, "Done.", "codex")
+        assertEquals("Codex wants to close dev server", codex.title)
     }
 
     @Test fun aDrivesKeysComeAsPartsAndNoTokenIsShown() {

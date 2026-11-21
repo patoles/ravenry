@@ -85,7 +85,7 @@ data class Alert(
             if (kind == "drive") {
                 val dj = cp?.optJSONObject("drive")
                 fun f(k: String) = dj.str(k)
-                val d = Drive.of(f("action"), title, body, f("name"), project.str("name") ?: f("session"), f("reason"), session.str("assistant"))
+                val d = Drive.of(f("action"), title, body, f("name"), project.str("name") ?: f("session"), f("reason"), session.str("assistant"), session.str("assistantName"))
                 title = d.title; body = d.body
                 if (d.says != null) detail = d.says
                 actions = actions.mapNotNull { act ->
@@ -137,13 +137,16 @@ data class Drive(val title: String, val body: String, val yes: String, val sessi
     companion object {
         private val NAMED = Regex("\"([^\"]+)\" \\(pane [a-z0-9]+\\)")
 
-        fun of(action: String?, title: String, body: String, name: String? = null, asking: String? = null, reason: String? = null, assistant: String? = null): Drive {
+        fun of(action: String?, title: String, body: String, name: String? = null, asking: String? = null, reason: String? = null, assistant: String? = null, assistantName: String? = null): Drive {
             val yes = when (action) { "close" -> "Let it close"; "restart" -> "Let it restart"; "override" -> "Let it change it"; else -> "Allow once" }
             // A hub that names the pane already says it all: "Claude, in
             // Tilting the hull, wants to type in dev server", the agent's
             // words in the body and what it would type in the detail.
             if (name != null) return Drive(title, body, yes, action == null || action == "input")
-            val who = assistant?.let { when (it) { "claude" -> "Claude"; "codex" -> "Codex"; else -> null } }
+            // The assistant's word is the hub's (its registry, sent as the
+            // session's assistantName); an older hub sends only the id.
+            val who = assistantName?.takeIf { it.isNotBlank() }
+                ?: assistant?.let { when (it) { "claude" -> "Claude"; "codex" -> "Codex"; else -> null } }
                 ?: title.substringBefore(" wants ", "").substringBefore(",").takeIf { it.isNotEmpty() && !it.startsWith("Let ") } ?: "The agent"
             // The pane's name from the daemon's title, in the body or the title, without its id.
             val pane = (NAMED.find(body) ?: NAMED.find(title))?.groupValues?.get(1)
