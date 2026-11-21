@@ -64,6 +64,17 @@ test('the assistant cards say signed in, not signed in, or not on the Mac', () =
   assert.equal(assistantCards(V, st, W)[1].sub, 'Not signed in');
 });
 
+test('the cards follow the hub\'s list: a third assistant gets its card, its name from the list', () => {
+  const st = startState(V, {});
+  const three = { ...V, assistants: [...V.assistants, { kind: 'fake', name: 'Stand-in Agent', found: true, signedIn: true }] };
+  const cards = assistantCards(three, st, W);
+  assert.deepEqual(cards.map((c: { kind: string; name: string; ok: boolean }) => [c.kind, c.name, c.ok]), [['claude', 'Claude Code', true], ['codex', 'Codex', true], ['fake', 'Stand-in Agent', true]]);
+  assert.equal(goLabel(three, { ...st, assistant: 'fake' }, { ...W, names: { ...W.names, fake: 'Stand-in Agent' } }), 'Start Stand-in Agent in paper-boat');
+  assert.equal(modelMenu(three, { ...st, assistant: 'fake' }).menu.length, 0);
+  // An older hub that sends none: Claude Code and Codex, not found.
+  assert.deepEqual(assistantCards({ ...V, assistants: [] }, st, W).map((c: { kind: string; ok: boolean }) => [c.kind, c.ok]), [['claude', false], ['codex', false]]);
+});
+
 test('the Model menu is the assistant\'s, the folder\'s remembered model picked until the person picks', () => {
   const st = startState(V, {});
   assert.equal(modelMenu(V, st).picked, 'sonnet');

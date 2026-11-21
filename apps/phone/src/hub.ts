@@ -1,7 +1,7 @@
 // The hub as the page sees it: its state from the live stream and its
 // calls, through the shell.
 
-import type { HubState } from '../../desktop/src/renderer/model.ts';
+import { takeAssistants, type HubState } from '../../desktop/src/renderer/model.ts';
 import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
 import { current } from './shell.ts';
 
@@ -49,12 +49,13 @@ export async function start(): Promise<void> {
   started = true;
   const sh = current();
   sh.on('hub', (m) => {
-    if (m.name === 'state') { live.state = m.data as HubState; live.link = 'up'; live.error = null; changed(); }
+    // The assistants' names and tags are the hub's list (assistants.list), for the checkpoint screens.
+    if (m.name === 'state') { live.state = m.data as HubState; takeAssistants(live.state); live.link = 'up'; live.error = null; changed(); }
   });
   sh.on('link', (m) => { live.link = m.state === 'up' ? 'up' : 'down'; live.error = (m.error as string) || null; changed(); });
   await sh.call('hub.events', { on: true });
   const r = await call('GET', '/api/state').catch(() => null);
-  if (r && r.status === 200 && !live.state) { live.state = r.body as unknown as HubState; live.link = 'up'; changed(); }
+  if (r && r.status === 200 && !live.state) { live.state = r.body as unknown as HubState; takeAssistants(live.state); live.link = 'up'; changed(); }
   void loadMachines();
   setInterval(() => void loadMachines(), 30000);
 }
