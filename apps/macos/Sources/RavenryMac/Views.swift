@@ -18,6 +18,8 @@ class Box: Flipped {
     /// A colour no token names (the middle's rgba(255,255,255,.06)).
     var rawFill: NSColor? { didSet { needsDisplay = true } }
     var ringWidth: CGFloat = 1
+    /// The ring in the light appearance only (a white tile, seen on a light card and not on a dark one).
+    var ringLightOnly = false { didSet { needsDisplay = true } }
     var radius: CGFloat = 0 { didSet { needsDisplay = true } }
     var dropShadow = false
     /// A box around a borderless text field: its ring turns --work while the
@@ -43,7 +45,7 @@ class Box: Flipped {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             l.backgroundColor = fill.map { Design.color($0).cgColor } ?? rawFill?.cgColor
             l.borderColor = ring.map { Design.color($0).cgColor } ?? nil
-            l.borderWidth = ring == nil ? 0 : ringWidth
+            l.borderWidth = ring == nil || (ringLightOnly && effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? 0 : ringWidth
             l.cornerRadius = radius
             if dropShadow {
                 l.shadowColor = NSColor.black.cgColor
@@ -409,7 +411,7 @@ final class RButton: NSButton, Hovers {
     override var intrinsicContentSize: NSSize {
         if iconView != nil { return NSSize(width: small ? 26 : 30, height: small ? 26 : 30) }
         let t = attributedTitle.size()
-        if kind == .link { return NSSize(width: ceil(t.width), height: ceil(t.height)) }
+        if kind == .link { return NSSize(width: ceil(t.width) + (external ? 17 : 0), height: ceil(t.height)) }
         return NSSize(width: ceil(t.width) + (small ? 20 : 26) + (lead == nil ? 0 : 20) + (external ? 17 : 0), height: small ? 28 : 32)
     }
     @objc private func fire() { run?() }

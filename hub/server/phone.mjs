@@ -526,8 +526,8 @@ export function _resetPairing() { pairing = null; misses = []; lockedUntil = 0; 
 
 // ------------------------------------------------------------ the card
 
-export function qrSvg(text, px = 168, label = 'QR code for the board address') {
-  const q = encode(text, { ecc: 'L', border: 4 });
+export function qrSvg(text, px = 168, label = 'QR code for the board address', border = 4) {
+  const q = encode(text, { ecc: 'L', border });
   const W = q.size;
   let d = '';
   q.data.forEach((row, y) => {

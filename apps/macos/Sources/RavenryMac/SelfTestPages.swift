@@ -312,9 +312,21 @@ extension SelfTestBoard {
         pg.buttons["addIphone"]?.performClick(nil)
         let qrShown = { () -> Bool in var found = false; func walk(_ v: NSView) { if (v as? NSImageView)?.image != nil, v.accessibilityLabel() == t("alerts.iphoneQr") { found = true }; v.subviews.forEach(walk) }; walk(pg); return found }
         let access = (pg.setup?["iphone"] as? [String: Any])?["access"] as? Bool == true
-        check("alerts_add_iphone_opens", pg.iphoneOpen && pg.buttons["addIphone"]?.title == t("alerts.close") && shows(pg, t("alerts.iphoneTitle")) && shows(pg, t("alerts.iphoneWhy")) && shows(pg, t("alerts.iphoneQrCap"))
+        check("alerts_add_iphone_opens", pg.iphoneOpen && pg.buttons["addIphone"]?.title == t("alerts.close") && shows(pg, t("alerts.iphoneTitle")) && shows(pg, t("alerts.iphoneStore")) && shows(pg, t("alerts.iphoneNtfyLead")) && shows(pg, t("alerts.iphoneQrCap"))
               && pg.buttons["iphoneCopy"] != nil && texts(pg).contains { $0.hasPrefix("What the iPhone gets:") && $0.contains("unencrypted") }, texts(pg).prefix(24).joined(separator: " | "))
         check("alerts_add_iphone_qr", access && wait(3) { qrShown() }, "access \(access)")
+        // The Ravenry app first (ALERT-016): its App Store page's code reads back as the page's address
+        // (shared strings alerts.appStoreUrl), with the words; its link opens that page in the browser.
+        let storeUrl = t("alerts.appStoreUrl")
+        let storeImg = { () -> NSImage? in var img: NSImage?; func walk(_ v: NSView) { if let iv = v as? NSImageView, iv.accessibilityLabel() == t("alerts.iphoneStoreQr") { img = iv.image }; v.subviews.forEach(walk) }; walk(pg); return img }
+        var storeRead = ""
+        check("alerts_iphone_store_qr", storeUrl.hasPrefix("https://apps.apple.com/app/id") && wait(3) { storeRead = storeImg().flatMap { self.qrText($0) } ?? ""; return storeRead == storeUrl }
+              && shows(pg, t("alerts.iphoneStoreCap")), "read \(storeRead)")
+        let o = Outside.record?.count ?? 0
+        let storeLink = pg.buttons["iphoneStore"]
+        storeLink?.performClick(nil)
+        let opened = Array((Outside.record ?? []).dropFirst(o))
+        check("alerts_iphone_store_link", storeLink?.title == t("alerts.iphoneStoreLink") && storeLink?.external == true && opened == ["open \(storeUrl)"], "\(opened)")
         pictures("alerts-iphone-setup")
         _ = wait(5) { pg.busy.isEmpty }
         n = board.hub.sent.count

@@ -48,6 +48,7 @@ import { RAVENRY_HOME } from './home.mjs';
 import * as desktop from './desktop.mjs';
 import * as push from './push.mjs';
 import * as phone from './phone.mjs';
+import { t as words } from './strings.mjs';
 import { KINDS, CHECKPOINT_KINDS, DRIVE_ACTIONS } from './alertwords.mjs';
 import {
   CHANNELS, DEFAULT_NTFY, telegramTokenOk, telegramMe, telegramFindChat,
@@ -180,7 +181,8 @@ export function setupView(qrSvg, { iphoneLink = null, iphoneQr = null } = {}) {
     // Add an iPhone: the QR (the sign-in link + #iphone) only while phone
     // access is on, else the person copies the code instead; the code this
     // Mac copied and has not confirmed yet.
-    iphone: { access, qr: access && iphoneLink && iphoneQr ? iphoneQr(`${iphoneLink}#iphone`) : null, server: ntfyServerOf(d), pending: mine ? { id: mine.id } : null },
+    // `storeQr`: the Ravenry app's App Store page (shared strings alerts.appStoreUrl), always.
+    iphone: { access, qr: access && iphoneLink && iphoneQr ? iphoneQr(`${iphoneLink}#iphone`) : null, storeQr: phone.qrSvg(words('alerts.appStoreUrl'), 96, words('alerts.iphoneStoreQr'), 2), server: ntfyServerOf(d), pending: mine ? { id: mine.id } : null },
     ready: Object.fromEntries(Object.keys(CHANNELS).map((id) => [id, ready(d, id)])),
     telegram: { token: maskToken(t.token), bot: t.bot || null, chat: maskChat(t.chatId) },
     webhook: { url: w.url ? maskWebhook(w.url) : null, kind: w.url ? webhookKind(w.url) : null },

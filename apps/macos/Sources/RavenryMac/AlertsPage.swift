@@ -10,9 +10,11 @@
 //   (a phone through the Ravenry app, an iPhone through ntfy) and
 //   its last one, Send a test, Remove for an iPhone; Pair a phone
 //   (the phone card) and Add an iPhone, whose setup opens under the list:
-//   the steps, what the iPhone gets, the QR (the board's Safari sign-in
-//   link + #iphone, only while phone access is on) and Copy the code
-//   instead (then Send a test and It arrived from here).
+//   the Ravenry app first (its App Store page's QR and Open the App Store
+//   page), then without the app, ntfy: the steps, what the iPhone gets,
+//   the QR (the board's Safari sign-in link + #iphone, only while phone
+//   access is on) and Copy the code instead (then Send a test and It
+//   arrived from here).
 // - Telegram, a Discord or Slack webhook, ntfy: each's state, Send a test,
 //   Turn off or Use it, and its setup opened under it (the token and Find
 //   the chat, the address, the QR code with Copy the link and New topic,
@@ -34,6 +36,8 @@ final class AlertsPage: FormPage {
     /// The iPhones through ntfy when the setup opened: one more (It arrived, on the iPhone) closes it.
     private var iphonesAtOpen = 0
     private var iqr: (String, NSImage?)?
+    /// The App Store page's code, drawn once.
+    private var sqr: (String, NSImage)?
 
     func show() {
         open = nil
@@ -253,8 +257,61 @@ final class AlertsPage: FormPage {
         return row
     }
 
-    /// Add an iPhone: the steps and what the iPhone gets, beside the code to scan and Copy the code instead.
+    /// Add an iPhone: the Ravenry app first (its App Store page's code, Open the App Store page), then
+    /// without the app, ntfy: the steps and what the iPhone gets, beside the code to scan and Copy the code instead.
     private func iphoneSetup(_ a: [String: Any]) -> NSView {
+        let title = label(t("alerts.iphoneTitle"), Fonts.pt(14, .semibold))
+        let all = vstack([title, appStore(a), ntfySetup(a)], spacing: 14)
+        all.alignment = .leading
+        for v in all.arrangedSubviews.dropFirst() { v.widthAnchor.constraint(equalTo: all.widthAnchor).isActive = true }
+        return all
+    }
+
+    /// The Ravenry app on the App Store: the hub's code of its page (shared strings alerts.appStoreUrl) on a
+    /// white tile, the words, and Open the App Store page in the browser.
+    private func appStore(_ a: [String: Any]) -> NSView {
+        let ip = a["iphone"] as? [String: Any] ?? [:]
+        let sentence = wrap(t("alerts.iphoneStore"), Fonts.pt(12.5), "tx")
+        var words: [NSView] = [sentence]
+        var row: [NSView] = []
+        // An older hub sends no code: the words and the link only.
+        if let svg = ip["storeQr"] as? String, let img = sqr?.0 == svg ? sqr?.1 : PhoneCard.qrImage(svg) {
+            sqr = (svg, img)
+            let iv = NSImageView()
+            iv.image = img
+            iv.imageScaling = .scaleProportionallyUpOrDown
+            iv.setAccessibilityLabel(t("alerts.iphoneStoreQr"))
+            let tile = boxed(iv, fill: nil, ring: "sep", radius: 8, insets: NSEdgeInsets(top: 5, left: 5, bottom: 5, right: 5))
+            tile.rawFill = .white
+            tile.ringLightOnly = true
+            tile.widthAnchor.constraint(equalToConstant: 96).isActive = true
+            tile.heightAnchor.constraint(equalToConstant: 96).isActive = true
+            row.append(tile)
+            words.append(wrap(t("alerts.iphoneStoreCap"), Fonts.pt(11.5), "tx3"))
+        }
+        let link = RButton(t("alerts.iphoneStoreLink"), .link) { Outside.open(t("alerts.appStoreUrl")) }
+        link.titleSize = 12
+        link.external = true
+        buttons["iphoneStore"] = link
+        link.setContentCompressionResistancePriority(.required, for: .horizontal)
+        link.setContentHuggingPriority(.required, for: .horizontal)
+        words.append(hstack([link, spring()], spacing: 0))
+        let col = vstack(words, spacing: 5)
+        col.alignment = .leading
+        col.setContentHuggingPriority(.init(1), for: .horizontal)
+        col.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        for v in words {
+            v.setContentHuggingPriority(.init(1), for: .horizontal)
+            v.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+            v.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
+        }
+        let h = hstack(row + [col], spacing: 14)
+        h.alignment = .centerY
+        return h
+    }
+
+    /// Without the app, ntfy: the steps and what the iPhone gets, beside the code to scan and Copy the code instead.
+    private func ntfySetup(_ a: [String: Any]) -> NSView {
         let ip = a["iphone"] as? [String: Any] ?? [:]
         let server = (ip["server"] as? String ?? "https://ntfy.sh").replacingOccurrences(of: "^https?://", with: "", options: .regularExpression)
         func step(_ n: Int, _ md: String) -> NSView {
@@ -269,12 +326,12 @@ final class AlertsPage: FormPage {
             return h
         }
         let privacy = boxed(wrap(md: t("alerts.iphonePrivacy", ["server": server]), Fonts.pt(12), "tx2"), fill: "card2", radius: 8, insets: NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
-        let left = vstack([label(t("alerts.iphoneTitle"), Fonts.pt(14, .semibold)), wrap(t("alerts.iphoneWhy"), Fonts.pt(12.5), "tx2"),
+        let left = vstack([wrap(t("alerts.iphoneNtfyLead"), Fonts.pt(12.5), "tx2"),
                            step(1, t("alerts.iphoneStep1")), step(2, t("alerts.iphoneStep2")), step(3, t("alerts.iphoneStep3")), privacy], spacing: 10)
         left.alignment = .leading
         left.setContentHuggingPriority(.init(1), for: .horizontal)
         left.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        for v in left.arrangedSubviews.dropFirst() { v.widthAnchor.constraint(equalTo: left.widthAnchor).isActive = true }
+        for v in left.arrangedSubviews { v.widthAnchor.constraint(equalTo: left.widthAnchor).isActive = true }
         // The code to scan, only while phone access is on; else the words why, in its place.
         let tile: Box
         if let svg = ip["qr"] as? String {
