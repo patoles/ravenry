@@ -86,6 +86,9 @@ extension SelfTestBoard {
                 board.render(force: true)
                 settle(0.4)
                 picture("native-\(name)-\(Int(w))-\(dark ? "dark" : "light").png")
+                // Measured as laid out: a state that arrived since the picture (a session's memory
+                // in sessb) builds its row's buttons again, at zero width until the next layout.
+                window.contentView!.layoutSubtreeIfNeeded()
                 // No words squeezed into a column (a wrapping label laid out narrow and kept so).
                 let sq = squeezed(window.contentView!)
                 check("\(name)_no_squeezed_text_\(Int(w))_\(dark ? "dark" : "light")", sq.isEmpty, sq.prefix(4).joined(separator: " | "))
