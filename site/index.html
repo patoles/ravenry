@@ -12,6 +12,8 @@ window.RAVENRY_SITE = {
   apkFile: 'Ravenry-android.apk',
   // Where GitHub serves the latest release's files.
   downloads: 'https://github.com/patoles/ravenry/releases/latest/download/',
+  // The iPhone and iPad app on the App Store.
+  iosUrl: 'https://apps.apple.com/app/id6836551166',
   // "Report a problem".
   reportUrl: 'https://github.com/patoles/ravenry/issues/new',
   // The source code, linked from the footer.
@@ -111,12 +113,7 @@ window.RAVENRY_SITE = {
   <div class="dls">
     <div><h3>Mac</h3><p>Apple silicon, macOS 13 Ventura or later.<br>Version <span data-site="macVersion"></span> · DMG</p><p class="first" id="first" hidden>The first time, macOS asks: open System Settings, Privacy &amp; Security, and choose Open Anyway.</p><a class="btn pri" data-link="mac" href="#get">Download for Mac</a></div>
     <div><h3>Android</h3><p>The APK, for Android 8 or later, until the app is in the Play Store.</p><a class="btn pri" data-link="apk" href="#get">Get the Android app</a></div>
-    <div id="iphone"><h3>iPhone</h3><p>Get Ravenry's alerts on your iPhone, set up from Ravenry's settings.</p>
-      <details><summary class="btn muted">How to set up alerts</summary><ol>
-        <li>In Ravenry on your Mac, open Alerts and choose <b>Add an iPhone</b>.</li>
-        <li>Scan the code with your iPhone's camera.</li>
-        <li>Get ntfy from the App Store, paste the code in it and send a test.</li>
-      </ol></details></div>
+    <div id="iphone"><h3>iPhone and iPad</h3><p>The Ravenry app, paired with your Mac: your sessions, their questions and their alerts.</p><a class="btn pri" data-link="ios" href="#get">Get it on the App Store</a></div>
   </div>
   <div class="note">
     <div><h4>This is an early test</h4>Expect rough edges and the odd crash. The Mac app updates itself; for Android, download the new APK and it installs over the old one. Tell us what breaks, or what confuses you: <a data-link="report" href="#get">report a problem</a>.</div>
@@ -131,6 +128,7 @@ window.RAVENRY_SITE = {
   const links = {
     mac: S.downloads + S.macFile,
     apk: S.downloads + S.apkFile,
+    ios: S.iosUrl,
     report: S.reportUrl,
     source: S.sourceUrl,
   };
