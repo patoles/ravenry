@@ -34,6 +34,16 @@ func TestHookData(t *testing.T) {
 	if m["message"] != "Claude needs your permission to use Bash" || m["title"] != "Claude Code" || m["notification_type"] != "permission_prompt" {
 		t.Fatalf("Notification: %v", m)
 	}
+	// Antigravity CLI's camelCase fields (1.5.14, measured), under the
+	// board's names; its prompt and tool call never.
+	m = keep(`{"hookEventName":"Stop","conversationId":"0f0f0f0f-0000-4000-8000-0000000000a1","cwd":"/w","transcriptPath":"/t/transcript_full.jsonl","modelName":"gemini-3.8-flash-high","lastUserInput":"secret","toolCall":{"name":"run_command"},"workspacePaths":["/w"],"terminationReason":"NO_TOOL_CALL"}`)
+	if len(m) != 5 || m["hook_event_name"] != "Stop" || m["session_id"] != "0f0f0f0f-0000-4000-8000-0000000000a1" || m["transcript_path"] != "/t/transcript_full.jsonl" || m["model"] != "gemini-3.8-flash-high" || m["cwd"] != "/w" {
+		t.Fatalf("camelCase: %v", m)
+	}
+	// A snake_case field already there wins.
+	if m = keep(`{"session_id":"s","conversationId":"c","hook_event_name":"Stop"}`); m["session_id"] != "s" {
+		t.Fatalf("snake_case first: %v", m)
+	}
 	// A message is kept only for a notification.
 	if m = keep(`{"session_id":"s","hook_event_name":"SessionStart","source":"startup","model":"claude-opus-5-5","message":"x"}`); m["message"] != nil || m["source"] != "startup" || m["model"] != "claude-opus-5-5" {
 		t.Fatalf("SessionStart: %v", m)

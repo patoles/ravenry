@@ -29,12 +29,17 @@ import (
 //     (Claude Code's file_path and notebook_path, the files a Codex
 //     apply_patch names), at most 64, never their contents
 //
+// An assistant whose hooks name their fields in camelCase (Antigravity
+// CLI: hookEventName, conversationId, transcriptPath, modelName) has them
+// kept under the names above (CamelAliases), so the hub reads one shape.
+//
 // It is idempotent: HookData of its own output gives the same fields.
 func HookData(raw []byte) []byte {
 	var in map[string]any
 	if json.Unmarshal(raw, &in) != nil || in == nil {
 		return nil
 	}
+	CamelAliases(in)
 	out := map[string]any{}
 	str := func(k string, max int) {
 		if s, ok := in[k].(string); ok && s != "" {
@@ -251,4 +256,26 @@ func clipStart(s string, n int) string {
 		i++
 	}
 	return s[i:]
+}
+
+// camelNames are the snake_case fields an assistant may name in camelCase
+// (Antigravity CLI 1.5.14's hooks, measured: hookEventName, conversationId,
+// cwd, transcriptPath, modelName, lastUserInput, workspacePaths).
+var camelNames = map[string]string{
+	"hookEventName":  "hook_event_name",
+	"conversationId": "session_id",
+	"transcriptPath": "transcript_path",
+	"modelName":      "model",
+}
+
+// CamelAliases copies each camelCase field of in to its snake_case name,
+// unless that name is already there.
+func CamelAliases(in map[string]any) {
+	for camel, snake := range camelNames {
+		if v, ok := in[camel]; ok {
+			if _, had := in[snake]; !had {
+				in[snake] = v
+			}
+		}
+	}
 }

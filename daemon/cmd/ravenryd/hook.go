@@ -82,6 +82,7 @@ func cmdHook(in []string) error {
 	if json.Unmarshal(bytes.TrimSpace(raw), &input) != nil || input == nil {
 		return nil // not a hook's input: nothing to report
 	}
+	agent.CamelAliases(input)
 	event := a.values["event"]
 	if event == "" {
 		event, _ = input["hook_event_name"].(string)
@@ -107,7 +108,7 @@ func cmdHook(in []string) error {
 		// environment of the pane that started it: its pane is unknown.
 		params["pane"] = paneID
 	}
-	if s, ok := input["session_id"].(string); ok && s != "" {
+	if s, ok := input["session_id"].(string); ok && s != "" { // also Antigravity CLI's conversationId
 		params["session"] = clipString(s, 200)
 	}
 	if s, ok := input["cwd"].(string); ok && s != "" && len(s) <= 4096 {
