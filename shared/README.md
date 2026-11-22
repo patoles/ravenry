@@ -1,8 +1,8 @@
 # Shared words and design tokens
 
 What every Ravenry client draws with, kept once here so no client types it
-again: the Electron desktop app, the phone board, the hub, the native Mac
-app and later Linux and Windows. Two JSON files, read as they are; a client
+again: the Electron desktop app (Linux), the phone board, the hub, the
+native Mac app, the iPhone app and later Windows. Two JSON files, read as they are; a client
 in another language (Swift, Kotlin) reads the same files, at build time or
 at launch.
 

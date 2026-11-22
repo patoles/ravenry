@@ -593,7 +593,8 @@ Windows. What it takes over, and how:
   boardwords.go).
 - **Uninstall Ravenry...** (HUB-016, `setup.ts uninstall`): the hooks and the
   skill put back as they were for Claude Code and Codex (else only Ravenry's
-  entries out, backed up), the hub service stopped and removed, the ravenry
+  entries out, backed up), OpenCode's plugin and Antigravity CLI's group
+  taken out, the hub service stopped and removed, the ravenry
   command, bin/, current and versions/, and the data when its box is
   ticked; it says what it did and quits, the app shown in Finder.
 - **`ravenry doctor`** (HUB-019, ravenryd `doctor.go`): the app's install as

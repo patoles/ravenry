@@ -30,8 +30,9 @@ remote machine Ravenry reaches.
   a client the current screen, then the live bytes.
 - **It stores what each pane prints,** so a client can ask for only what is
   new.
-- **It is the hook command** that Claude Code and Codex run
-  (`ravenryd hook --assistant claude|codex`). It needs no Node, so it works
+- **It is the hook command** that the agents run: Claude Code's and
+  Codex's hooks, OpenCode's plugin and Antigravity CLI's hooks
+  (`ravenryd hook --assistant claude|codex|opencode|antigravity`). It needs no Node, so it works
   on a remote machine that has only the assistant installed.
 - **It updates without killing a session.** A new version starts beside the
   old one; the old one keeps its sessions until they end.
@@ -52,13 +53,15 @@ nothing more).
   A decision travels from the hook through ravenryd to the hub with a short
   timeout. If the hub cannot be reached, the session goes on.
 
-Today the hub is the Ravenry board (0.4.x) moved into `hub/`: it already
-follows Claude Code and Codex sessions in other terminals, and it grows into
-the role above.
+The hub began as the Ravenry board (0.4.x on npm), moved into `hub/`. It
+also follows Claude Code and Codex sessions in other terminals (cmux,
+iTerm2, Rex); OpenCode and Antigravity CLI sessions are followed in
+Ravenry's own panes.
 
 ### The clients
 
-- **The desktop app** (`apps/desktop/`): Electron with xterm.js panes.
+- **The desktop app** (`apps/desktop/`): Electron with xterm.js panes,
+  Ravenry on Linux.
 - **The native Mac app** (`apps/macos/`): Swift and AppKit, its terminal
   drawn by its own Metal renderer from the daemon's render stream: the
   daemon's screen is the only screen, and the daemon encodes the
@@ -66,8 +69,10 @@ the role above.
   Windows) needs again lives in the daemon, in Go, or in the protocol;
   a client draws and captures input ([RENDERING.md](RENDERING.md)).
 - **The Android app** (`apps/android/`): Kotlin around a WebView that shows
-  the phone board (`apps/phone/`), web code the iOS app will share
-  ([PHONE.md](PHONE.md)).
+  the phone board (`apps/phone/`) ([PHONE.md](PHONE.md)).
+- **The iPhone and iPad app** (`apps/ios/`): Swift around a WKWebView
+  that shows the same phone board, with its alerts through the relay
+  (`relay/`) to Apple's push service.
 - **The browser page** the hub serves, which works today.
 
 A client holds no state that matters. It shows what the hub and ravenryd
@@ -124,9 +129,11 @@ the shell around the web interface, and how ravenryd stores things.
 | --- | --- | --- | --- |
 | `daemon/` | ravenryd | Go | GPL-3.0-only |
 | `hub/` | the hub, today's board | Node | GPL-3.0-only |
-| `apps/desktop/` | the desktop app | Electron, xterm.js | GPL-3.0-only |
+| `apps/desktop/` | the desktop app, for Linux | Electron, xterm.js | GPL-3.0-only |
 | `apps/macos/` | the native Mac app: draws the daemon's render stream (docs/RENDERING.md) | Swift, AppKit, Metal | GPL-3.0-only |
 | `apps/android/` | the Android app | Kotlin, WebView | GPL-3.0-only |
+| `apps/ios/` | the iPhone and iPad app | Swift, WKWebView | GPL-3.0-only |
+| `relay/` | the relay that hands iPhone and iPad alerts to Apple | JavaScript, Cloudflare Workers | GPL-3.0-only |
 | `apps/phone/` | the phone board, the web code the phone apps show | TypeScript, xterm.js | GPL-3.0-only |
 | `packages/` | the protocol spec, plugin SDK, specs, adapter contracts | | Apache-2.0 |
 | `docs/` | this guide and others | | GPL-3.0-only |

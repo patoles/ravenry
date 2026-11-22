@@ -1,6 +1,6 @@
 # The phone apps
 
-The contract between the hub, the phone apps (Android now, iOS next) and
+The contract between the hub, the phone apps (Android and iOS) and
 the phone board they show. Decided once, before the code: what is written
 here changes only with a new version number in the place that carries it
 (the pairing link's `v`, the push message's `v`, the bridge's `v`, the
@@ -657,8 +657,9 @@ error) is kept for its row on the Mac.
 
 ### An iPhone through ntfy
 
-Until there is a Ravenry iPhone app, an iPhone gets its alerts through the
-free ntfy app (App Store, `id1625396347`). It is a **phone in the phones
+An iPhone without the Ravenry app gets its alerts through the free ntfy
+app (App Store, `id1625396347`); the Mac's Add an iPhone points to the
+Ravenry app first (ALERT-016). It is a **phone in the phones
 list, not a channel**: Telegram, a webhook or the ntfy channel stay one at
 a time as before, beside Mac notifications and every phone, and one person
 may have them all on at once.

@@ -13,9 +13,9 @@ labels: bug
 2.
 
 **Where**
-- App and version (the Mac app's About window, or the Android app's info):
-- macOS or Android version:
-- Claude Code or Codex version:
+- App and version (the Mac app's About window, the Android app's info, or the iPhone app's in Settings, General, iPhone Storage):
+- macOS, Android or iOS version:
+- Agent and version (Claude Code, Codex, OpenCode or Antigravity CLI):
 
 Leave out anything private: session text, paths and project names you would
 rather not share, tokens, pairing codes or keys. A security problem goes to

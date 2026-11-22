@@ -30,6 +30,7 @@ Ravenry puts every session on one page, sorted by what needs you. It pairs with 
 - **Phone alerts**: a message when a project starts needing you, through Telegram, Discord, Slack or ntfy, plus Mac notifications.
 - **Terminals**: answer sessions in cmux, iTerm2 and Rex; sessions in any other terminal are watch only.
 - **Codex too**: OpenAI Codex sessions show up beside Claude Code's, with their state, live screen, context, alerts, replies and menu answers from the board, the hand-off at half context, their memory on the Sessions page, and their AGENTS.md beside CLAUDE.md in the Rules view. Not shown for Codex: pictures, background tasks, Close idle on the Sessions page and recaps.
+- **OpenCode and Antigravity CLI**: their sessions in the Ravenry app's own terminal panes show up too, with their state, their permission prompts answered from the board, their model and the hand-off; they are not followed in other terminals ([docs/ASSISTANTS.md](docs/ASSISTANTS.md)).
 
 ## Getting Started
 
@@ -61,6 +62,8 @@ Then the board starts on http://localhost:4600 and its page opens. A new board i
 `<node>` is your Node and `<ravenry>` the installed package, both as full paths (setup prints them). The events hook writes one line per event to `~/.ravenry/events/` and tells the board; the Stop hook asks a session past half context to write a hand-off and start fresh at its next clean point (Settings on the board turns that off). Neither ever blocks a session. If you change Node versions, `ravenry doctor` says the hooks are stale and `ravenry setup` points them at the new one.
 
 **Only if [Codex](https://developers.openai.com/codex) is installed**: the same two hooks in `~/.codex/hooks.json` (with `--assistant=codex`, on Codex's events), and in `~/.codex/config.toml` the trust entries Codex needs to run them, in one marked block. Setup shows them and asks first, and backs both files up; other hooks (cmux's) stay as they are.
+
+**Only if OpenCode or Antigravity CLI is installed, and the Ravenry app's `ravenryd` is there to report through**: for OpenCode, one plugin file, `plugins/ravenry.js` in OpenCode's config folder; for Antigravity CLI, a group named `ravenry` in `~/.gemini/config/hooks.json`, backed up first, every other group kept byte for byte. Setup shows each and asks first.
 
 **`~/.ravenry/`**, the data folder: your projects (`projects.json`), briefs, ideas, hand-offs, hook events (kept 14 days), phone access and alert settings.
 
@@ -94,9 +97,9 @@ Sessions in any other terminal (Terminal, VS Code, Ghostty, Warp, tmux...) are w
 | Command | Description |
 | --- | --- |
 | `ravenry` | Start the board on http://localhost:4600 and open it (runs setup the first time) |
-| `ravenry setup` | Check this Mac and install Ravenry's Claude Code hooks (and Codex's, when Codex is installed) |
+| `ravenry setup` | Check this Mac and install Ravenry's Claude Code hooks (and Codex's, OpenCode's plugin and Antigravity CLI's hooks, for those installed) |
 | `ravenry doctor` | Say what works and what does not, and what to do about each |
-| `ravenry uninstall` | Take Ravenry's hooks out of `settings.json`, and out of Codex's files (backup first) |
+| `ravenry uninstall` | Take Ravenry's hooks out of `settings.json`, and out of Codex's, OpenCode's and Antigravity CLI's files (backup first) |
 | `ravenry uninstall --purge` | Also delete `~/.ravenry` |
 | `ravenry page check FILE` | Check a sidebar page file (`*.page.yaml`) as the board reads it, each problem with its line |
 | `ravenry page docs [TOPIC]` | The page format's docs, or one topic (board, ask, run, ...), for you or your agent |
@@ -113,6 +116,7 @@ To remove Ravenry completely: `ravenry uninstall --purge`, then `npm rm -g raven
 - [Node.js](https://nodejs.org/) 22 or newer
 - [Claude Code](https://claude.com/claude-code) (`claude` on your PATH)
 - Optional: [Codex](https://developers.openai.com/codex) (`codex` on your PATH; measured on 0.166.0), followed the same way; outside cmux, Codex sessions are found by folder or shown watch only (docs/ASSISTANTS.md)
+- Optional: OpenCode (`opencode`) and Antigravity CLI (`agy`), followed in the Ravenry app's panes (docs/ASSISTANTS.md)
 - To answer sessions from the board: cmux, [iTerm2](https://iterm2.com) or Rex
 
 Pictures of pages (a pick's .html variants, an idea's mockups) are drawn by the Mac's own Quick Look: nothing to install.
@@ -131,7 +135,7 @@ The board has no runtime dependencies and no build step: `server/` is plain Node
 
 ## Privacy
 
-Ravenry has no telemetry of any kind. Everything stays on your Mac: the board reads your Claude Code (and Codex) transcripts and terminal screens locally and keeps its data in `~/.ravenry`. Two things can leave the Mac, and only when you set them up:
+Ravenry has no telemetry of any kind. Everything stays on your Mac: the board reads your Claude Code (and Codex, OpenCode and Antigravity CLI) transcripts and terminal screens locally and keeps its data in `~/.ravenry`. Two things can leave the Mac, and only when you set them up:
 
 - **Phone alerts** (Telegram, Discord, Slack or ntfy): a short message, sent when a project starts needing you.
 - **Features that ask Claude** (the Ideas thread, mockups, Plans, rule suggestions) run `claude -p` on your own Claude login, like any Claude Code use. When new sessions start with Codex, the Ideas thread, mockups, Plans and rule suggestions run `codex exec` on your own Codex login instead. Rule suggestions are off unless you turn them on; when on, once a day they send the messages you typed in your sessions (Claude Code's and Codex's) to that assistant to find the corrections you keep repeating.

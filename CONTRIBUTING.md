@@ -10,8 +10,10 @@ asks for on that pull request.
 - Open an issue with the steps to reproduce it, what you expected and what
   happened instead.
 - Say which app and version (the Mac app's About window, the Android app's
-  version in Android's app info), your macOS or Android version, and your
-  Claude Code (`claude --version`) or Codex version. For a session on
+  version in Android's app info, the iPhone or iPad app's in Settings,
+  General, iPhone Storage, Ravenry), your macOS, Android or iOS version,
+  and which agent and its version (`claude --version`, `codex --version`,
+  `opencode --version` or `agy --version`). For a session on
   another machine, its system too.
 - Leave out anything private: session text, project names and paths you
   would rather not share, tokens, pairing codes or keys.

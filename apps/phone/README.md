@@ -2,8 +2,8 @@
 
 The phone app's home is the hub's own board at phone width (`hub/public`:
 the approved phone designs PhoneProjects C, LiveScreen B, NewSession D and
-the menu PhoneMenu A), which the Android shell (`../android`) loads from
-the hub over the pinned connection (`../../docs/PHONE.md`, section 1). This
+the menu PhoneMenu A), which the Android and iPhone shells (`../android`,
+`../ios`) load from the hub over the pinned connection (`../../docs/PHONE.md`, section 1). This
 folder is what the app adds:
 
 - `src/board.ts` (`board.js`, `board.css`): the app's layer, first in the

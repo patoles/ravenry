@@ -1,9 +1,11 @@
 # Ravenry desktop app
 
 The Electron window: the board in a sidebar (what needs you first), real
-terminals in the middle, and the session panel on the right. It ships as a
-DMG for macOS (Apple silicon and Intel) and as an AppImage and a .deb for
-Linux (x64 and arm64), with ravenryd and the hub inside.
+terminals in the middle, and the session panel on the right. It builds as
+an AppImage and a .deb for Linux (x64 and arm64), with ravenryd and the hub
+inside. On the Mac the native app (../macos) took its place on 2026-11-10;
+this one still runs there for the release check, and its DMG is no longer
+published.
 
 It holds no terminals itself. Sessions live in `ravenryd` (../../daemon), so
 they survive the window closing, restarting or updating. The window talks

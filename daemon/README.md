@@ -8,7 +8,8 @@ The same binary is its command line client.
 **One binary, two names.** `ravenry` is what people and agents type: the
 pane commands, waits, input, checkpoints and `ravenry skill`. `ravenryd`
 is its service side: `serve`, `proxy` (`ssh host ravenryd proxy`), `hook`
-(what Claude Code's and Codex's hooks run) and `daemons`. It is one
+(what the agents' hooks run: Claude Code's, Codex's, OpenCode's plugin
+and Antigravity CLI's) and `daemons`. It is one
 multi-call binary that picks its side from the name it runs under;
 `ravenry` is a link to `ravenryd` (`make` makes it, and the app ships
 both). Each name runs every command, so `ravenryd new` keeps working;
