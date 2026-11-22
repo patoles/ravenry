@@ -77,6 +77,7 @@ export const ROUTES = [
   // macOS's privacy answers (server/access.mjs)
   { m: 'POST', p: '/api/access/retry', c: O, why: 'It asks macOS again whether the board may read the folders it has no answer for; it changes nothing and asks the person nothing (the app sends it after asking macOS itself).' },
   // Checkpoints and plans
+  { m: 'POST', p: '/api/assistant/models', c: O, why: 'It answers an assistant\'s model menu (server/modellists.mjs) and changes nothing; it runs the assistant\'s own model list at most once per cache age, never a model.' },
   { m: 'POST', p: '/api/checkpoints/words', c: O, why: 'It words the checkpoints the caller sends (server/cpwords.mjs) and changes nothing; an answer\'s secret is never read.' },
   { m: 'POST', p: '/api/checkpoints/answer', c: P, what: 'answer a checkpoint', why: 'Answering a checkpoint is the person\'s answer to an agent.', strict: true },
   { m: 'POST', p: '/api/plan/answer', c: P, what: 'answer a plan\'s gate or question', why: 'Passing a gate is the person\'s answer; an agent would pass its own gate.' },

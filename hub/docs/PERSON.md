@@ -99,6 +99,7 @@ session's review comments and the agent's replies).
 | `/api/decisions/edit` | person | Rewriting a decision changes what every agent follows. |
 | `/api/decisions/remove` | person | Taking a decision off the record changes what every agent follows. |
 | `/api/access/retry` | open | It asks macOS again whether the board may read the folders it has no answer for (`server/access.mjs`); it changes nothing and asks the person nothing (the app sends it after asking macOS itself). |
+| `/api/assistant/models` | open | It answers an assistant's model menu (`server/modellists.mjs`) and changes nothing; it runs the assistant's own model list at most once per cache age, never a model. |
 | `/api/checkpoints/words` | open | It words the checkpoints the caller sends (`server/cpwords.mjs`) and changes nothing; an answer's secret is never read. |
 | `/api/checkpoints/answer` | person | Answering a checkpoint is the person's answer to an agent. |
 | `/api/plan/answer` | person | Passing a gate is the person's answer; an agent would pass its own gate. |
