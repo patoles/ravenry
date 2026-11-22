@@ -346,7 +346,7 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
             guard let b = board, b.demo else { return }
             if r.actionIdentifier.hasPrefix("choice:"), let cp, let n = Int(r.actionIdentifier.dropFirst("choice:".count)) {
                 b.event(["event": "demo.action", "checkpoint": cp, "answer": ["choice": n]])
-            } else { b.event(["event": "open", "alert": a]) }
+            } else { b.open(a) }
             return
         }
         let act = r.actionIdentifier
@@ -406,7 +406,7 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
             guard !text.isEmpty else { return }
             if (a["reply"] as? [String: Any])?["action"] as? String == "text" { answer(["text": text]) } else { toSession(["text": text]) }
         default:
-            if let b = board { b.event(["event": "open", "alert": a]) } else { SceneDelegate.pendingAlert = a }
+            if let b = board { b.open(a) } else { SceneDelegate.pendingAlert = a }
         }
     }
 

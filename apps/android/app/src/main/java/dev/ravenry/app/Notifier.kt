@@ -32,7 +32,14 @@ object Notifier {
     const val CONNECTION = "connection"
     const val CONNECTION_ID = 1
     private const val ALERT_ID = 2
+    private const val SUMMARY_ID = 3
+    /** Every alert's group, with this app's own summary (syncSummary). */
+    const val ALERTS_GROUP = "dev.ravenry.app.ALERTS"
     const val EXTRA_ALERT = "dev.ravenry.app.ALERT"
+    /** The summary's tap: the newest alert in the shade, read when tapped (MainActivity). */
+    const val EXTRA_NEWEST = "dev.ravenry.app.NEWEST"
+    /** An alert swiped away: the summary follows (ActionReceiver). */
+    const val ACTION_SYNC = "dev.ravenry.app.SYNC"
     const val EXTRA_ACTION = "dev.ravenry.app.ACTION"
     const val REPLY_KEY = "reply"
 
@@ -73,6 +80,7 @@ object Notifier {
 
     fun cancel(context: Context, id: String) {
         NotificationManagerCompat.from(context).cancel(id, ALERT_ID)
+        syncSummary(context, gone = id)
     }
 
     private fun flags(mutable: Boolean = false) = PendingIntent.FLAG_UPDATE_CURRENT or (if (mutable) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE)
@@ -103,10 +111,13 @@ object Notifier {
         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setContentIntent(openIntent(context, a))
+        .setDeleteIntent(PendingIntent.getBroadcast(context, SUMMARY_ID, Intent(context, ActionReceiver::class.java).setAction(ACTION_SYNC), flags()))
         .setAutoCancel(true)
-        // A group of its own, so Android never folds several alerts into
-        // one line: each keeps its buttons in the shade.
-        .setGroup(a.id)
+        // One group for every alert, with the app's own summary. Android 16
+        // folds alerts that have a group but no summary (each was a group of
+        // its own before) under a summary of its own, whose tap opens only
+        // the app; this one opens the newest alert's card.
+        .setGroup(ALERTS_GROUP)
         // The message itself, so a later snapshot can tell whether it still waits (sweep).
         .addExtras(android.os.Bundle().apply { putString(EXTRA_ALERT, a.raw) })
 
@@ -181,13 +192,61 @@ object Notifier {
         // Not sent and still open: a later close takes it off as usual.
         if (!ok) { val x = answered.remove(a.id); if (x?.closed == true) { cancel(context, a.id); return } }
         val b = base(context, a).setContentText(said).setOnlyAlertOnce(true).setSilent(true)
-        if (ok) b.setTimeoutAfter(4000) else b.addAction(0, context.getString(R.string.open), openIntent(context, a)).setStyle(NotificationCompat.BigTextStyle().bigText(said))
+        if (ok) { b.setTimeoutAfter(4000); main.postDelayed({ syncSummary(context) }, 4500) } else b.addAction(0, context.getString(R.string.open), openIntent(context, a)).setStyle(NotificationCompat.BigTextStyle().bigText(said))
         post(context, a.id, b.build())
     }
 
     private fun post(context: Context, id: String, n: Notification) {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
-        try { NotificationManagerCompat.from(context).notify(id, ALERT_ID, n) } catch (_: SecurityException) { }
+        try { NotificationManagerCompat.from(context).notify(id, ALERT_ID, n) } catch (_: SecurityException) { return }
+        syncSummary(context, posted = n.extras.getString(EXTRA_ALERT)?.let { Alert.parse(it) })
+    }
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
+     * The alerts in the shade, newest first. `posted` was just posted and
+     * `gone` just cancelled: Android's list may not show either yet.
+     */
+    private fun shown(context: Context, posted: Alert? = null, gone: String? = null): List<Alert>? {
+        val list = runCatching { context.getSystemService(NotificationManager::class.java).activeNotifications.filter { it.id == ALERT_ID && it.tag != null && it.tag != gone } }.getOrNull() ?: return null
+        val rest = list.sortedByDescending { it.postTime }.mapNotNull { n -> n.notification.extras.getString(EXTRA_ALERT)?.let { Alert.parse(it) } }.filter { it.id != posted?.id }
+        return listOfNotNull(posted) + rest
+    }
+
+    /** The newest alert in the shade, as the hub sent it: what the summary's tap opens. */
+    fun newest(context: Context): String? = shown(context)?.firstOrNull()?.raw
+
+    /**
+     * The group's summary: there while an alert is, gone with the last one.
+     * Its tap (a stack of alerts folded, or Android 16's own folding) opens
+     * the newest alert's card, never the app alone. It never rings itself.
+     */
+    fun syncSummary(context: Context, posted: Alert? = null, gone: String? = null) {
+        val all = shown(context, posted, gone) ?: return
+        val nm = NotificationManagerCompat.from(context)
+        if (all.isEmpty()) { nm.cancel(SUMMARY_ID); return }
+        val top = all.first()
+        val open = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(EXTRA_NEWEST, true).setAction("open:newest")
+        val lines = NotificationCompat.InboxStyle()
+        all.take(5).forEach { lines.addLine(it.title) }
+        val n = NotificationCompat.Builder(context, NEEDS_YOU)
+            .setSmallIcon(R.drawable.ic_perch)
+            .setColor(AlertColor.of(top.kind))
+            .setContentTitle(top.title)
+            .setContentText(top.body.ifEmpty { top.title })
+            .setStyle(lines)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setGroup(ALERTS_GROUP)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setContentIntent(PendingIntent.getActivity(context, SUMMARY_ID, open, flags()))
+            .build()
+        try { nm.notify(SUMMARY_ID, n) } catch (_: SecurityException) { }
     }
 
     fun connection(context: Context, line: ConnectionService.Line): Notification = NotificationCompat.Builder(context, CONNECTION)

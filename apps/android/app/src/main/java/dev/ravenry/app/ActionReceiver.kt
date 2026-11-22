@@ -9,6 +9,7 @@ import org.json.JSONObject
 /** A button or the reply line of an alert, answered from the shade without opening the app. */
 class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Notifier.ACTION_SYNC) { Notifier.syncSummary(context); return }
         val a = Alert.parse(intent.getStringExtra(Notifier.EXTRA_ALERT) ?: return) ?: return
         val id = intent.getStringExtra(Notifier.EXTRA_ACTION) ?: return
         // The demo's alert: its card answered on the demo's screen, nothing sent (Demo.kt).

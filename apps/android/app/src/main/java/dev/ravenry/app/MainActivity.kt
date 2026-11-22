@@ -72,6 +72,8 @@ class MainActivity : FragmentActivity() {
     private val main = Handler(Looper.getMainLooper())
     private var out: JavaScriptReplyProxy? = null
     private var pending: String? = null
+    /** When a tapped alert also went to the page as it was (0: only kept for the next hello). */
+    private var pendingSent = 0L
     private var events: Closeable? = null
     /** The launch's hold and exit (docs/PHONE.md, The launch); null on a warm start. */
     private var ink: InkLaunch? = null
@@ -145,6 +147,8 @@ class MainActivity : FragmentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         if (::web.isInitialized) web.url?.let { outState.putString(STATE_URL, it) }
+        // The alert this activity was opened with was opened already.
+        outState.putString(STATE_OPENED, intent?.action)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -276,7 +280,9 @@ class MainActivity : FragmentActivity() {
             }
         }
         onBackPressedDispatcher.addCallback(this, back)
-        pending = intent?.getStringExtra(Notifier.EXTRA_ALERT)
+        // A rebuilt activity (a theme switch, the process back after Android
+        // ended it) keeps its screen when its alert was opened already.
+        pending = tapped(intent)?.takeIf { savedInstanceState == null || savedInstanceState.getString(STATE_OPENED) != intent?.action }
         // A new theme (light or dark) or a new window size makes a new
         // activity: the page comes back on the screen it was on.
         val was = savedInstanceState?.getString(STATE_URL)?.takeIf { it.startsWith("$ORIGIN/") && pending == null }
@@ -322,10 +328,19 @@ class MainActivity : FragmentActivity() {
     /** The demo alert's button (Demo.action): the page answers its card. */
     fun demoAnswer(checkpoint: String, answer: JSONObject) = event(JSONObject().put("event", "demo.action").put("checkpoint", checkpoint).put("answer", answer))
 
+    /** The alert a tap opens: its own, or for the alerts' summary the newest in the shade. */
+    private fun tapped(i: Intent?): String? = i?.getStringExtra(Notifier.EXTRA_ALERT)
+        ?: if (i?.getBooleanExtra(Notifier.EXTRA_NEWEST, false) == true) Notifier.newest(this) else null
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val a = intent.getStringExtra(Notifier.EXTRA_ALERT) ?: return
-        if (out != null) event(JSONObject().put("event", "open").put("alert", parse(a))) else pending = a
+        val a = tapped(intent) ?: return
+        // To the page as it is, and kept for a hello in the next 30 s: a page
+        // that was loading or reloading (its old channel goes nowhere) takes
+        // it with its hello, so the card opens, never the board alone.
+        pending = a
+        pendingSent = if (out != null) SystemClock.elapsedRealtime() else 0L
+        if (out != null) event(JSONObject().put("event", "open").put("alert", parse(a)))
     }
 
     override fun onStart() {
@@ -338,6 +353,8 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         if (::web.isInitialized) event(JSONObject().put("event", "alerts").put("on", Notifier.allowed(this)))
+        // An alert tapped leaves the shade as the app opens: the summary follows.
+        main.postDelayed({ Notifier.syncSummary(this) }, 1000)
     }
 
     override fun onStop() {
@@ -394,7 +411,7 @@ class MainActivity : FragmentActivity() {
                     .put("hub", JSONObject().put("name", p?.hubName?.let(MacName::say)).put("port", p?.port))
                     .put("device", JSONObject().put("id", p?.deviceId).put("name", p?.deviceName))
                     .put("features", JSONArray(features()))
-                    .put("pending", pending?.let { parse(it) } ?: JSONObject.NULL)
+                    .put("pending", pending?.takeIf { pendingSent == 0L || SystemClock.elapsedRealtime() - pendingSent < PENDING_MS }?.let { parse(it) } ?: JSONObject.NULL)
                     .put("launch", ink?.kind ?: JSONObject.NULL)
                 if (demo) r.put("demo", true).put("hub", JSONObject.NULL).put("device", JSONObject.NULL)
                 pending = null
@@ -983,6 +1000,8 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         const val HOST = "appassets.androidplatform.net"
+        /** How long an alert the page was sent stays for a hello (a page loading as it was tapped). */
+        private const val PENDING_MS = 30_000L
         /** Opens the demo (PairActivity's "Try the demo"); ignored once a Mac is paired. */
         const val EXTRA_DEMO = "dev.ravenry.app.DEMO"
         const val ORIGIN = "https://$HOST"
@@ -1013,6 +1032,7 @@ object HubGate {
 }
 
 private const val STATE_URL = "ravenry.page"
+private const val STATE_OPENED = "ravenry.opened"
 
 /** The request headers the board's fetch may set on a hub request. */
 private val PASS_HEADERS = setOf("content-type", "x-filename", "accept")

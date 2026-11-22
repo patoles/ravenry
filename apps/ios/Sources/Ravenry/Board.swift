@@ -49,6 +49,8 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     var ink: InkLaunch?
     /// The alert that opened the app, for the page's hello.
     var pending: [String: Any]?
+    /// When a tapped alert also went to the page as it was (nil: only kept for the next hello).
+    private var pendingSent: Date?
     private var helloed = false
     /// Back from the background: the stream and the connection watch start over at once.
     private var wasAway = false
@@ -250,6 +252,16 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     func fail(_ id: Int, _ error: String) { post(["id": id, "ok": false, "error": error]) }
     func event(_ o: [String: Any]) { post(o) }
 
+    /// An alert tapped: to the page as it is, and kept for a hello in the next
+    /// 30 s: a page loading, or loading again after its process ended in the
+    /// background (a message to it goes nowhere), takes it with its hello, so
+    /// the card opens, never the board alone.
+    func open(_ a: [String: Any]) {
+        pending = a
+        pendingSent = helloed ? Date() : nil
+        if helloed { event(["event": "open", "alert": a]) }
+    }
+
     func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
         // Only the page itself: the main frame of the app's own origin.
         guard m.frameInfo.isMainFrame, m.frameInfo.securityOrigin.protocol == "ravenry-app", m.frameInfo.securityOrigin.host == "phone",
@@ -297,11 +309,14 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
             let hubInfo: [String: Any] = ["name": MacName.say(p?.hubName), "port": (p?.port).map { $0 as Any } ?? NSNull()]
             let device: [String: Any] = ["id": (p?.deviceId).map { $0 as Any } ?? NSNull(), "name": (p?.deviceName).map { $0 as Any } ?? NSNull()]
             var hello: [String: Any] = ["v": 1, "platform": "ios", "form": Device.form, "app": PairModel.appVersion, "hub": hubInfo, "device": device, "features": features]
-            hello["pending"] = pending.map { $0 as Any } ?? NSNull()
+            // A tapped alert the page as it was also got: only within 30 s of the tap.
+            let fresh = pendingSent.map { Date().timeIntervalSince($0) < 30 } ?? true
+            hello["pending"] = fresh ? (pending.map { $0 as Any } ?? NSNull()) : NSNull()
             hello["launch"] = ink != nil ? "ink" : "warm"
             if demo { hello["demo"] = true; hello["hub"] = NSNull(); hello["device"] = NSNull() }
             reply(id, hello)
             pending = nil
+            pendingSent = nil
         case "http":
             let method = (o["method"] as? String ?? "GET").uppercased()
             guard let path = o["path"] as? String, path.hasPrefix("/") else { fail(id, "A path starts with /."); return }
