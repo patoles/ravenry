@@ -25,4 +25,7 @@ Objectives page shows this file as "done of total".
 - [ ] On the phone, open a link and select and copy text (TERM-021, TERM-028)
 - [ ] Command palette (NAV-011) and rebindable keys (SET-018)
 - [ ] A plain program's status on the board (SESS-056)
-- [ ] The phone away from the Mac's Wi-Fi without Tailscale (PHONE-045)
+
+## Decided against
+
+- The phone away from the Mac's Wi-Fi without Tailscale (PHONE-045): it needs a relay server that the project would pay for and depend on. Tailscale, free on the person's own account, stays the way.
