@@ -1,7 +1,7 @@
 # Putting the iPhone and iPad app on the App Store
 
-How the App Store build is made and uploaded, what is already set in App
-Store Connect, and what is left before the app goes to App Review. The
+How the App Store build is made and uploaded, what is set in App Store
+Connect, and where the app stands. The
 App Review notes are in REVIEW.md here; the pictures in `screenshots/`.
 
 ## What you upload
@@ -18,9 +18,9 @@ The version is the Mac app's (`apps/desktop/package.json`) and the build
 number Android's versionCode (major * 1000000 + minor * 1000 + patch:
 0.1.69 is build 1069), so the Mac, Android and iOS apps of one release
 say the same number. App Store Connect takes one upload per build number:
-a second upload of the same version needs `RAVENRY_IOS_BUILD=1069.1`
-(the build on 0.1.69 now), then 1069.2 and so on.
-The App Store version in App Store Connect is named the same (0.1.69).
+a second upload of the same version needs `RAVENRY_IOS_BUILD=1069.1`,
+then 1069.2 and so on.
+The App Store version in App Store Connect has the same name (0.1.76).
 
 ### The environment
 
@@ -105,28 +105,29 @@ Collected") and the privacy policy URL were set by hand. Through the API:
   social media: no.
 - **Pricing and availability**: Free, every territory, and new territories
   as Apple adds them.
-- **The version (0.1.69)**: description, keywords, promotional text,
+- **Each version (0.1.69 the first)**: description, keywords, promotional text,
   support URL and marketing URL (the download page) in en-US and fr-FR
   (from the Play listing, listing.md, said again for iOS: Face ID in
-  place of the fingerprint, a photo or a file and no voice note, no
-  alerts in the background until push comes), the copyright line (the
+  place of the fingerprint, a photo or a file and no voice note, alerts
+  through the relay since 0.1.71), the copyright line (the
   year and the owner's name, set there only), the build attached.
 - **App Review Information**: Sign-in required off, the notes from
-  REVIEW.md as they are. The contact's name, phone and email are left
-  empty: the owner fills them in by hand.
+  REVIEW.md as they are. The contact's name, phone and email are the
+  owner's, filled in by hand, never through the API.
 - **Screenshots**: the twelve below, uploaded for en-US and fr-FR in the
   store's order (The screenshots, below).
 - **TestFlight**: the build is in an internal group, "Internal", with
   every build, and the account holder as its tester. Internal testing
   needs no review.
 
-## What is left before review
+## Where it stands
 
-1. App Review Information: the contact's first and last name, phone and
-   email.
-2. Install the build from TestFlight on an iPhone and an iPad and try it
-   with a Mac.
-3. Add for Review, then Submit to App Review: the owner's own go.
+The app is on the App Store (https://apps.apple.com/app/id6836551166):
+0.1.69 was the first version, 0.1.71 (alerts through the relay) is live,
+and 0.1.76 is in App Review (2026-11-22). Each new version: the build
+uploaded (above) and tried from TestFlight with a Mac, a new App Store
+version of the same number with its What's New and the build attached,
+then Add for Review and Submit to App Review: the owner's own go.
 
 ## The screenshots
 

@@ -103,7 +103,7 @@ so its sessions' alerts arrive without a push service."
 For the Console's form (tick "Other" / special use, then):
 
 **What the task does.** Ravenry pairs the phone with the person's own
-Mac, where their coding agents (Claude Code, Codex) run. When an agent
+Mac, where their coding agents (Claude Code, Codex, OpenCode, Antigravity CLI) run. When an agent
 needs them (a question, a choice, a command to approve), the Mac sends
 an alert. The foreground service holds one encrypted connection to that
 Mac and shows each alert as soon as it is sent. Its notification is
@@ -159,5 +159,5 @@ instructions (no username or password: there is no account):
 > code); check that the number on both screens matches and tap "They
 > match, pair". The phone then shows the Mac's projects and sessions.
 > The phone and the Mac must be on the same Wi-Fi network. Alerts appear
-> when a coding agent (Claude Code or Codex) running on the Mac asks a
-> question.
+> when a coding agent (Claude Code, Codex, OpenCode or Antigravity CLI)
+> running on the Mac asks a question.

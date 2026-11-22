@@ -10,7 +10,7 @@ a Mac is paired.
 
 ## Sign-in
 
-- Sign-in required: no (the app has no account, no server and no sign-in).
+- Sign-in required: no (the app has no account and no sign-in).
 
 ## Notes
 
@@ -37,8 +37,8 @@ Paste as it is:
 > screens matches and tap "They match, pair". The phone then shows the
 > Mac's projects and sessions. The iPhone and the Mac must be on the same
 > Wi-Fi network (iOS asks for Local Network access: allow it). Alerts
-> appear when a coding agent (Claude Code or Codex) running on the Mac
-> asks a question.
+> appear when a coding agent (Claude Code, Codex, OpenCode or Antigravity
+> CLI) running on the Mac asks a question.
 >
 > Alerts need a paired Mac with Ravenry for Mac 0.1.71 or later. The
 > demo's alert is posted by the device itself: nothing leaves it.

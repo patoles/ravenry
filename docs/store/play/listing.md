@@ -4,15 +4,15 @@ App name: Ravenry
 
 ## Short description (80 max)
 
-EN (75): Answer your Claude Code and Codex agents from your phone, wherever you are.
+EN (80): Answer your Claude Code, Codex, OpenCode and Antigravity agents from your phone.
 
-FR (66): Répondez à vos agents Claude Code et Codex depuis votre téléphone.
+FR (78): Répondez à Claude Code, Codex, OpenCode et Antigravity depuis votre téléphone.
 
 ## Full description (4000 max), EN
 
 Ravenry puts the coding agents running on your Mac in your pocket.
 
-When Claude Code or Codex needs you (a question, a choice between pictures, a command to approve), your phone tells you. Answer from the alert or in the app, and the agent carries on.
+When Claude Code, Codex, OpenCode or Antigravity CLI needs you (a question, a choice between pictures, a command to approve), your phone tells you. Answer from the alert or in the app, and the agent carries on.
 
 WHAT YOU CAN DO
 • See every project and the live screen of each session
@@ -29,7 +29,7 @@ PRIVATE BY DESIGN
 
 WHAT YOU NEED
 • Ravenry for Mac, free: patoles.github.io/ravenry (Apple silicon, macOS 13 or later)
-• Claude Code or Codex, installed and signed in on your Mac
+• Claude Code, Codex, OpenCode or Antigravity CLI, installed and signed in on your Mac
 • The same Wi-Fi as your Mac, or Tailscale to reach it from anywhere
 
 To start, scan the code your Mac shows. That's all the setup there is.
@@ -38,7 +38,7 @@ To start, scan the code your Mac shows. That's all the setup there is.
 
 Ravenry met dans votre poche les agents de code qui tournent sur votre Mac.
 
-Quand Claude Code ou Codex a besoin de vous (une question, un choix entre des images, une commande à approuver), votre téléphone vous prévient. Répondez depuis la notification ou dans l'appli, et l'agent continue.
+Quand Claude Code, Codex, OpenCode ou Antigravity CLI a besoin de vous (une question, un choix entre des images, une commande à approuver), votre téléphone vous prévient. Répondez depuis la notification ou dans l'appli, et l'agent continue.
 
 CE QUE VOUS POUVEZ FAIRE
 • Voir tous vos projets et l'écran en direct de chaque session
@@ -55,7 +55,7 @@ PRIVÉ PAR CONCEPTION
 
 CE QU'IL VOUS FAUT
 • Ravenry pour Mac, gratuit : patoles.github.io/ravenry (Apple silicon, macOS 13 ou plus récent)
-• Claude Code ou Codex, installé et connecté sur votre Mac
+• Claude Code, Codex, OpenCode ou Antigravity CLI, installé et connecté sur votre Mac
 • Le même Wi-Fi que votre Mac, ou Tailscale pour le joindre de partout
 
 Pour commencer, scannez le code affiché par votre Mac. C'est toute l'installation.
