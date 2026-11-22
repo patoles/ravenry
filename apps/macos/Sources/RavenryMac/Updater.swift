@@ -448,19 +448,15 @@ final class Updater: NSObject, NSMenuItemValidation {
     // MARK: the menu
 
     /// Check for Updates... (or Restart to Update to <version>) and Go Back
-    /// to the npm Board... after About in the app menu (main.swift).
-    func addMenuItems(to menu: NSMenu) {
-        let at = (menu.items.firstIndex { $0.action == #selector(NSApplication.orderFrontStandardAboutPanel(_:)) } ?? -1) + 1
-        let u = NSMenuItem(title: t("update.check"), action: #selector(menuUpdate(_:)), keyEquivalent: "")
-        u.target = self
-        menu.insertItem(u, at: at)
+    /// to the npm Board... after About in the app menu: made from the list
+    /// of actions (Actions.swift), kept here as their titles follow the state.
+    func adopt(check u: NSMenuItem) {
         item = u
-        let back = NSMenuItem(title: t("menu.npmBack"), action: #selector(menuNpmBack(_:)), keyEquivalent: "")
-        back.target = self
-        back.isHidden = !NpmSwitch.shared.menuShowsBack
-        menu.insertItem(back, at: at + 1)
-        NpmSwitch.shared.menuItem = back
         stateChanged()
+    }
+    func adopt(npmBack back: NSMenuItem) {
+        back.isHidden = !NpmSwitch.shared.menuShowsBack
+        NpmSwitch.shared.menuItem = back
     }
 
     /// The menu item's title for the state.

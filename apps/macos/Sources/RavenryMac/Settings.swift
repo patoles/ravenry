@@ -48,6 +48,8 @@ final class SettingsStore {
     /// Another listener for every change (the terminals).
     func observe(_ f: @escaping () -> Void) { observers.append(f) }
     private func changed() {
+        // The person's keys (SET-018): the menus follow at once (Actions.swift).
+        KeyMap.shared.take(values["keys"])
         onChange?()
         for f in observers { f() }
     }
@@ -185,6 +187,13 @@ final class SettingsStore {
         case "theme":
             guard let s = v as? String, s.range(of: "^(user:)?[a-z0-9][a-z0-9-]{0,59}$", options: .regularExpression) != nil else { return false }
             return themes.map { $0.contains { $0.id == s } } ?? true
+        case "keymap":
+            // An action's id and its key ("shift+cmd+d"), "" for none; ids this version does not know are kept.
+            guard let m = v as? [String: Any], m.count <= 200 else { return false }
+            return m.allSatisfy { k, x in
+                guard k.range(of: "^[A-Za-z][A-Za-z0-9.]{0,40}$", options: .regularExpression) != nil, let s = x as? String else { return false }
+                return s.isEmpty || KeyStroke(s) != nil
+            }
         default: return false
         }
     }

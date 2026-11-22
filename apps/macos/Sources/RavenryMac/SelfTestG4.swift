@@ -34,7 +34,7 @@ extension SelfTestBoard {
         func num(_ k: String) -> Int { (savedNow(k) as? NSNumber)?.intValue ?? -1 }
 
         // The tab is in the window's list, in the shared file's order, and keeps the window's top.
-        check("ho_tab_listed", sw.tabs.map { $0.0 } == ["appearance", "behavior", "handoff", "skills"] && sw.tabButtons["handoff"] != nil, sw.tabs.map { $0.0 }.joined(separator: ","))
+        check("ho_tab_listed", sw.tabs.map { $0.0 } == ["appearance", "behavior", "keys", "handoff", "skills"] && sw.tabButtons["handoff"] != nil, sw.tabs.map { $0.0 }.joined(separator: ","))
         let top0 = sw.window.frame.maxY
         tap(sw.tabButtons["handoff"])
         check("ho_tab_opens", sw.tab == "handoff" && sw.window.title == t("set.handoff"), sw.tab)
@@ -135,7 +135,7 @@ extension SelfTestBoard {
         check("ho_arrow_moves_segment", wait(5) { num("contextWindow") == 1000000 })
         if let b = sw.tabButtons["handoff"] { sw.window.makeFirstResponder(b) }
         keyIn(sw.window, 123)
-        check("ho_arrow_moves_tab", sw.tab == "behavior" && sw.window.firstResponder === sw.tabButtons["behavior"], sw.tab)
+        check("ho_arrow_moves_tab", sw.tab == "keys" && sw.window.firstResponder === sw.tabButtons["keys"], sw.tab)
         let sq = squeezed(root)
         check("ho_no_squeezed_text", sq.isEmpty, sq.joined(separator: " | "))
         // Learn's Try it starts what Start them with says, in the last folder used on this Mac.

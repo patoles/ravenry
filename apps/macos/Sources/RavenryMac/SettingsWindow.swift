@@ -47,6 +47,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     let offscreen: Bool
     /// The hand-off tab's state (SettingsHandoff.swift).
     var ho = HandoffState()
+    /// The Keys tab's state (SettingsKeys.swift).
+    var keys = KeysState()
     private var poll: Timer?
 
     init(store: SettingsStore, hub: HubClient?, offscreen: Bool) {
@@ -96,6 +98,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     func pick(_ t: String) {
         guard t != tab, tabs.contains(where: { $0.0 == t }) else { return }
         tab = t
+        // A key being pressed on Keys is left as it was.
+        keys = KeysState()
         draw()
         if t == "skills" { readSkills() }
         if t == "handoff" { readHandoff() }
@@ -147,7 +151,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
                                      line.bottomAnchor.constraint(equalTo: head.bottomAnchor), line.heightAnchor.constraint(equalToConstant: 1)])
         // .sw-b: 18 above, 28 at the sides, 22 below.
         body.subviews.forEach { $0.removeFromSuperview() }
-        let rows: [NSView] = tab == "appearance" ? appearance() : tab == "behavior" ? behavior() : tab == "handoff" ? handoffPane() : skillsPane()
+        let rows: [NSView] = tab == "appearance" ? appearance() : tab == "behavior" ? behavior() : tab == "keys" ? keysPane() : tab == "handoff" ? handoffPane() : skillsPane()
         let st = vstack(rows, spacing: 0, insets: NSEdgeInsets(top: 18, left: 28, bottom: 22, right: 28))
         body.addSubview(st)
         let root = window.contentView!
@@ -174,6 +178,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             if let e = f.currentEditor() { e.selectedRange = NSRange(location: min(sel.location, f.stringValue.utf16.count), length: min(sel.length, max(0, f.stringValue.utf16.count - sel.location))) }
         }
         window.recalculateKeyViewLoop()
+        if tab == "keys" { keysScrolledBack() }
     }
 
     private func firstField(in v: NSView) -> NSTextField? {

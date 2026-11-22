@@ -39,12 +39,18 @@ export interface Settings {
   bellBounceDock: boolean;
   /** Ask before closing a tab whose shell runs something. */
   confirmCloseBusy: boolean;
+  /**
+   * The keys a person changed (SET-018), kept for the app that edits them
+   * (the native Mac app's Settings, Keys): an action id and its key as text
+   * ("shift+cmd+t"), "" for none.
+   */
+  keys: Record<string, string>;
 }
 
 /** The settings a person can change: everything but the version. */
 export type SettingsPatch = Partial<Omit<Settings, 'version'>>;
 
-type KeySpec = { kind: 'bool' | 'int' | 'oneOf' | 'family' | 'theme'; default: unknown; min?: number; max?: number; values?: string[]; want?: string };
+type KeySpec = { kind: 'bool' | 'int' | 'oneOf' | 'family' | 'theme' | 'keymap'; default: unknown; min?: number; max?: number; values?: string[]; want?: string };
 const KEYS = spec.keys as unknown as Record<keyof SettingsPatch, KeySpec>;
 
 export const DEFAULT_FONT = KEYS.fontFamily.default as string;
@@ -61,6 +67,10 @@ const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
 const themeId = (v: unknown): v is string => typeof v === 'string' && /^(user:)?[a-z0-9][a-z0-9-]{0,59}$/.test(v);
 // A family name: no quotes, commas or control characters (it goes into a CSS font list).
 const family = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0 && v.length <= 100 && !/["',;{}\\\u0000-\u001f]/.test(v);
+// A keymap: action ids and keys ("ctrl+opt+shift+cmd+<key>"), "" for none (Actions.swift KeyStroke).
+const STROKE = /^((ctrl|opt|shift|cmd)\+)*([a-z0-9`\-=[\]\\;',./]|left|right|up|down|return|tab|space|delete|forwarddelete|escape|home|end|pageup|pagedown|f([1-9]|1[0-2]))$/;
+const keymap = (v: unknown): v is Record<string, string> => !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length <= 200
+  && Object.entries(v as Record<string, unknown>).every(([k, x]) => /^[A-Za-z][A-Za-z0-9.]{0,40}$/.test(k) && typeof x === 'string' && (x === '' || STROKE.test(x)));
 const words = (vals: string[]) => vals.length > 1 ? `${vals.slice(0, -1).join(', ')} or ${vals[vals.length - 1]}` : vals.join('');
 
 /** Each setting's check, and what it says when a value fails it (from its kind). */
@@ -70,6 +80,7 @@ const FIELDS = Object.fromEntries(Object.entries(KEYS).map(([k, f]) => {
     case 'int': return [k, { ok: (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= f.min! && v <= f.max!, want: `a whole number from ${f.min} to ${f.max}` }];
     case 'oneOf': return [k, { ok: (v: unknown) => typeof v === 'string' && f.values!.includes(v), want: words(f.values!) }];
     case 'family': return [k, { ok: family, want: f.want || 'a font family name' }];
+    case 'keymap': return [k, { ok: keymap, want: f.want || 'an object of action ids and keys' }];
     default: return [k, { ok: themeId, want: 'a theme id' }];
   }
 })) as { [K in keyof SettingsPatch]-?: { ok: (v: unknown) => boolean; want: string } };
@@ -239,9 +250,10 @@ export function macOptionIsMetaFor(mode: OptionAsMeta, code: string): boolean {
 
 export type SettingsTab = 'appearance' | 'behavior' | 'skills';
 export const SETTINGS_TABS: Record<SettingsTab, string> = { appearance: 'Appearance', behavior: 'Behavior', skills: 'Skills' };
-// Hand-off (the hub's own settings for every project) is a tab of the
-// native Mac app only; this app has no editor for them (FEATURES SET-005).
-const NATIVE_ONLY_TABS = ['handoff'];
+// Hand-off (the hub's own settings for every project) and Keys (SET-018)
+// are tabs of the native Mac app only; this app has no editor for them
+// (FEATURES SET-005, SET-018).
+const NATIVE_ONLY_TABS = ['keys', 'handoff'];
 if (spec.tabs.filter((t: string) => !NATIVE_ONLY_TABS.includes(t)).join() !== Object.keys(SETTINGS_TABS).join()) throw new Error('shared/settings/settings.json tabs differ from SETTINGS_TABS');
 
 /** What `settings:get` answers and `settings:changed` sends (docs/SETTINGS.md). */

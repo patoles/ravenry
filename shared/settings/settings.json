@@ -1,5 +1,5 @@
 {
-  "$comment": "The terminal settings every client reads and writes in <data folder>/settings.json (shared/README.md, settings). Each key: its kind (bool, int with min and max, one of values, family, theme), its default and what a wrong value is told it should be.",
+  "$comment": "The terminal settings every client reads and writes in <data folder>/settings.json (shared/README.md, settings). Each key: its kind (bool, int with min and max, one of values, family, theme, keymap), its default and what a wrong value is told it should be. A keymap holds the keys a person changed (SET-018): an action id of the list of actions (apps/macos/Sources/RavenryMac/Actions.swift) and its key as text, the modifiers ctrl, opt, shift and cmd then the key, joined by \"+\" (\"opt+cmd+left\"), or \"\" for no key.",
   "version": 1,
   "keys": {
     "fontFamily": { "kind": "family", "default": "Menlo", "want": "a font family name" },
@@ -18,11 +18,12 @@
     "bellBounceDock": { "kind": "bool", "default": true },
     "confirmCloseBusy": { "kind": "bool", "default": true },
     "launchInk": { "kind": "bool", "default": true },
-    "paneEffect": { "kind": "oneOf", "values": ["off", "bloom", "crt"], "default": "off" }
+    "paneEffect": { "kind": "oneOf", "values": ["off", "bloom", "crt"], "default": "off" },
+    "keys": { "kind": "keymap", "default": {}, "want": "an object of action ids and keys, such as {\"newShell\": \"shift+cmd+t\"}, \"\" for none" }
   },
   "fontFallback": ["Menlo", "SF Mono", "DejaVu Sans Mono", "Liberation Mono"],
   "themes": ["ravenry-dark", "solarized-dark", "dracula", "nord", "ravenry-light", "solarized-light", "github-light", "paper"],
   "defaultDarkTheme": "ravenry-dark",
   "defaultLightTheme": "ravenry-light",
-  "tabs": ["appearance", "behavior", "handoff", "skills"]
+  "tabs": ["appearance", "behavior", "keys", "handoff", "skills"]
 }

@@ -42,7 +42,7 @@ final class NpmSwitch {
     var dismissed = false
     /// What a control asked for that needs the app's hub ("Decisions"), for Start's pointer.
     var asked: String?
-    /// The app menu's Go Back to the npm Board... (Updater.addMenuItems).
+    /// The app menu's Go Back to the npm Board... (Updater.adopt, Actions.swift).
     weak var menuItem: NSMenuItem?
     private var sheet: NpmBackSheet?
 

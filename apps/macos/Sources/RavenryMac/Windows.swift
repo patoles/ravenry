@@ -306,6 +306,13 @@ extension AppDelegate {
     }
     @objc func menuToggleSidebar(_ sender: Any?) { current?.board.toggleSidebar() }
     @objc func menuTogglePanel(_ sender: Any?) { current?.board.togglePanel() }
+    /// Shift+Cmd+P (or the key the person gave it): the command palette over the window in front (Palette.swift).
+    @objc func menuPalette(_ sender: Any?) { current?.board.togglePalette() }
+    /// A board action's key (Actions.swift, menu "Board"): its item names it.
+    @objc func menuBoard(_ sender: Any?) {
+        guard let id = (sender as? NSMenuItem)?.representedObject as? String else { return }
+        current?.board.boardAction(id)
+    }
 
     @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let c = current
@@ -321,6 +328,7 @@ extension AppDelegate {
         case #selector(menuMergeAllWindows(_:)): return windows.filter { !$0.closing }.count > 1
         case #selector(menuNewWindow(_:)), #selector(menuSettings(_:)), #selector(menuLearn(_:)), #selector(menuLicences(_:)): return true
         case #selector(menuClose(_:)): return NSApp.keyWindow != nil || c != nil
+        case #selector(menuBoard(_:)): return (item.representedObject as? String).map { c?.board.boardAvailable($0) ?? false } ?? false
         default: return c != nil
         }
     }

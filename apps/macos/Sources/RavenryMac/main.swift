@@ -434,129 +434,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The menus, as the Electron app's (apps/desktop/src/main/main.ts) and
     /// a Mac app's: each command acts on the window in front (Windows.swift).
+    /// Every item, its title and its key come from the list of actions
+    /// (Actions.swift), with the keys the person set (KeyMap).
     private func buildMenu() {
+        // The keys as the person set them, before the first item is made.
+        KeyMap.shared.take(SettingsStore(offscreen: options.offscreen)["keys"])
         let main = NSMenu()
-        func menu(_ title: String) -> NSMenu {
+        for title in Actions.menuOrder {
             let item = NSMenuItem()
             main.addItem(item)
             let m = NSMenu(title: title)
             item.submenu = m
-            return m
+            // The app menu's Services, between the ravenry command and Hide.
+            let services: [Int: () -> [NSMenuItem]] = title == "Ravenry" ? [2: {
+                let s = NSMenu(title: "Services")
+                NSApp.servicesMenu = s
+                let i = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+                i.submenu = s
+                return [i]
+            }] : [:]
+            Actions.fill(m, menu: title, delegate: self, between: services)
+            // The Window menu, as a Mac app's (the Electron app's windowMenu role): AppKit lists the windows under it.
+            if title == "Window" { NSApp.windowsMenu = m }
+            if title == "Help" { NSApp.helpMenu = m }
         }
-        @discardableResult
-        func add(_ m: NSMenu, _ title: String, _ action: Selector, _ key: String, _ mods: NSEvent.ModifierFlags = .command,
-                 target: AnyObject? = nil, tag: Int = 0, hidden: Bool = false) -> NSMenuItem {
-            let i = m.addItem(withTitle: title, action: action, keyEquivalent: key)
-            i.keyEquivalentModifierMask = mods
-            i.target = target
-            i.tag = tag
-            if hidden {
-                i.isHidden = true
-                i.allowsKeyEquivalentWhenHidden = true
-            }
-            return i
-        }
-        // The app menu, as a Mac app's: About, Settings, Services, Hide, Quit.
-        let appMenu = menu("Ravenry")
-        add(appMenu, "About Ravenry", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), "", target: NSApp)
-        // Check for Updates... (Restart to Update), and Go Back to the npm Board... after a switch (Updater.swift).
-        Updater.shared.addMenuItems(to: appMenu)
-        appMenu.addItem(.separator())
-        add(appMenu, "Settings\u{2026}", #selector(menuSettings(_:)), ",", target: self)
-        // Install the ravenry Command..., Uninstall Ravenry... (MachineMenu.swift).
-        MachineMenu.shared.addMenuItems(to: appMenu)
-        appMenu.addItem(.separator())
-        let services = NSMenu(title: "Services")
-        appMenu.addItem(withTitle: "Services", action: nil, keyEquivalent: "").submenu = services
-        NSApp.servicesMenu = services
-        appMenu.addItem(.separator())
-        add(appMenu, "Hide Ravenry", #selector(NSApplication.hide(_:)), "h", target: NSApp)
-        add(appMenu, "Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option], target: NSApp)
-        add(appMenu, "Show All", #selector(NSApplication.unhideAllApplications(_:)), "", target: NSApp)
-        appMenu.addItem(.separator())
-        add(appMenu, "Quit Ravenry", #selector(NSApplication.terminate(_:)), "q")
-
-        // The Electron app's Shell menu (apps/desktop/src/main/main.ts).
-        let shell = menu("Shell")
-        add(shell, "New Shell", #selector(menuNewTab(_:)), "t", target: self)
-        add(shell, "New Session\u{2026}", #selector(menuNewSession(_:)), "N", [.command, .shift], target: self)
-        add(shell, "New Window", #selector(menuNewWindow(_:)), "n", target: self)
-        shell.addItem(.separator())
-        add(shell, "Split Right", #selector(menuSplitRight(_:)), "d", target: self)
-        add(shell, "Split Down", #selector(menuSplitDown(_:)), "D", [.command, .shift], target: self)
-        let arrows: [(String, String, Int)] = [("Select Pane Left", String(UnicodeScalar(NSLeftArrowFunctionKey)!), 0),
-                                               ("Select Pane Right", String(UnicodeScalar(NSRightArrowFunctionKey)!), 1),
-                                               ("Select Pane Above", String(UnicodeScalar(NSUpArrowFunctionKey)!), 2),
-                                               ("Select Pane Below", String(UnicodeScalar(NSDownArrowFunctionKey)!), 3)]
-        for (t, k, tag) in arrows { add(shell, t, #selector(menuFocusPane(_:)), k, [.command, .option], target: self, tag: tag) }
-        add(shell, "Zoom Pane", #selector(menuZoom(_:)), "\r", [.command, .shift], target: self)
-        add(shell, "Move Pane to Own Tab", #selector(menuOwnTab(_:)), "", target: self)
-        add(shell, "Equalize Splits", #selector(menuEqualize(_:)), "=", [.command, .control], target: self)
-        shell.addItem(.separator())
-        add(shell, "Close", #selector(menuClose(_:)), "w", target: self)
-        add(shell, "Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift])
-
-        let editMenu = menu("Edit")
-        // Undo, Redo and Cut for every text field (A11Y-011); in a terminal
-        // Cut is off and Undo and Redo are the program's keys (TerminalView).
-        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
-        editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: #selector(TerminalView.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(TerminalView.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
-        editMenu.addItem(withTitle: "Clear", action: #selector(TerminalView.clearScreen(_:)), keyEquivalent: "k")
-        editMenu.addItem(.separator())
-        let findItem = editMenu.addItem(withTitle: "Find", action: nil, keyEquivalent: "")
-        let findMenu = NSMenu(title: "Find")
-        findMenu.addItem(withTitle: "Find\u{2026}", action: #selector(TerminalView.showFindBar(_:)), keyEquivalent: "f")
-        findMenu.addItem(withTitle: "Find Next", action: #selector(TerminalView.findNext(_:)), keyEquivalent: "g")
-        let previous = findMenu.addItem(withTitle: "Find Previous", action: #selector(TerminalView.findPrevious(_:)), keyEquivalent: "g")
-        previous.keyEquivalentModifierMask = [.command, .shift]
-        findItem.submenu = findMenu
-
-        let viewMenu = menu("View")
-        viewMenu.addItem(withTitle: "Increase Font Size", action: #selector(TerminalView.increaseFontSize(_:)), keyEquivalent: "=")
-        let plus = viewMenu.addItem(withTitle: "Increase Font Size", action: #selector(TerminalView.increaseFontSize(_:)), keyEquivalent: "+")
-        plus.isHidden = true
-        plus.allowsKeyEquivalentWhenHidden = true
-        viewMenu.addItem(withTitle: "Decrease Font Size", action: #selector(TerminalView.decreaseFontSize(_:)), keyEquivalent: "-")
-        viewMenu.addItem(withTitle: "Reset Font Size", action: #selector(TerminalView.resetFontSize(_:)), keyEquivalent: "0")
-        viewMenu.addItem(.separator())
-        add(viewMenu, "Next Tab", #selector(menuNextTab(_:)), "\t", .control, target: self)
-        add(viewMenu, "Previous Tab", #selector(menuPreviousTab(_:)), "\t", [.control, .shift], target: self)
-        // (Shift+Tab types a back tab, U+0019.)
-        add(viewMenu, "Previous Tab", #selector(menuPreviousTab(_:)), "\u{19}", [.control, .shift], target: self, hidden: true)
-        add(viewMenu, "Next Tab", #selector(menuNextTab(_:)), "}", .command, target: self, hidden: true)
-        add(viewMenu, "Previous Tab", #selector(menuPreviousTab(_:)), "{", .command, target: self, hidden: true)
-        add(viewMenu, "Next Tab", #selector(menuNextTab(_:)), "]", [.command, .shift], target: self, hidden: true)
-        add(viewMenu, "Previous Tab", #selector(menuPreviousTab(_:)), "[", [.command, .shift], target: self, hidden: true)
-        for i in 0..<9 { add(viewMenu, "Tab \(i + 1)", #selector(menuSelectTab(_:)), "\(i + 1)", target: self, tag: i, hidden: true) }
-        viewMenu.addItem(.separator())
-        add(viewMenu, t("side.hide"), #selector(menuToggleSidebar(_:)), "s", [.command, .control], target: self)
-        add(viewMenu, t("panel.hideMenu"), #selector(menuTogglePanel(_:)), "b", [.command, .option], target: self)
-
-        // The Window menu, as a Mac app's (the Electron app's windowMenu
-        // role): AppKit lists the windows under it.
-        let windowMenu = menu("Window")
-        add(windowMenu, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")
-        add(windowMenu, "Zoom", #selector(NSWindow.performZoom(_:)), "")
-        windowMenu.addItem(.separator())
-        add(windowMenu, "Move Tab to New Window", #selector(menuMoveTabToNewWindow(_:)), "", target: self)
-        add(windowMenu, "Merge All Windows", #selector(menuMergeAllWindows(_:)), "", target: self)
-        windowMenu.addItem(.separator())
-        add(windowMenu, "Bring All to Front", #selector(NSApplication.arrangeInFront(_:)), "", target: NSApp)
-        NSApp.windowsMenu = windowMenu
-
-        // Help, Learn Ravenry (learn.ts), as the Electron app's Help menu.
-        let help = menu("Help")
-        NSApp.helpMenu = help
-        add(help, t("learn.title"), #selector(menuLearn(_:)), "", target: self)
-        // The privacy page, in the browser.
-        add(help, t("privacy.title"), #selector(menuPrivacy(_:)), "", target: self)
-        // The projects the app is built with and their licences (THIRD_PARTY_NOTICES.txt).
-        add(help, t("licences.title"), #selector(menuLicences(_:)), "", target: self)
         NSApp.mainMenu = main
     }
 }

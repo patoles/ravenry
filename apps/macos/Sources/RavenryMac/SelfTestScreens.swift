@@ -71,6 +71,8 @@ extension SelfTestBoard {
         case "pickzoom": screenPickZoom()
         case "pickvideo": screenPickVideo()
         case "restart": screenRestart()
+        case "palette": screenPalette()
+        case "palette2": screenPalette2()
         default: check("screen_known", false, name)
         }
         finish()

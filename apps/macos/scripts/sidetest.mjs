@@ -1132,6 +1132,21 @@ if (SCREEN === 'idlefold') {
   if (!done5) a5.kill();
   try { idlefold2 = JSON.parse(fs.readFileSync(r2, 'utf8')); } catch { /* none */ }
 }
+// --screen palette (SelfTestPalette.swift, NAV-011, SET-018): keys changed
+// in Settings, Keys, then the app again on the same data folder (--screen
+// palette2): the keys as the person left them.
+let palette2 = null;
+if (SCREEN === 'palette') {
+  await sleep(1000);
+  const r2 = path.join(OUT, 'sidetest-palette2.json');
+  fs.rmSync(r2, { force: true });
+  const a7 = spawn(EXE, ['--offscreen', '--socket', sock, '--sidetest', r2, '--screen', 'palette2'], { env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events-palette2.log') }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app-palette2.log'), 'w')] });
+  let done7 = false;
+  a7.on('exit', () => { done7 = true; });
+  for (let i = 0; i < 1200 && !done7; i++) await sleep(100);
+  if (!done7) a7.kill();
+  try { palette2 = JSON.parse(fs.readFileSync(r2, 'utf8')); } catch { /* none */ }
+}
 let proofs2 = null, marks2 = null;
 if (PROOFS) {
   const r2 = path.join(OUT, 'sidetest-proofs2.json');
@@ -1166,6 +1181,7 @@ if (PROOFS) {
   r.checks.push({ name: 'onb_second_client_reads_marks', ok: !!ok, detail: JSON.stringify(marks2) });
   if (!ok) r.failed++;
 }
+if (SCREEN === 'palette') for (const c of palette2?.checks || [{ name: 'palette2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 if (SCREEN === 'idlefold') for (const c of idlefold2?.checks || [{ name: 'idlefold2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 if (OPENON) for (const c of openon2?.checks || [{ name: 'openon2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 if (SCREEN === 'termnav') for (const c of termnav2?.checks || [{ name: 'termnav2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }

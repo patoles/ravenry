@@ -872,34 +872,39 @@ final class TerminalView: NSView, NSTextInputClient {
 
     /// The app's shortcuts with Command. They are also in the menus; the
     /// view takes them itself so they work the same from the menu, from
-    /// performKeyEquivalent and from keyDown.
+    /// performKeyEquivalent and from keyDown. Each is the key the person
+    /// gave the action (KeyMap, Settings, Keys), never a fixed letter.
+    static let ownActions: Set<String> = ["clear", "copy", "paste", "selectAll", "fontBigger", "fontSmaller", "fontReset"]
     func shortcut(_ e: NSEvent) -> Bool {
         let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard f.contains(.command), !f.contains(.control) else { return false }
-        let key = e.charactersIgnoringModifiers?.lowercased() ?? ""
         if let found = findShortcut(e) { return found }
-        if e.keyCode == 0x73 { scrollToTop(nil); return true }    // Cmd+Home
-        if e.keyCode == 0x77 { scrollToBottom(nil); return true } // Cmd+End
-        switch key {
-        case "k": clearScreen(nil)
-        case "c": copy(nil)
-        case "v": paste(nil)
-        case "a": selectAll(nil)
-        case "=", "+": increaseFontSize(nil)
-        case "-": decreaseFontSize(nil)
-        case "0": resetFontSize(nil)
+        // Cmd+Home and Cmd+End: the top and the bottom of the scrollback (fixed keys).
+        if let s = KeyStroke.from(e), s.cmd, !s.shift, !s.opt, !s.ctrl {
+            if s.key == "home" { scrollToTop(nil); return true }
+            if s.key == "end" { scrollToBottom(nil); return true }
+        }
+        switch KeyMap.shared.action(for: e, among: TerminalView.ownActions) {
+        case "clear": clearScreen(nil)
+        case "copy": copy(nil)
+        case "paste": paste(nil)
+        case "selectAll": selectAll(nil)
+        case "fontBigger": increaseFontSize(nil)
+        case "fontSmaller": decreaseFontSize(nil)
+        case "fontReset": resetFontSize(nil)
         default: return false
         }
         return true
     }
 
-    /// Cmd+F, Cmd+G and Cmd+Shift+G, which work from the find bar too.
+    /// Find, Find Next and Find Previous (Cmd+F, Cmd+G and Cmd+Shift+G as shipped), which work from the find bar too.
     private func findShortcut(_ e: NSEvent) -> Bool? {
         let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard f.contains(.command), !f.contains(.control), !f.contains(.option) else { return nil }
-        switch e.charactersIgnoringModifiers?.lowercased() ?? "" {
-        case "f": showFindBar(nil)
-        case "g": f.contains(.shift) ? findPrevious(nil) : findNext(nil)
+        guard f.contains(.command) else { return nil }
+        switch KeyMap.shared.action(for: e, among: ["find", "findNext", "findPrevious"]) {
+        case "find": showFindBar(nil)
+        case "findNext": findNext(nil)
+        case "findPrevious": findPrevious(nil)
         default: return nil
         }
         return true

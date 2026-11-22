@@ -59,6 +59,8 @@ final class Board: NSObject {
     let learn = LearnPage()
     let machines = MachinesPage()
     let phoneCard = PhoneCard()
+    /// The command palette over the window (Palette.swift, NAV-011).
+    let palette = PaletteView()
     /// The grants on each pane (pane.grants) and when they were asked (Lent.swift).
     var grants: [String: [[String: Any]]] = [:]
     var grantsAsked: [String: Date] = [:]
@@ -121,7 +123,7 @@ final class Board: NSObject {
     /// Where the sidebar's width, its fold and Idle's are kept: the person's defaults;
     /// off every screen only a test's data folder (RAVENRY_DESKTOP_DATA),
     /// so a relaunch check reads them back (NAV-007), else nowhere.
-    private lazy var prefs: UserDefaults? = keep ? .standard : Board.testPrefs
+    lazy var prefs: UserDefaults? = keep ? .standard : Board.testPrefs
     /// One for every window of the app (each window's board reads what another wrote).
     private static let testPrefs: UserDefaults? = ProcessInfo.processInfo.environment["RAVENRY_DESKTOP_DATA"]
         .flatMap { $0.isEmpty ? nil : UserDefaults(suiteName: ($0 as NSString).appendingPathComponent("board")) }
@@ -1475,6 +1477,7 @@ final class Board: NSObject {
     func escape() -> Bool {
         let w = ws.window
         if w.attachedSheet != nil { return false }
+        if palette.isOpen { palette.close(); log.append("esc: palette"); return true }
         if let tv = w.firstResponder as? NSTextView, tv.isEditable {
             // A one-line field of the page in front (New project's name): Esc lets go of it,
             // what was typed stays, and the next Esc goes back. Any other text keeps its Esc.

@@ -36,21 +36,12 @@ final class MachineMenu: NSObject, NSMenuItemValidation {
     private var busy = false
 
     private var inst: AppInstall { AppInstall.shared }
-    private var available: Bool { inst.packaged }
+    var available: Bool { inst.packaged }
     /// A path as people read it: ~ for the home folder (HOME's, as the setup's sayPath).
     private var tilde: (String) -> String { let h = AppInstall.shared.home; return { $0.hasPrefix(h + "/") ? "~" + $0.dropFirst(h.count) : $0 } }
 
-    func addMenuItems(to menu: NSMenu) {
-        guard available else { return }
-        let at = (menu.items.firstIndex { $0.action == #selector(AppDelegate.menuSettings(_:)) } ?? (menu.items.count - 1)) + 1
-        let c = NSMenuItem(title: t("command.menuInstall"), action: #selector(menuCommand(_:)), keyEquivalent: "")
-        c.target = self
-        menu.insertItem(c, at: at)
-        commandItem = c
-        let u = NSMenuItem(title: t("uninstall.menu"), action: #selector(menuUninstall(_:)), keyEquivalent: "")
-        u.target = self
-        menu.insertItem(u, at: at + 1)
-    }
+    /// Install the ravenry Command... (or Remove), made from the list of actions (Actions.swift) on a packaged app.
+    func adopt(command c: NSMenuItem) { commandItem = c }
 
     private var installed: Bool { command?["firstOurs"] as? Bool == true && command?["linkOurs"] as? Bool == true }
 
