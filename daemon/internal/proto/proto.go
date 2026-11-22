@@ -511,6 +511,21 @@ type AgentStatus struct {
 	At     string `json:"at"`
 	Source string `json:"source"`
 	Seq    uint64 `json:"seq"`
+	// Program is what a program in the pane said of itself (OSC 7501)
+	// while it says working, blocked, done or error.
+	Program *ProgramState `json:"program,omitempty"`
+}
+
+// ProgramState is a program's own state (OSC 7501), or in a report from
+// the daemon what became of it. State is "working", "blocked", "done" or
+// "error"; a report may also say "idle" or "clear", which end it.
+type ProgramState struct {
+	State    string `json:"state"`
+	Kind     string `json:"kind,omitempty"`
+	Progress *int   `json:"progress,omitempty"`
+	Message  string `json:"message,omitempty"`
+	App      string `json:"app,omitempty"`
+	Since    string `json:"since,omitempty"`
 }
 
 // AgentReport is one recorded agent event.
@@ -528,6 +543,7 @@ type AgentReport struct {
 	Cwd       string          `json:"cwd,omitempty"`
 	PID       int             `json:"pid,omitempty"`
 	Data      json.RawMessage `json:"data,omitempty"`
+	Program   *ProgramState   `json:"program,omitempty"`
 }
 
 // Process describes a process.

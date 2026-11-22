@@ -266,15 +266,25 @@ from the reports it gets (section 4, Agents):
   `blocked` with a `kind`, `idle`, `done`, `error`, `clear`; the
   libghostty program status protocol). Its own record (no `id`) becomes a
   report with the source `program`: `working` is working, `blocked` needs
-  you (`kind` permission, question or auth), the others idle. The daemon
-  also answers the program's support query (`ESC ] 7501 ; ? ST`).
+  you (`kind` permission, question or auth), the others idle. What the
+  program said is also kept as it is, in `program` (its state, `kind`,
+  `progress`, `message` and `app`), so that `done` and `error` stay
+  distinct where the agent state says idle for both. The daemon also
+  answers the program's support query (`ESC ] 7501 ; ? ST`).
 - **From the daemon.** When the pane's process exits, or the shell draws
   its prompt again after a command (`D` then `A`), the agent that ran
   there is gone: an agent that was working or needed you ends (`ended`;
   `idle` for a program's own report, which the program status protocol
   drops at the next prompt). The source is `daemon`, the event `exit` or
   `prompt`. At a prompt, an agent whose last hook report named a process
-  (`pid`) that still runs stays: that hook ran from the shell itself.
+  (`pid`) that still runs stays: that hook ran from the shell itself. A
+  program whose own record still said working or blocked then gets its
+  outcome from the command's exit status (`D;<status>`, or the pane's
+  exit): `done` for 0, `error` for any other but 130 (an interrupt the
+  person typed); with no status, or after an interrupt, its record is
+  cleared. A program's `done` or `error` stays through the prompt, and is
+  cleared (`program.state` `clear`, the event `command`, no agent state)
+  when a new command starts in that shell (`C`).
 
 The state, in the Pane object's `agent` once an agent reported:
 
@@ -285,6 +295,7 @@ The state, in the Pane object's `agent` once an agent reported:
 | `since` | When it entered this state. |
 | `assistant`, `session` | Who reports (`claude`, `codex`, ...), and the assistant's own session id. |
 | `event`, `at`, `source`, `seq` | The last report: its event, time, source (`hook`, `program` or `daemon`) and number. |
+| `program` | The program in the pane (OSC 7501) while its own record says `working`, `blocked`, `done` or `error`: `state`, `kind` (with `blocked`), `progress` (0 to 100, when it gave one), `message`, `app` and `since` (when it entered this state). Absent otherwise. |
 
 A report that names no state (a notification that changes nothing) only
 moves `event` and `at`. Messages are text from programs: show them as
@@ -740,7 +751,11 @@ then follows `agent.report`.
 
 **The AgentReport object:** `seq`, `at`, `pane` (absent when unknown),
 `assistant`, `source` (`hook`, `program` or `daemon`), `event`, and when
-set `session`, `state`, `need`, `message`, `cwd`, `pid` and `data`.
+set `session`, `state`, `need`, `message`, `cwd`, `pid`, `data` and
+`program` (a program's own report, or the daemon's report of what became
+of it: `state` `working`, `blocked`, `done`, `error`, `idle` or `clear`,
+with `kind`, `progress`, `message` and `app` as it said them). A program's
+report's `cwd` is its pane's working folder.
 
 #### agent.decisions
 

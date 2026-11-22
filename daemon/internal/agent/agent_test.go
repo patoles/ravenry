@@ -118,3 +118,57 @@ func TestHookDataToolFiles(t *testing.T) {
 		t.Fatalf("not idempotent: %s then %s", out, again)
 	}
 }
+
+// A program's own record: done and error stay apart from idle, its
+// outcome comes from the command's status when it said nothing, and a new
+// command clears it.
+func TestProgramRecord(t *testing.T) {
+	tr := New()
+	_, st := tr.Add(Report{Pane: "p1", Assistant: "deploy", Source: SourceProgram, Event: "status", State: Working, Program: &Program{State: "working", Progress: 60, Message: "Uploading"}})
+	if st.Program == nil || st.Program.State != "working" || st.Program.Progress != 60 || st.Program.Since.IsZero() {
+		t.Fatalf("working %+v", st.Program)
+	}
+	since := st.Program.Since
+	_, st = tr.Add(Report{Pane: "p1", Assistant: "deploy", Source: SourceProgram, Event: "status", State: Working, Program: &Program{State: "working", Progress: 80}})
+	if st.Program.Progress != 80 || !st.Program.Since.Equal(since) {
+		t.Fatalf("the same state keeps its since %+v", st.Program)
+	}
+	if _, _, ok := tr.NewCommand("p1"); ok {
+		t.Fatal("a working record is not cleared by a command start")
+	}
+	r, st, ok := tr.GoneExit("p1", "prompt", 2, true)
+	if !ok || st.State != Idle || r.Program == nil || r.Program.State != "error" || st.Program == nil || st.Program.State != "error" {
+		t.Fatalf("status 2 is error: %+v %+v", r.Program, st.Program)
+	}
+	if _, _, ok := tr.GoneExit("p1", "prompt", 0, true); ok {
+		t.Fatal("an idle pane changes nothing at the next prompt")
+	}
+	r, st, ok = tr.NewCommand("p1")
+	if !ok || r.Program.State != "clear" || st.Program != nil || r.State != "" {
+		t.Fatalf("a new command clears it: %+v %+v", r, st)
+	}
+	tr.Add(Report{Pane: "p1", Source: SourceProgram, Event: "status", State: NeedsYou, Need: &Need{Kind: "auth"}, Program: &Program{State: "blocked", Kind: "auth"}})
+	if _, st, _ := tr.GoneExit("p1", "prompt", 0, true); st.Program == nil || st.Program.State != "done" {
+		t.Fatalf("status 0 is done: %+v", st.Program)
+	}
+	tr.NewCommand("p1")
+	tr.Add(Report{Pane: "p1", Source: SourceProgram, Event: "status", State: Working, Program: &Program{State: "working"}})
+	if _, st, _ := tr.GoneExit("p1", "prompt", 130, true); st.Program != nil {
+		t.Fatalf("an interrupt clears it: %+v", st.Program)
+	}
+	tr.Add(Report{Pane: "p1", Source: SourceProgram, Event: "status", State: Working, Program: &Program{State: "working"}})
+	if _, st, _ := tr.Gone("p1", "prompt"); st.Program != nil {
+		t.Fatalf("no status known clears it: %+v", st.Program)
+	}
+	_, st = tr.Add(Report{Pane: "p1", Source: SourceProgram, Event: "status", State: Idle, Program: &Program{State: "done", Message: "Deployed"}})
+	if st.State != Idle || st.Program == nil || st.Program.State != "done" {
+		t.Fatalf("its own done: %+v", st)
+	}
+	if _, _, ok := tr.GoneExit("p1", "prompt", 1, true); ok {
+		t.Fatal("its own done stays through the prompt")
+	}
+	_, st = tr.Add(Report{Pane: "p1", Source: SourceProgram, Event: "status", State: Idle, Program: &Program{State: "clear"}})
+	if st.Program != nil {
+		t.Fatalf("clear ends it: %+v", st.Program)
+	}
+}

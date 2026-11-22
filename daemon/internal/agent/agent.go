@@ -31,6 +31,26 @@ const (
 	SourceDaemon  = "daemon"
 )
 
+// Program is what a program said of itself with OSC 7501, or what the
+// daemon saw become of it: its state ("working", "blocked", "done",
+// "error"; in a report also "idle" and "clear", which end it), the kind of
+// a block, its progress (0 to 100, or -1 when it gave none), its message
+// and its app name.
+type Program struct {
+	State    string
+	Kind     string
+	Progress int
+	Message  string
+	App      string
+	// Since, in a status, is when it entered this state.
+	Since time.Time
+}
+
+// Program states a status keeps; the others ("idle", "clear") end it.
+func programKept(state string) bool {
+	return state == "working" || state == "blocked" || state == "done" || state == "error"
+}
+
 // Need is what an agent waits for from a person.
 type Need struct {
 	// Kind is "permission", "question", "auth" or "other".
@@ -56,6 +76,10 @@ type Report struct {
 	// Data is what HookData keeps of the hook's input (a JSON object),
 	// or nil.
 	Data []byte
+	// Program is set on a program's own report, and on the daemon's
+	// report of what became of it (its outcome at the prompt, cleared
+	// when a new command starts).
+	Program *Program
 }
 
 // Status is the state of the agent in one pane.
@@ -73,6 +97,11 @@ type Status struct {
 	// PID is the agent's process, from the last hook report (0 when it
 	// did not say).
 	PID int
+	// Program is the program's own record (OSC 7501) while it says
+	// working, blocked, done or error; nil otherwise. Done and error
+	// stay until the program says idle or clear, or a new command
+	// starts in the pane's shell.
+	Program *Program
 }
 
 // Limits of the ring of reports.
@@ -154,6 +183,18 @@ func (t *Tracker) Add(r Report) (Report, *Status) {
 	if r.Source == SourceHook {
 		st.PID = r.PID
 	}
+	if pr := r.Program; pr != nil {
+		if programKept(pr.State) {
+			np := *pr
+			np.Since = r.At
+			if st.Program != nil && st.Program.State == pr.State {
+				np.Since = st.Program.Since
+			}
+			st.Program = &np
+		} else {
+			st.Program = nil
+		}
+	}
 	return r, st.copy()
 }
 
@@ -162,6 +203,10 @@ func (s *Status) copy() *Status {
 	if s.Need != nil {
 		n := *s.Need
 		c.Need = &n
+	}
+	if s.Program != nil {
+		p := *s.Program
+		c.Program = &p
 	}
 	return &c
 }
@@ -187,6 +232,15 @@ func (t *Tracker) Status(pane string) *Status {
 // the shell itself, not from a program that has now ended. It returns the
 // report it recorded, or false when nothing changed.
 func (t *Tracker) Gone(pane, event string) (Report, *Status, bool) {
+	return t.GoneExit(pane, event, 0, false)
+}
+
+// GoneExit is Gone with the exit status of the command or process that
+// ended, when known. A program whose own record still said working or
+// blocked ends as done (status 0) or error (any other status but 130, an
+// interrupt the person typed); with no status, or after an interrupt,
+// its record is cleared.
+func (t *Tracker) GoneExit(pane, event string, code int, known bool) (Report, *Status, bool) {
 	t.mu.Lock()
 	st := t.status[pane]
 	if st == nil || st.State == Ended || (st.State == Idle && (event == "prompt" || st.Source == SourceProgram)) ||
@@ -195,12 +249,39 @@ func (t *Tracker) Gone(pane, event string) (Report, *Status, bool) {
 		return Report{}, nil, false
 	}
 	state := Ended
+	var prog *Program
 	if st.Source == SourceProgram {
 		state = Idle
+		if st.Program != nil && (st.Program.State == "working" || st.Program.State == "blocked") {
+			out := "clear"
+			if known && code == 0 {
+				out = "done"
+			} else if known && code != 130 {
+				out = "error"
+			}
+			prog = &Program{State: out, Progress: -1, App: st.Program.App}
+		}
 	}
 	assistant, session := st.Assistant, st.Session
 	t.mu.Unlock()
-	r, s := t.Add(Report{Pane: pane, Assistant: assistant, Session: session, Source: SourceDaemon, Event: event, State: state})
+	r, s := t.Add(Report{Pane: pane, Assistant: assistant, Session: session, Source: SourceDaemon, Event: event, State: state, Program: prog})
+	return r, s, true
+}
+
+// NewCommand clears a program's done or error record when a new command
+// starts in the pane's shell (OSC 133 C): what it said is about a command
+// that is over. It returns the report it recorded, or false when there
+// was nothing to clear.
+func (t *Tracker) NewCommand(pane string) (Report, *Status, bool) {
+	t.mu.Lock()
+	st := t.status[pane]
+	if st == nil || st.Program == nil || (st.Program.State != "done" && st.Program.State != "error") {
+		t.mu.Unlock()
+		return Report{}, nil, false
+	}
+	assistant, session, app := st.Assistant, st.Session, st.Program.App
+	t.mu.Unlock()
+	r, s := t.Add(Report{Pane: pane, Assistant: assistant, Session: session, Source: SourceDaemon, Event: "command", Program: &Program{State: "clear", Progress: -1, App: app}})
 	return r, s, true
 }
 

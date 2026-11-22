@@ -438,6 +438,10 @@
         "data": {
           "type": "object",
           "description": "What the status and the hand-off read of the hook's input (PROTOCOL.md, agent.report): never the prompt, a tool's input or output."
+        },
+        "program": {
+          "$ref": "#/$defs/ProgramState",
+          "description": "On a program's own report, and on the daemon's report of what became of it (done or error from the command's exit status at the prompt, clear when a new command starts)."
         }
       },
       "required": [
@@ -520,6 +524,10 @@
         },
         "seq": {
           "$ref": "#/$defs/Seq"
+        },
+        "program": {
+          "$ref": "#/$defs/ProgramState",
+          "description": "The program in the pane, while its own record says working, blocked, done or error."
         }
       },
       "required": [
@@ -552,6 +560,54 @@
           }
         }
       ]
+    },
+    "ProgramState": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "working",
+            "blocked",
+            "done",
+            "error",
+            "idle",
+            "clear"
+          ],
+          "description": "What the program said (OSC 7501), or what the daemon saw become of it. A status keeps working, blocked, done and error; idle and clear, only in a report, end it."
+        },
+        "kind": {
+          "enum": [
+            "permission",
+            "question",
+            "auth"
+          ],
+          "description": "With blocked: what it waits for, when it said."
+        },
+        "progress": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Its progress, when it gave one."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Its own words (msg, else title). Text from a program: show it as text, never as markup."
+        },
+        "app": {
+          "type": "string",
+          "description": "Its app name, when it gave one."
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "In a status: when it entered this state."
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false,
+      "description": "A program's own state (OSC 7501), kept apart from the agent state so that done and error stay distinct: a client that reads only the agent state sees idle for both, as before."
     },
     "AssistantName": {
       "type": "string",

@@ -42,6 +42,18 @@ export interface AgentStatus {
   at?: string;
   source?: 'hook' | 'program' | 'daemon';
   seq?: number;
+  /** The program in the pane (OSC 7501) while it says working, blocked, done or error. */
+  program?: ProgramState;
+}
+
+/** A program's own state (OSC 7501), or in a report what became of it. */
+export interface ProgramState {
+  state: 'working' | 'blocked' | 'done' | 'error' | 'idle' | 'clear';
+  kind?: 'permission' | 'question' | 'auth';
+  progress?: number;
+  message?: string;
+  app?: string;
+  since?: string;
 }
 
 export interface AgentReport {
@@ -58,6 +70,7 @@ export interface AgentReport {
   cwd?: string;
   pid?: number;
   data?: Record<string, unknown>;
+  program?: ProgramState;
 }
 
 export interface Process {

@@ -200,12 +200,15 @@ func TestShellMarksAndProgramStatus(t *testing.T) {
 	script := `printf '\033]133;A\007$ \033]133;B\007'
 while read line; do
   printf '\033]133;C\007'
+  code=3
   case "$line" in
     blocked) printf '\033]7501;state=blocked:kind=permission:app=terraform:msg=QXBwbHk/\033\\' ;;
     working) printf '\033]7501;state=working:app=terraform\033\\' ;;
+    progress) printf '\033]7501;state=working:app=deploy:progress=60:msg=VXBsb2FkaW5n\033\\'; code=0 ;;
+    done) printf '\033]7501;state=done:app=deploy:msg=RGVwbG95ZWQ=\033\\'; code=0 ;;
     *) echo "ran $line" ;;
   esac
-  printf '\033]133;D;3\007\033]133;A\007$ \033]133;B\007'
+  printf '\033]133;D;%s\007\033]133;A\007$ \033]133;B\007' "$code"
 done`
 	p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", script}})
 	ev := nextEvent(t, c, "pane.prompt", func(e proto.Event) bool { return e.Pane.ID == p.ID })
@@ -232,10 +235,59 @@ done`
 	if r := ev.Report; r.Source != "program" || r.Assistant != "terraform" || r.State != "needs_you" || r.Need == nil || r.Need.Kind != "permission" || r.Need.Message != "Apply?" {
 		t.Fatalf("program report %+v", ev.Report)
 	}
-	// Its command ended and the shell drew its prompt: no longer blocked.
+	if pr := ev.Report.Program; pr == nil || pr.State != "blocked" || pr.Kind != "permission" || pr.Progress != nil {
+		t.Fatalf("program state in the report %+v", pr)
+	}
+	// Its command ended and the shell drew its prompt: no longer blocked,
+	// and the command's status 3 says it failed.
 	ev = nextEvent(t, c, "agent.report", nil)
-	if r := ev.Report; r.Source != "daemon" || r.Event != "prompt" || r.State != "idle" {
+	if r := ev.Report; r.Source != "daemon" || r.Event != "prompt" || r.State != "idle" || r.Program == nil || r.Program.State != "error" {
 		t.Fatalf("after the prompt %+v", ev.Report)
+	}
+	if a := ev.Pane.Agent; a == nil || a.State != "idle" || a.Program == nil || a.Program.State != "error" || a.Program.Since == "" {
+		t.Fatalf("pane agent after the prompt %+v", ev.Pane.Agent)
+	}
+	// A new command clears it.
+	call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{{"text": "x\n", "mode": "raw"}}})
+	ev = nextEvent(t, c, "agent.report", nil)
+	if r := ev.Report; r.Source != "daemon" || r.Event != "command" || r.State != "" || r.Program == nil || r.Program.State != "clear" {
+		t.Fatalf("a new command %+v", ev.Report)
+	}
+	if a := ev.Pane.Agent; a == nil || a.Program != nil {
+		t.Fatalf("cleared %+v", ev.Pane.Agent)
+	}
+	// Progress, then the command ends with status 0: done.
+	call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{{"text": "progress\n", "mode": "raw"}}})
+	ev = nextEvent(t, c, "agent.report", func(e proto.Event) bool { return e.Report.Source == "program" })
+	if r := ev.Report; r.State != "working" || r.Program == nil || r.Program.State != "working" || r.Program.Progress == nil || *r.Program.Progress != 60 || r.Program.Message != "Uploading" || r.Cwd == "" {
+		t.Fatalf("progress %+v %+v", ev.Report, ev.Report.Program)
+	}
+	ev = nextEvent(t, c, "agent.report", nil)
+	if r := ev.Report; r.Event != "prompt" || r.Program == nil || r.Program.State != "done" {
+		t.Fatalf("done by its status %+v", ev.Report)
+	}
+	// Its own done stays through the prompt, with its message, until the
+	// next command.
+	call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{{"text": "done\n", "mode": "raw"}}})
+	ev = nextEvent(t, c, "agent.report", nil)
+	if r := ev.Report; r.Source != "daemon" || r.Event != "command" {
+		t.Fatalf("the done command clears the last one first %+v", ev.Report)
+	}
+	ev = nextEvent(t, c, "agent.report", nil)
+	if r := ev.Report; r.Source != "program" || r.State != "idle" || r.Program == nil || r.Program.State != "done" || r.Program.Message != "Deployed" {
+		t.Fatalf("its own done %+v", ev.Report)
+	}
+	nextEvent(t, c, "pane.prompt", func(e proto.Event) bool { return e.Pane.Shell.State == "prompt" })
+	pl := call[proto.ListResult](t, c, "pane.list", nil)
+	for _, x := range pl.Panes {
+		if x.ID == p.ID && (x.Agent == nil || x.Agent.Program == nil || x.Agent.Program.State != "done" || x.Agent.Program.Message != "Deployed") {
+			t.Fatalf("done kept at the prompt %+v", x.Agent)
+		}
+	}
+	call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{{"text": "y\n", "mode": "raw"}}})
+	ev = nextEvent(t, c, "agent.report", nil)
+	if r := ev.Report; r.Event != "command" || r.Program == nil || r.Program.State != "clear" {
+		t.Fatalf("done cleared by a new command %+v", ev.Report)
 	}
 	// A hook's agent that was working when the prompt came back ended.
 	call[proto.AgentReportResult](t, c, "agent.report", map[string]any{"pane": p.ID, "assistant": "claude", "event": "UserPromptSubmit", "state": "working"})

@@ -47,6 +47,14 @@ func (s *Server) paneEvent(ev pane.Event) {
 			r.Assistant = st.App
 		}
 		r.Message = clip(firstNonEmpty(st.Message, st.Title), maxReportText)
+		r.Cwd = ev.Pane.Cwd
+		// The program's own state, kept apart from the agent state so
+		// that done and error stay distinct (a client that knows only
+		// the agent states reads idle, as before).
+		r.Program = &agent.Program{State: st.State, Kind: st.Kind, Progress: st.Progress, Message: r.Message, App: r.Assistant}
+		if r.Program.Progress < 0 || r.Program.Progress > 100 {
+			r.Program.Progress = -1
+		}
 		switch st.State {
 		case "working":
 			r.State = agent.Working
@@ -62,12 +70,29 @@ func (s *Server) paneEvent(ev pane.Event) {
 		}
 		s.report(r)
 	case "exited":
-		if r, _, ok := s.agents.Gone(ev.Pane.ID, "exit"); ok {
+		code, known := 0, false
+		if x := ev.Pane.Exit; x != nil {
+			code, known = x.Code, x.Signal == ""
+			if x.Signal == "SIGINT" {
+				code, known = 130, true
+			}
+		}
+		if r, _, ok := s.agents.GoneExit(ev.Pane.ID, "exit", code, known); ok {
 			s.publish(r)
 		}
 	case "prompt":
-		if ev.Pane.Shell != nil && ev.Pane.Shell.State == "prompt" {
-			if r, _, ok := s.agents.Gone(ev.Pane.ID, "prompt"); ok {
+		sh := ev.Pane.Shell
+		if sh != nil && sh.State == "prompt" {
+			code, known := 0, false
+			if sh.ExitCode != nil {
+				code, known = *sh.ExitCode, true
+			}
+			if r, _, ok := s.agents.GoneExit(ev.Pane.ID, "prompt", code, known); ok {
+				s.publish(r)
+			}
+		} else if sh != nil && sh.State == "running" {
+			// A new command: what the last program said is over.
+			if r, _, ok := s.agents.NewCommand(ev.Pane.ID); ok {
 				s.publish(r)
 			}
 		}
@@ -137,7 +162,23 @@ func statusInfo(st *agent.Status) *proto.AgentStatus {
 	return &proto.AgentStatus{
 		State: st.State, Since: stamp(st.Since), Assistant: st.Assistant, Session: st.Session,
 		Need: needInfo(st.Need), Event: st.Event, At: stamp(st.At), Source: st.Source, Seq: st.Seq,
+		Program: programInfo(st.Program, true),
 	}
+}
+
+func programInfo(p *agent.Program, status bool) *proto.ProgramState {
+	if p == nil {
+		return nil
+	}
+	out := &proto.ProgramState{State: p.State, Kind: p.Kind, App: p.App, Message: p.Message}
+	if p.Progress >= 0 && p.Progress <= 100 {
+		n := p.Progress
+		out.Progress = &n
+	}
+	if status {
+		out.Since = stamp(p.Since)
+	}
+	return out
 }
 
 func needInfo(n *agent.Need) *proto.Need {
@@ -151,7 +192,7 @@ func reportInfo(r agent.Report) *proto.AgentReport {
 	return &proto.AgentReport{
 		Seq: r.Seq, At: stamp(r.At), Pane: r.Pane, Assistant: r.Assistant, Source: r.Source, Event: r.Event,
 		Session: r.Session, State: r.State, Need: needInfo(r.Need), Message: r.Message, Cwd: r.Cwd, PID: r.PID,
-		Data: json.RawMessage(r.Data),
+		Data: json.RawMessage(r.Data), Program: programInfo(r.Program, false),
 	}
 }
 
