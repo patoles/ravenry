@@ -2,7 +2,7 @@
 
 # Ravenry
 
-The open-source terminal for Claude Code and Codex.
+The open-source terminal for Claude Code, Codex, OpenCode and Antigravity CLI.
 
 Ravenry runs your coding agents in real terminals, on your Mac and on your
 other machines over ssh, and puts every session on one board, sorted by
@@ -16,8 +16,8 @@ the same time. Answer from either one.
   splits. Sessions keep running when you quit or update the app.
 - **One board.** Every session, grouped as Needs you, Working and Idle,
   with its live screen.
-- **Your phone.** The Android and iPhone apps show every project and answer
-  from the notification.
+- **Your phone.** The Android and iPhone apps show every project, start new
+  sessions and answer from the notification.
 - **Your machines.** Linux and Mac machines over ssh, on the same board.
 
 A short video: [docs/media/ravenry-30s.mp4](docs/media/ravenry-30s.mp4).
@@ -27,8 +27,8 @@ A short video: [docs/media/ravenry-30s.mp4](docs/media/ravenry-30s.mp4).
 Ravenry is in an early test: get the Mac app (Apple silicon, macOS 13 or
 later), the Android app and the iPhone and iPad app from
 **https://patoles.github.io/ravenry/**.
-The Mac app updates itself. It works with Claude Code and Codex, installed
-and signed in.
+The Mac app updates itself. It works with Claude Code, Codex, OpenCode and
+Antigravity CLI, installed and signed in.
 
 ## Build from source
 
