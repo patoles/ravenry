@@ -136,6 +136,10 @@ func TestProgramRecord(t *testing.T) {
 	if _, _, ok := tr.NewCommand("p1"); ok {
 		t.Fatal("a working record is not cleared by a command start")
 	}
+	_, st = tr.Add(Report{Pane: "p1", Assistant: "deploy", Source: SourceProgram, Event: "status", State: NeedsYou, Need: &Need{Kind: "auth"}, Program: &Program{State: "blocked", Kind: "auth", Progress: -1}})
+	if st.Program.Progress != 80 {
+		t.Fatalf("blocked with no progress keeps the last: %+v", st.Program)
+	}
 	r, st, ok := tr.GoneExit("p1", "prompt", 2, true)
 	if !ok || st.State != Idle || r.Program == nil || r.Program.State != "error" || st.Program == nil || st.Program.State != "error" {
 		t.Fatalf("status 2 is error: %+v %+v", r.Program, st.Program)

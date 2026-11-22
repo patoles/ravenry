@@ -295,7 +295,7 @@ The state, in the Pane object's `agent` once an agent reported:
 | `since` | When it entered this state. |
 | `assistant`, `session` | Who reports (`claude`, `codex`, ...), and the assistant's own session id. |
 | `event`, `at`, `source`, `seq` | The last report: its event, time, source (`hook`, `program` or `daemon`) and number. |
-| `program` | The program in the pane (OSC 7501) while its own record says `working`, `blocked`, `done` or `error`: `state`, `kind` (with `blocked`), `progress` (0 to 100, when it gave one), `message`, `app` and `since` (when it entered this state). Absent otherwise. |
+| `program` | The program in the pane (OSC 7501) while its own record says `working`, `blocked`, `done` or `error`: `state`, `kind` (with `blocked`), `progress` (0 to 100, when it gave one; `blocked` with none keeps the last), `message`, `app` and `since` (when it entered this state). Absent otherwise. |
 
 A report that names no state (a notification that changes nothing) only
 moves `event` and `at`. Messages are text from programs: show them as

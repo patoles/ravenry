@@ -190,6 +190,11 @@ func (t *Tracker) Add(r Report) (Report, *Status) {
 			if st.Program != nil && st.Program.State == pr.State {
 				np.Since = st.Program.Since
 			}
+			// Blocked with no progress of its own waits where its work
+			// stood: it keeps the last progress.
+			if pr.State == "blocked" && pr.Progress < 0 && st.Program != nil && (st.Program.State == "working" || st.Program.State == "blocked") {
+				np.Progress = st.Program.Progress
+			}
 			st.Program = &np
 		} else {
 			st.Program = nil
