@@ -192,6 +192,7 @@ final class PanelView: Box {
         signature = sig
         key = front ?? ""
         buttons = [:]
+        programLines = [:]
         pictureView = nil
         shownCard = nil
         var rows: [NSView] = []
@@ -208,6 +209,11 @@ final class PanelView: Box {
             shows = "loose"
             setHead(c["project"] as? String ?? t("panel.waitingForYou"), tag: (c["assistant"] as? String).map(assistantName), machine: c["machine"] as? String, pinKey: nil)
             rows = DaemonCheckpoints.isOpen(c) ? [stateLine("you", t("panel.needsSince", ["time": When.clock(c["created_at"] as? String)])), card(c)] : [card(c)]
+        } else if let k = front, let f = state?.find(k), let pg = f.session.program {
+            // A plain program (SESS-056): its command, Shell, and what it said.
+            shows = "program"
+            setHead(pg.command ?? f.session.topic ?? f.project.name, tag: ProgramWords.shell, machine: f.session.machine ?? f.project.machine, pinKey: nil)
+            rows = programBody(f.project, f.session, pg, key: k, pane: pane)
         } else if let st = state, let k = front, let f = st.find(k) {
             shows = "session"
             // Kept by its pane: when it leaves the board, its tab's panel still says what it was.
@@ -812,6 +818,62 @@ final class PanelView: Box {
         }
         return s.isEmpty ? nil : s
     }
+
+    // MARK: a plain program (SESS-056)
+
+    /// Its state in words (blocked, working, done, failed), what it said and when, its question
+    /// with a box that types into its pane, then where it runs and who can type there.
+    private func programBody(_ p: HubProject, _ s: HubSession, _ pg: ProgramInfo, key: String, pane: (id: String, name: String, cwd: String, command: [String])?) -> [NSView] {
+        var out: [NSView] = []
+        let cmd = pg.command ?? s.topic ?? p.name
+        let g = ["blocked": "you", "working": "work", "failed": "bad", "done": "ok"][pg.state] ?? "idle"
+        let c = g == "idle" ? "tx2" : g
+        let l = label(ProgramWords.state(pg, command: cmd), Fonts.pt(12.5, .semibold), c, lines: 3)
+        l.preferredMaxLayoutWidth = PanelView.width - 56 - 21
+        let ring = Icon(["you", "work"].contains(g) ? "ring-\(g)" : "ring-idle", c, size: 14)
+        let line = hstack([ring, l, spring()], spacing: 7)
+        line.alignment = .top
+        line.setAccessibilityElement(true)
+        line.setAccessibilityLabel(l.stringValue)
+        programLines["state"] = l.stringValue
+        out.append(line)
+        let indent = { (v: NSView) -> NSView in hstack([v], spacing: 0, insets: NSEdgeInsets(top: 0, left: 21, bottom: 0, right: 0)) }
+        if pg.state == "blocked" {
+            let said = label(ProgramWords.said(pg.since), Fonts.pt(12), "tx3", lines: 2)
+            programLines["said"] = said.stringValue
+            out.append(said)
+            if let m = pg.message {
+                let q = boxed(para(m, size: 13), fill: "card", ring: "you", radius: 10, insets: NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14))
+                q.setAccessibilityLabel(m)
+                programLines["message"] = m
+                out.append(q)
+            }
+            if let h = host {
+                let b = ProgramReplyBox(key: key, project: p, session: s, hub: h.hub, width: PanelView.width - 28) { [weak self] in self?.host?.toast($0) }
+                programReply = b
+                out.append(b)
+            }
+        } else if let m = pg.message {
+            let t0 = para(m, "tx2", size: 12)
+            programLines["message"] = m
+            out.append(indent(t0))
+        }
+        if let pid = s.pane ?? pg.pane, let o = host?.opened(pid) {
+            out.append(hstack([Icon("shell", "tx3", size: 13), label(o, Fonts.pt(12), "tx3", lines: 2)], spacing: 7, insets: NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)))
+        }
+        // Where it runs, what, and the project it counts in.
+        let folder = pg.folder ?? pane.map { tilde($0.cwd) } ?? p.folderShort ?? ""
+        var rows: [NSView?] = []
+        if !folder.isEmpty { rows.append(kv(t("panel.folder"), folder, mono: true)) }
+        rows.append(kv(t("panel.runs"), cmd, mono: true))
+        if !(p.raw["loose"] as? Bool ?? false) { rows.append(kv(t("panel.project"), p.name, mono: true)) }
+        out.append(sec(nil, rows))
+        if let pn = pane, pn.id == (s.pane ?? pg.pane), let h = host { out.append(whoCanType(pn.id, h.whoCanType(pn.id))) }
+        return out
+    }
+    /// What the program's panel says, for the self-test: state, said, message.
+    private(set) var programLines: [String: String] = [:]
+    private(set) weak var programReply: ProgramReplyBox?
 
     // MARK: a project, a shell
 

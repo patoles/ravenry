@@ -415,7 +415,8 @@ final class Board: NSObject {
             let rs = self.ws.paneInfo(pane)?.agentState
             var group: String? = rs == "needs_you" ? "you" : rs == "working" ? "work" : nil
             if let st = self.hub.state {
-                for p in st.projects where p.machine == nil { for s in p.sessions where s.pane == pane && s.machine == nil { group = s.group } }
+                // A plain program done or failed (SESS-056): its row says so, its tab has no dot.
+                for p in st.projects where p.machine == nil { for s in p.sessions where s.pane == pane && s.machine == nil { group = s.program.map { $0.ended || s.group == "idle" } ?? false ? nil : s.group } }
             }
             // A question open in it, from the board or this window's daemons (the board down too).
             if self.hub.checkpoint(pane: pane) != nil { group = "you" }
@@ -744,7 +745,9 @@ final class Board: NSObject {
         guard let f = st.find(key) else { return }
         let title = f.session.topic ?? f.project.name
         let w = f.session.words
-        let what = InlineMd.plain(((w["question"] as? String) ?? (w["headline"] as? String) ?? (w["line"] as? String) ?? "").replacingOccurrences(of: "\n", with: " "))
+        // A plain program (SESS-056): its own line, as it said it ("npm run deploy in recipe-box needs you: Waiting for the 2FA code").
+        let what = f.session.program.map { ($0.message ?? "").replacingOccurrences(of: "\n", with: " ") }
+            ?? InlineMd.plain(((w["question"] as? String) ?? (w["headline"] as? String) ?? (w["line"] as? String) ?? "").replacingOccurrences(of: "\n", with: " "))
         let said = what.isEmpty ? "." : ": " + (what.count > 70 ? String(what.prefix(69)) + "..." : what)
         let proj = title != f.project.name ? " in \(f.project.name)" : ""
         log.append("arrived \(key): a toast")
@@ -847,6 +850,23 @@ final class Board: NSObject {
             note("session \(why) \(key): its view outside Ravenry")
         }
         render()
+    }
+
+    /// A plain program done or failed that is in front (its tab, its panel): its key, project and surface.
+    private var programShown: (key: String, project: String, surface: String)?
+    /// Once the person leaves a done or failed program they opened (another row, tab, project or page,
+    /// its tab closed), it is seen: the board lets its row go (SESS-056). Not at the click itself:
+    /// the board drops a seen program at its next look, which would empty the panel it just opened.
+    private func followProgramSeen(_ st: HubState?) {
+        let k = frontKey
+        let now: (key: String, project: String, surface: String)? = k.flatMap { k in st?.find(k).flatMap { f in f.session.program.map { $0.ended } ?? false ? (key: k, project: f.project.id, surface: f.session.surfaceId) : nil } }
+        if let was = programShown, was.key != now?.key {
+            note("program \(was.key): left, seen")
+            hub.post("/api/program/seen", ["projectId": was.project, "surfaceId": was.surface]) { [weak self] code, j in
+                if code != 200 { self?.note("program \(was.key): seen not taken (\(code) \(j["error"] as? String ?? ""))") }
+            }
+        }
+        programShown = now
     }
 
     func pickProject(_ id: String, why: String = "project") {
@@ -1753,6 +1773,7 @@ final class Board: NSObject {
 
     func render(force: Bool = false) {
         let st = hub.state
+        followProgramSeen(st)
         // A pane a move or Continue started, once this window has it.
         if let a = awaitTab {
             if front != a.from || Date() > a.until { awaitTab = nil }

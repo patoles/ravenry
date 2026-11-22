@@ -35,6 +35,8 @@ struct SideRow {
     /// The model its transcript last named (hub/server/models.mjs): "Opus 5.5", "gpt-5.4"; its family alone, "Opus", "Codex".
     let model: String?, modelShort: String?
     let line: String?, mark: SideMark?, group: String, machine: String?
+    /// A plain program's row (SESS-056): its state ("working", "blocked", "done", "failed") and progress, nil for a session.
+    let program: (state: String, progress: Int?)?
     /// The chip's word: the model where the row is wide, its family where it is narrow, else the assistant.
     func chip(narrow: Bool) -> String? { (narrow ? modelShort ?? model : model) ?? assistant }
     init(_ d: [String: Any]) {
@@ -43,7 +45,24 @@ struct SideRow {
         model = d["model"] as? String; modelShort = d["modelShort"] as? String
         line = d["line"] as? String; mark = (d["mark"] as? [String: Any]).map(SideMark.init)
         group = d["group"] as? String ?? "idle"; machine = d["machine"] as? String
+        let pg = d["program"] as? [String: Any]
+        program = (pg?["state"] as? String).map { ($0, (pg?["progress"] as? NSNumber)?.intValue) }
     }
+}
+
+/// A plain program's status in its session (SESS-056: OSC 7501 from a build or a deploy, as the hub
+/// reads it from the pane): its state, what it waits for, its progress and its own words.
+struct ProgramInfo {
+    let state: String, kind: String?, progress: Int?, message: String?, command: String?, app: String?
+    let since: String?, folder: String?, pane: String?, held: Bool
+    init?(_ d: [String: Any]?) {
+        guard let d, let st = d["state"] as? String else { return nil }
+        state = st; kind = d["kind"] as? String; progress = (d["progress"] as? NSNumber)?.intValue
+        message = (d["message"] as? String).flatMap { $0.isEmpty ? nil : $0 }; command = d["command"] as? String; app = d["app"] as? String
+        since = d["since"] as? String; folder = d["folder"] as? String; pane = d["pane"] as? String; held = d["held"] as? Bool ?? false
+    }
+    /// Done or failed, kept on the board until the person opens it.
+    var ended: Bool { state == "done" || state == "failed" }
 }
 
 struct SideProject {
@@ -130,6 +149,8 @@ final class HubSession {
     /// Its hand-off (hub/server/handoff.mjs): Hand off now was asked and waits for a clean point.
     var handoff: [String: Any]? { raw["handoff"] as? [String: Any] }
     var handoffQueued: Bool { (handoff?["manual"] as? Bool ?? false) && !["written", "resumed"].contains(handoff?["state"] as? String ?? "") }
+    /// A plain program, not an assistant (SESS-056), else nil.
+    var program: ProgramInfo? { ProgramInfo(raw["program"] as? [String: Any]) }
 }
 
 /// One process of state.sessions (the hub's Sessions view, server/index.mjs

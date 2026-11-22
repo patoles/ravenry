@@ -468,7 +468,8 @@ final class SidebarView: Flipped {
     private func sessionRow(_ r: SideRow, selected: Bool, pinned: Bool) -> NSView {
         let row = Row()
         row.key = r.key
-        let dot = Box(fill: r.group, radius: 3.5)
+        // A plain program done or failed (SESS-056): its dot green or red.
+        let dot = Box(fill: r.program.map { $0.state == "done" ? "ok" : $0.state == "failed" ? "bad" : r.group } ?? r.group, radius: 3.5)
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
         dot.heightAnchor.constraint(equalToConstant: 7).isActive = true
@@ -476,7 +477,10 @@ final class SidebarView: Flipped {
         let tag = r.chip(narrow: narrowChips).map { assistantChip($0) }
         tag?.toolTip = [r.assistant, r.model].compactMap { $0 }.joined(separator: " ")
         tags[r.key] = tag
-        let pc = fixedLabel(r.pct.map { "\($0)%" } ?? "", Fonts.pt(11.5).withTabularDigits, r.pctWarn ? "you" : "tx3")
+        // A plain program (SESS-056): its progress where the context is, else Done or Failed in their colours.
+        let pcText = r.program.map { ProgramWords.rowWord($0.state, progress: $0.progress) } ?? r.pct.map { "\($0)%" } ?? ""
+        let pc = fixedLabel(pcText, Fonts.pt(11.5, r.program.map { $0.state == "done" || $0.state == "failed" } ?? false ? .medium : .regular).withTabularDigits,
+                            r.program.map { ProgramWords.rowColor($0.state) } ?? (r.pctWarn ? "you" : "tx3"))
         pc.alignment = .right
         let pinB = RButton(pinned ? t("side.unpin") : t("side.pin"), .icon, small: true, icon: "pin")
         pinB.removeConstraints(pinB.constraints.filter { $0.firstAttribute == .width || $0.firstAttribute == .height })
@@ -489,7 +493,7 @@ final class SidebarView: Flipped {
         // The percent's slot, 28 wide: an unpinned row's pin shows there on hover.
         let slot = Flipped()
         slot.translatesAutoresizingMaskIntoConstraints = false
-        slot.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        slot.widthAnchor.constraint(equalToConstant: max(28, ceil(pc.intrinsicContentSize.width))).isActive = true
         slot.heightAnchor.constraint(equalToConstant: 18).isActive = true
         slot.addSubview(pc)
         pc.translatesAutoresizingMaskIntoConstraints = false
@@ -510,7 +514,8 @@ final class SidebarView: Flipped {
             second = hstack([Icon(icon, "you", size: 13), yields(m.code ? label(m.text, Fonts.mono(11.5), "tx") : label(md: m.text, Fonts.pt(12), "tx2"))],
                             spacing: 6, insets: NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 0))
         } else if let l = r.line {
-            second = hstack([yields(label(md: l, Fonts.pt(12), "tx2"))], spacing: 0, insets: NSEdgeInsets(top: 0, left: 15, bottom: 0, right: 0))
+            // A program's own words are text, never markup.
+            second = hstack([yields(r.program != nil ? label(l, Fonts.pt(12), "tx2") : label(md: l, Fonts.pt(12), "tx2"))], spacing: 0, insets: NSEdgeInsets(top: 0, left: 15, bottom: 0, right: 0))
         } else if let u = uses[r.key] {
             // An agent holding a pane, or waiting for one (useLine).
             second = hstack([Icon(u.holds ? "holds" : "clock", u.holds ? "claude" : "tx3", size: 13), yields(label(u.text, Fonts.pt(12), u.holds ? "tx2" : "tx3"))],
@@ -520,7 +525,7 @@ final class SidebarView: Flipped {
         row.addSubview(col)
         pinEdges(col, row)
         row.selected = selected
-        row.setAccessibilityLabel([r.name, { () -> String? in let w = [r.assistant, r.model].compactMap { $0 }.joined(separator: " "); return w.isEmpty ? nil : w }(), r.pct.map { "\($0)%" }, pinned ? t("side.pinned") : nil, r.mark?.text ?? r.line ?? uses[r.key]?.text].compactMap { $0 }.joined(separator: ", "))
+        row.setAccessibilityLabel([r.name, { () -> String? in let w = [r.assistant, r.model].compactMap { $0 }.joined(separator: " "); return w.isEmpty ? nil : w }(), pcText.isEmpty ? nil : pcText, pinned ? t("side.pinned") : nil, r.mark?.text ?? r.line ?? uses[r.key]?.text].compactMap { $0 }.joined(separator: ", "))
         row.toolTip = [r.name, r.mark?.text ?? r.line].compactMap { $0 }.joined(separator: "\n")
         row.onOpen = { [weak self] in self?.onSession?(r.key) }
         row.menuItems = { [weak self] in self?.sessionMenu(r, pinned: pinned) }

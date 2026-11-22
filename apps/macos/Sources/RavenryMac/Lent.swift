@@ -179,9 +179,9 @@ extension Board {
         }
         if let c = creator, c["kind"] as? String != "person" { add(c) }
         for g in gs { if let a = g["agent"] as? [String: Any] { add(a) } }
-        // The agents of the sessions this window's daemon runs.
+        // The agents of the sessions this window's daemon runs (a plain program is no agent: SESS-056).
         for p in hub.state?.projects ?? [] where p.machine == nil {
-            for s in p.sessions where s.machine == nil {
+            for s in p.sessions where s.machine == nil && s.program == nil {
                 if let sp = s.pane, sp != pane, ws.paneInfo(sp) != nil { add(["kind": "agent", "pane": sp]) }
             }
         }

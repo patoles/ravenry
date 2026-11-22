@@ -554,6 +554,9 @@ if (SCREEN === 'cards' || SCREEN === 'pickzoom' || SCREEN === 'pickvideo') {
   for (let i = 0; !agentSock; i++) { const f = fs.readdirSync(AGENT_RUN).find((n) => /^ravenryd-.+\.sock$/.test(n)); if (f) agentSock = path.join(AGENT_RUN, f); else { if (i > 100) throw new Error('the agents\' daemon did not start'); await sleep(50); } }
 }
 if (SCREEN === 'cards' || SCREEN === 'pickzoom' || SCREEN === 'pickvideo') Object.assign(screenHub, { runtime: AGENT_RUN, env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
+// --screen programs (SelfTestPrograms.swift, SESS-056): the board follows this test's daemon, whose
+// shells run "npm run deploy" in recipe-box and "make release" in star-map (a project of its own here).
+if (SCREEN === 'programs') Object.assign(screenHub, { runtime: run, extra: [...(screenHub.extra || []), { id: 'star-map', name: 'star-map' }], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
 if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
 // --screen write (write-fixture.mjs): the board in Ravenry mode on this test's daemon, the app behind a proxy that logs the hub's answers.
 const WRITE = SCREEN === 'write';
