@@ -1,8 +1,8 @@
 # The launch page
 
 Ravenry's download page for the early test: one static page, dark, with the
-Mac app and the phone drawn large, and the links to the Mac app (DMG) and the
-Android app (APK). No build step, no fonts or scripts from elsewhere, no
+Mac app and the phone drawn large, and the links to the Mac app (DMG), the
+Android app (APK) and the iPhone and iPad app (the App Store). No build step, no fonts or scripts from elsewhere, no
 trackers: it uses the system fonts and the files in this folder only.
 
 | File | What it is |
@@ -26,6 +26,7 @@ At the top of `index.html`, `window.RAVENRY_SITE`:
 - `apkFile`: the APK's name, the same on every release (`Ravenry-android.apk`).
 - `downloads`: where GitHub serves the latest release's files
   (`.../releases/latest/download/`).
+- `iosUrl`: the iPhone and iPad app's App Store page.
 - `reportUrl`: where "report a problem" goes (a new GitHub issue).
 - `sourceUrl`: the source code on GitHub, the footer's link.
 - `firstLaunchNote`: `true` shows "The first time, macOS asks: open System
