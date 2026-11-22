@@ -75,7 +75,7 @@ class ConnectionService : Service() {
     data class Counts(val work: Int, val you: Int, val machines: List<String>)
 
     companion object {
-        private val GROUP = mapOf("dialog" to "you", "asked" to "you", "draft" to "you", "handback" to "you", "working" to "work")
+        private val GROUP = mapOf("dialog" to "you", "asked" to "you", "blocked" to "you", "draft" to "you", "handback" to "you", "working" to "work")
 
         /** The counts from a state snapshot, or null when it is not one. */
         fun counts(json: String): Counts? {
@@ -100,7 +100,9 @@ class ConnectionService : Service() {
                 for (j in 0 until ss.length()) {
                     val s = ss.optJSONObject(j) ?: continue
                     s.str("machine")?.let { machines += MacName.say(it) }
-                    val g = if (s.str("surfaceId") in waiting) "you" else GROUP[s.str("state")] ?: s.optJSONObject("words").str("state")
+                    // The hub's own group for it first (state.projects[].sessions[].group): a
+                    // state this app does not know (a waiting program's "blocked") still counts.
+                    val g = if (s.str("surfaceId") in waiting) "you" else s.str("group") ?: GROUP[s.str("state")] ?: s.optJSONObject("words").str("state")
                     if (g == "work") work++ else if (g == "you") you++
                 }
             }

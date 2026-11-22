@@ -155,6 +155,9 @@ class AlertsTest {
         // A working session whose agent waits on an open checkpoint needs you.
         val cp = """{"projects":[{"sessions":[{"surfaceId":"ravenry:pa","state":"working"},{"surfaceId":"ravenry:pb","state":"working"}]}],"checkpoints":[{"state":"open","surfaceId":"ravenry:pa"},{"state":"answered","surfaceId":"ravenry:pb"}]}"""
         assertEquals(ConnectionService.Line("Connected to MacBook Pro", "Tailscale. 1 working, 1 needs you."), ConnectionService.up("MacBook Pro", "tailscale-mac", ConnectionService.counts(cp)))
+        // A program that waits in its pane (SESS-056): "blocked", with the hub's group, and without it.
+        val prog = ConnectionService.counts("""{"projects":[{"sessions":[{"surfaceId":"ravenry:pc","state":"blocked","group":"you"},{"surfaceId":"ravenry:pd","state":"blocked"},{"surfaceId":"ravenry:pe","state":"idle","group":"idle"}]}]}""")
+        assertEquals(ConnectionService.Line("Connected to MacBook Pro", "Wi-Fi. 2 need you."), ConnectionService.up("MacBook Pro", "wifi", prog))
         val none = ConnectionService.counts("""{"projects":[{"machine":null,"sessions":[{"state":"idle","machine":null,"surfaceId":null}]}],"checkpoints":[{"state":"open","surfaceId":null}]}""")
         assertEquals(ConnectionService.Line("Connected to MacBook Pro", "Wi-Fi. Nothing running."), ConnectionService.up("MacBook Pro", "wifi", none))
         assertEquals("1 needs you.", ConnectionService.sessions(0, 1))
