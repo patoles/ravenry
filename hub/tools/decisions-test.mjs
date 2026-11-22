@@ -59,6 +59,15 @@ check('search: every word, any case, in the quote or the scope', D.query({ searc
 const rm = D.remove(b.entry.id, { file: F });
 check('removing the override brings the old entry back', rm.ok && !D.load(F).find((x) => x.id === a.entry.id).overridden_by && D.query({ projectId: 'proj' }, { file: F }).some((x) => x.id === a.entry.id));
 check('the file is private', (fs.statSync(F).mode & 0o777) === 0o600);
+{
+  // Two entries in the same millisecond (a fast machine): the one written
+  // later still comes first, in the list and in what was checked before.
+  const TF = path.join(T, 'tie.json');
+  const at = new Date().toISOString();
+  fs.writeFileSync(TF, JSON.stringify({ decisions: [{ id: 'daaaaaaa', quote: 'older', at, project: 'proj' }, { id: 'dbbbbbbb', quote: 'newer', at, project: 'proj' }] }));
+  const tie = D.query({ projectId: 'proj' }, { file: TF }).map((x) => x.quote);
+  check('two decisions in the same millisecond: the later one comes first', tie.join() === 'newer,older', JSON.stringify(tie));
+}
 check('a project by id, by name, by a folder inside it, by a worktree folder', D.resolveProject('proj', projects).id === 'proj' && D.resolveProject('other', projects).id === 'other' && D.resolveProject('PROJ', projects).id === 'proj' && D.resolveProject(path.join(PROJ, 'src'), projects).id === 'proj' && D.resolveProject(path.join(T, 'proj-wt', 'a'), projects, [{ folder: path.join(T, 'proj-wt'), projectId: 'proj' }]).id === 'proj' && D.resolveProject('nope', projects) === null && D.resolveProject(T, projects) === null);
 
 // ------------------------------------------------------------ the page's view

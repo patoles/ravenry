@@ -166,17 +166,26 @@ export function remove(id, { file = FILE } = {}) {
   return { ok: true, removed: gone };
 }
 
+// Newest first. Two entries recorded in the same millisecond come in the
+// order they were written (a new one is appended to the file), the later one
+// first: `list` is the file's order.
+function newestFirst(list) {
+  const pos = new Map(list.map((d, i) => [d, i]));
+  return (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : (pos.get(b) ?? 0) - (pos.get(a) ?? 0));
+}
+
 // The entries a reader asks for, newest first. `projectId`: that project's
 // and the ones for every project (project null); undefined: all. `search`:
 // every word must appear in the quote or the scope, any case. `all`: the
 // overridden ones too.
 export function query({ projectId, search = '', all = false } = {}, { file = FILE } = {}) {
   const words = String(search || '').toLowerCase().split(/\s+/).filter(Boolean);
-  return load(file)
+  const list = load(file);
+  return list
     .filter((d) => all || !d.overridden_by)
     .filter((d) => projectId === undefined || d.project === projectId || d.project == null)
     .filter((d) => { const t = `${d.quote}\n${d.scope || ''}`.toLowerCase(); return words.every((w) => t.includes(w)); })
-    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    .sort(newestFirst(list));
 }
 
 function cleanRecorder(r) {
@@ -245,7 +254,8 @@ export function countReads(ids, { file = FILE, now = new Date() } = {}) {
 export function checkedBefore(projectId, at, { list = null, file = FILE, now = new Date(), max = 3 } = {}) {
   const t = Date.parse(at);
   if (!Number.isFinite(t)) return [];
-  const all = (list || load(file)).slice().sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  const from = list || load(file);
+  const all = from.slice().sort(newestFirst(from));
   return all.filter((d) => d.last_read_at && (d.project == null || !projectId || d.project === projectId)
     && Date.parse(d.last_read_at) <= t + 5000 && Date.parse(d.last_read_at) >= t - 15 * 60000)
     .slice(0, max)
