@@ -18,7 +18,7 @@
 <header class="doc-head">
   <div class="eyebrow">Privacy</div>
   <h1>Your work stays <span>yours.</span></h1>
-  <p class="when">Effective 19 November 2026. This covers Ravenry for Mac, the Android app and the iPhone app.</p>
+  <p class="when">Effective 22 November 2026. This covers Ravenry for Mac, the Android app and the iPhone app.</p>
 </header>
 
 <section class="short" aria-labelledby="short">
@@ -27,7 +27,7 @@
     <li><b>We don't collect anything.</b> Ravenry has no accounts, and no analytics, crash reports or tracking of any kind.</li>
     <li><b>Your sessions stay on your Mac.</b> Your phone talks straight to your Mac, over your Wi-Fi or your own Tailscale. Your sessions never go through us.</li>
     <li><b>One relay, for iPhone and iPad alerts.</b> It is our only server. It passes each alert to Apple, sealed on your Mac so the relay cannot read it, and keeps nothing.</li>
-    <li><b>A few things leave your devices, only when you use them:</b> the alerts you set up, the update check, and the Claude Code or Codex you already use. Each one is below.</li>
+    <li><b>A few things leave your devices, only when you use them:</b> the alerts you set up, the update check, and the coding agents you already use. Each one is below.</li>
   </ul>
 </section>
 
@@ -35,8 +35,9 @@
   <h2 id="stays">What stays on your devices</h2>
   <h3>On your Mac</h3>
   <ul>
-    <li>Ravenry reads your Claude Code and Codex sessions (their transcripts and what their terminals show) to put them on the board. It reads them on your Mac and copies them nowhere.</li>
+    <li>Ravenry reads your Claude Code, Codex, OpenCode and Antigravity CLI sessions (their transcripts and what their terminals show) to put them on the board. It reads them on your Mac and copies them nowhere.</li>
     <li>It keeps your projects, briefs, decisions, ideas, pages, plans, settings, the phones you paired and its logs in <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code>. Bot tokens, webhooks and alert topics are in a file only your user can read.</li>
+    <li>OpenCode writes no transcript Ravenry can read, so Ravenry's OpenCode plugin keeps one file per session in <code>~/.local/state/ravenry</code>: its model, how much context it uses, your messages and its last answer.</li>
     <li>Photos and voice notes you send from your phone land in that project's folder on your Mac, in <code>.inbox</code>, which git ignores. The phone deletes its copy once it is sent. Files you attach from your phone go there too, and nowhere else. Your phone's own file picker hands Ravenry only the files you pick, so attaching needs no permission.</li>
     <li>A secret you type goes straight to the command that asked for it. It is never written down: not to a file, a log or an alert.</li>
     <li>If you turn on rule suggestions, Ravenry keeps the messages you typed in your sessions in <code>~/.ravenry/repeats</code>, since Claude Code deletes its own transcripts after 30 days.</li>
@@ -76,9 +77,9 @@
     </dd></div>
     <div><dt>Telegram, Discord, Slack or ntfy</dt><dd>Only if you set one up in Alerts. The same short alert goes to that service, with the bot token or webhook you gave: the project's name, what it waits for, which Mac, and the board's link. Never the session's text. That service's own policy applies.</dd></div>
     <div><dt>GitHub, for updates</dt><dd>Ravenry for Mac checks GitHub, where its releases live, a little after it starts and every 4 hours, and downloads a new version from there. The check says which version you have and nothing about you. GitHub sees your IP address, as with any download. The Android app does not check: you download a new version yourself.</dd></div>
-    <div><dt>Claude Code and Codex</dt><dd>
-      <p>Ravenry runs the Claude Code and Codex you installed, signed in to your own account. What they send to Anthropic or OpenAI is between you and them.</p>
-      <p>Ravenry also asks them a few things itself, on your login: when you use the Ideas thread, mockups or Plans, and for rule suggestions, which are off unless you turn them on. Then, once a day, it sends the messages you typed in your sessions, to find the corrections you keep repeating. Ravenry has no key of its own and talks to Anthropic or OpenAI no other way.</p>
+    <div><dt>Your coding agents</dt><dd>
+      <p>Ravenry runs the Claude Code, Codex, OpenCode and Antigravity CLI you installed, signed in to your own account. What they send to Anthropic, OpenAI, Google or the model provider you picked is between you and them.</p>
+      <p>Ravenry also asks Claude Code and Codex a few things itself, on your login: when you use the Ideas thread, mockups or Plans, and for rule suggestions, which are off unless you turn them on. Then, once a day, it sends the messages you typed in your sessions, to find the corrections you keep repeating. When you open a Model menu, it asks OpenCode and Antigravity CLI for the models they offer. Ravenry has no key of its own and talks to Anthropic, OpenAI or Google no other way.</p>
     </dd></div>
   </dl>
 </section>
@@ -91,7 +92,7 @@
     <div><dt>Face ID or fingerprint</dt><dd>To check it's you before a command runs, or before an agent types into another tab, from your phone. Your phone does the check; Ravenry only learns yes or no.</dd></div>
     <div><dt>Notifications</dt><dd>To show you alerts.</dd></div>
     <div><dt>Local network</dt><dd>On iPhone, to reach your Mac on your Wi-Fi.</dd></div>
-    <div><dt>On your Mac</dt><dd>Ravenry asks iTerm2 and cmux about their tabs, to show your sessions. It is also a terminal, so macOS may ask for the camera, microphone or contacts on behalf of a program you run in it. Ravenry itself never uses them.</dd></div>
+    <div><dt>On your Mac</dt><dd>Ravenry asks iTerm2, cmux and Rex about their tabs, to show your sessions. It is also a terminal, so macOS may ask for the camera, microphone or contacts on behalf of a program you run in it. Ravenry itself never uses them.</dd></div>
   </dl>
 </section>
 
@@ -99,7 +100,7 @@
   <h2 id="delete">Keeping it, and deleting it</h2>
   <ul>
     <li>We hold nothing about you, so there is nothing for us to delete.</li>
-    <li>On your Mac, choose Uninstall Ravenry… in the Ravenry menu and tick "Also delete Ravenry's own data". Or delete <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code> yourself. Photos, voice notes and files you sent stay in each project's <code>.inbox</code> folder until you delete them.</li>
+    <li>On your Mac, choose Uninstall Ravenry… in the Ravenry menu and tick "Also delete Ravenry's own data". Or delete <code>~/.ravenry</code> and <code>~/Library/Application Support/Ravenry</code> yourself. If you used OpenCode, also delete <code>~/.local/state/ravenry</code>: uninstalling leaves it. Photos, voice notes and files you sent stay in each project's <code>.inbox</code> folder until you delete them.</li>
     <li>On your phone, Sign out in the app's settings, or uninstall the app: what it kept goes with it.</li>
     <li>ntfy, Telegram, Discord and Slack keep the alerts they carried by their own rules. The Ravenry relay keeps nothing; Apple keeps an alert for a device that is off for up to an hour, then drops it.</li>
   </ul>
@@ -121,5 +122,5 @@
 </section>
 </main>
 
-<footer><div class="wrap"><span>Ravenry will be open source soon, under the GPL.</span><span><a href="index.html">Download</a> · © 2026 Ravenry</span></div></footer>
+<footer><div class="wrap"><span>Ravenry is open source, under the GPL: <a href="https://github.com/patoles/ravenry">the source on GitHub</a>.</span><span><a href="index.html">Download</a> · © 2026 Ravenry</span></div></footer>
 </body></html>
