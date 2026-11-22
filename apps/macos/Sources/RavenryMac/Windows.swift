@@ -367,15 +367,28 @@ final class TabMenu: NSObject, NSMenuDelegate {
     weak var rw: RavenryWindow?
     private var tabId: String?
 
+    /// On a tab: its own Move Tab to New Window, then the three New; on the empty strip, the three New.
+    /// Words and keys from the list of actions (Actions.contextItem), as the menu bar shows them.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         guard let rw, let e = NSApp.currentEvent, e.window === rw.window else { return }
-        guard let item = rw.ws.bar.items.first(where: { $0.bounds.contains($0.convert(e.locationInWindow, from: nil)) }),
-              !item.model.id.hasPrefix("view:") else { return }
-        tabId = item.model.id
-        let mv = menu.addItem(withTitle: "Move Tab to New Window", action: #selector(moveTab(_:)), keyEquivalent: "")
-        mv.target = self
-        mv.isEnabled = rw.ws.tabs.count > 1
+        fill(menu, at: e.locationInWindow)
+    }
+
+    /// The strip's menu for a press at this point of the window.
+    func fill(_ menu: NSMenu, at p: NSPoint) {
+        menu.removeAllItems()
+        menu.autoenablesItems = false
+        guard let rw else { return }
+        let onTab = rw.ws.bar.items.first(where: { $0.bounds.contains($0.convert(p, from: nil)) })
+        // A view's tab (a session read only, a page) has no menu of its own.
+        if let item = onTab, item.model.id.hasPrefix("view:") { return }
+        if let item = onTab {
+            tabId = item.model.id
+            menu.addItem(Actions.contextItem("moveTabToNewWindow", enabled: rw.ws.tabs.count > 1) { [weak self] in self?.moveTab(nil) })
+            menu.addItem(.separator())
+        }
+        for id in ["newShell", "newSession", "newWindow"] { menu.addItem(Actions.contextItem(id) { Actions.perform(id) }) }
     }
 
     @objc func moveTab(_ sender: Any?) {

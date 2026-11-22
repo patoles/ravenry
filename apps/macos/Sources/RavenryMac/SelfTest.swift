@@ -814,7 +814,8 @@ final class SelfTest {
     private func menuAndClear() {
         let e = mouse(.rightMouseDown, col: 5.5, row: 2.5)
         let titles = main { view.menu(for: e)?.items.map { $0.isSeparatorItem ? "-" : $0.title } ?? [] }
-        check("context_menu_items", titles == ["Copy", "Paste", "Select All", "-", "Copy Path", "Find…", "Clear", "-", "Split Right", "Split Down", "Move to Own Tab"], "\(titles)")
+        check("context_menu_items", titles == ["Copy", "Paste", "Select All", "-", "Copy Path", "Find…", "Clear", "-", "Split Right", "Split Down", "Move to Own Tab", "Zoom Pane", "-",
+                                              "New Shell", "New Session…", "New Window", "-", "Close"], "\(titles)")
         _ = run(#"printf '\e[?1000h'"#, until: { _ in self.scr { $0.modes & Screen.modeMouse != 0 } })
         check("context_menu_none_with_mouse_reporting", main { view.menu(for: e) } == nil)
         _ = run(#"printf '\e[?1000l'"#, until: { _ in self.scr { $0.modes & Screen.modeMouse == 0 } })

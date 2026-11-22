@@ -1723,6 +1723,9 @@ final class TerminalView: NSView, NSTextInputClient {
     var canSplit: (String) -> Bool = { _ in false }
     var onOwnTab: (() -> Void)?
     var canOwnTab: () -> Bool = { false }
+    /// This pane alone and back (Zoom Pane), and this pane closed as its header's x closes it.
+    var onZoom: (() -> Void)?
+    var onClosePane: (() -> Void)?
     var folderPath: () -> String? = { nil }
     /// pane.render failed (the pane is gone, the daemon did not answer): the workspace says so (TERM-070).
     var onRenderFailed: ((ConnectionError) -> Void)?
@@ -1730,9 +1733,13 @@ final class TerminalView: NSView, NSTextInputClient {
     private(set) var lastMenu: NSMenu?
 
     /// Right click, when the program does not take the mouse (the Electron
-    /// app's term:menu): Open Link and Copy Link over a link, Copy (only
-    /// with a selection), Paste, Select All, Copy Path (the pane's folder),
-    /// Find, Clear, Split Right and Split Down (where there is room), Move to Own Tab (in a split).
+    /// app's term:menu): Open Link and Copy Link over a link, then editing
+    /// first, under the pointer: Copy (only with a selection), Paste, Select
+    /// All; Copy Path (the pane's folder), Find, Clear; this pane's Split
+    /// Right and Split Down (where there is room), Move to Own Tab and Zoom
+    /// Pane (in a split); New Shell, New Session and New Window as the menu
+    /// bar runs them; Close (this pane). Each item's words and key come from
+    /// the list of actions (Actions.contextItem), so a key the person changed shows here too.
     override func menu(for event: NSEvent) -> NSMenu? {
         if mouseReporting { return nil }
         return contextMenu(at: event.locationInWindow)
@@ -1746,6 +1753,7 @@ final class TerminalView: NSView, NSTextInputClient {
             i.isEnabled = on
             m.addItem(i)
         }
+        func act(_ id: String, _ on: Bool = true, _ run: @escaping () -> Void) { m.addItem(Actions.contextItem(id, enabled: on, run)) }
         if let uri = linkAt(cell(at: windowPoint)) {
             add(t("term.openLink")) { [weak self] in self?.open(uri) }
             add(t("term.copyLink")) { [weak self] in self?.pasteboard.clearContents(); self?.pasteboard.setString(uri, forType: .string) }
@@ -1754,9 +1762,9 @@ final class TerminalView: NSView, NSTextInputClient {
         screen.lock()
         let selected = screen.selection != nil
         screen.unlock()
-        add(t("term.copy"), selected) { [weak self] in self?.copy(nil) }
-        add(t("term.paste")) { [weak self] in self?.paste(nil) }
-        add(t("term.selectAll")) { [weak self] in self?.selectAll(nil) }
+        act("copy", selected) { [weak self] in self?.copy(nil) }
+        act("paste") { [weak self] in self?.paste(nil) }
+        act("selectAll") { [weak self] in self?.selectAll(nil) }
         m.addItem(.separator())
         let folder = folderPath()
         add(t("term.copyPath"), folder != nil) { [weak self] in
@@ -1764,12 +1772,17 @@ final class TerminalView: NSView, NSTextInputClient {
             self.pasteboard.clearContents()
             self.pasteboard.setString(f, forType: .string)
         }
-        add(t("term.find")) { [weak self] in self?.showFindBar(nil) }
-        add(t("term.clear")) { [weak self] in self?.clearScreen(nil) }
+        act("find") { [weak self] in self?.showFindBar(nil) }
+        act("clear") { [weak self] in self?.clearScreen(nil) }
         m.addItem(.separator())
-        add(t("term.splitRight"), onSplit != nil && canSplit("right")) { [weak self] in self?.onSplit?("right") }
-        add(t("term.splitDown"), onSplit != nil && canSplit("down")) { [weak self] in self?.onSplit?("down") }
-        add(t("term.ownTab"), onOwnTab != nil && canOwnTab()) { [weak self] in self?.onOwnTab?() }
+        act("splitRight", onSplit != nil && canSplit("right")) { [weak self] in self?.onSplit?("right") }
+        act("splitDown", onSplit != nil && canSplit("down")) { [weak self] in self?.onSplit?("down") }
+        act("ownTab", onOwnTab != nil && canOwnTab()) { [weak self] in self?.onOwnTab?() }
+        act("zoomPane", onZoom != nil && canOwnTab()) { [weak self] in self?.onZoom?() }
+        m.addItem(.separator())
+        for id in ["newShell", "newSession", "newWindow"] { act(id) { Actions.perform(id) } }
+        m.addItem(.separator())
+        act("close", onClosePane != nil) { [weak self] in self?.onClosePane?() }
         lastMenu = m
         return m
     }

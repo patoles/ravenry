@@ -282,6 +282,8 @@ final class Workspace: NSObject {
         v.canSplit = { [weak self] side in self?.splitRefusal(pane, side) == nil }
         v.onOwnTab = { [weak self] in self?.moveToOwnTab(pane) }
         v.canOwnTab = { [weak self] in (self?.tab(of: pane)?.count ?? 1) > 1 }
+        v.onZoom = { [weak self] in self?.toggleZoom(pane: pane) }
+        v.onClosePane = { [weak self] in self?.closePaneAsked(pane) }
         v.folderPath = { [weak self] in self?.info[pane].flatMap { $0.cwd.isEmpty ? nil : $0.cwd } }
         v.onRenderFailed = { [weak self] e in self?.renderFailed(pane, e) }
         let b = PaneBox(term: v)

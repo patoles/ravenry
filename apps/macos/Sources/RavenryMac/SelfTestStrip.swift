@@ -192,8 +192,9 @@ extension SelfTestBoard {
         let menu = v.contextMenu(at: v.convert(NSPoint(x: 20, y: 20), to: nil))
         let items = menu.items.filter { !$0.isSeparatorItem }
         let on = Dictionary(items.map { ($0.title, $0.isEnabled) }, uniquingKeysWith: { a, _ in a })
-        check("term_menu_items", items.map(\.title) == ["Copy", "Paste", "Select All", "Copy Path", "Find…", "Clear", "Split Right", "Split Down", "Move to Own Tab"]
-              && on["Copy"] == false && on["Copy Path"] == true && on["Split Right"] == true && on["Move to Own Tab"] == false, items.map { "\($0.title):\($0.isEnabled)" }.joined(separator: ","))
+        check("term_menu_items", items.map(\.title) == ["Copy", "Paste", "Select All", "Copy Path", "Find…", "Clear", "Split Right", "Split Down", "Move to Own Tab", "Zoom Pane",
+                                              "New Shell", "New Session…", "New Window", "Close"]
+              && on["Copy"] == false && on["Copy Path"] == true && on["Split Right"] == true && on["Move to Own Tab"] == false && on["Zoom Pane"] == false && on["New Shell"] == true && on["Close"] == true, items.map { "\($0.title):\($0.isEnabled)" }.joined(separator: ","))
         // Copy Path: the pane's folder on the pasteboard.
         let pb = NSPasteboard(name: NSPasteboard.Name("ravenry-selftest-term-menu"))
         v.pasteboard = pb
