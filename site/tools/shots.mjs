@@ -94,7 +94,7 @@ for (const pg of PAGES) for (const width of [1440, 390]) {
       for (const el of document.querySelectorAll('script[src], img[src]')) refs.push({ kind: 'asset', text: el.tagName.toLowerCase(), url: el.getAttribute('src'), abs: el.src });
       for (const el of document.querySelectorAll('meta[property="og:image"]')) refs.push({ kind: 'asset', text: 'og:image', url: el.content, abs: new URL(el.content, location.href).href });
       for (const r of refs) if (r.url.startsWith('#')) r.target = !!document.getElementById(r.url.slice(1));
-      return { refs, allowed: S ? [S.downloads, S.reportUrl, S.sourceUrl] : null };
+      return { refs, allowed: S ? [S.downloads, S.reportUrl, S.sourceUrl, S.iosUrl] : null };
     });
     if (found.allowed) allowed = found.allowed;
     if (!allowed) problems.push(`${label}: no allowed links (index.html's config is read first)`);
@@ -105,7 +105,7 @@ for (const pg of PAGES) for (const width of [1440, 390]) {
       else if (r.abs.startsWith(BASE)) {
         const res = await fetch(r.abs);
         verdict = res.status === 200 ? `ok (${res.status})` : `BROKEN (${res.status})`;
-      } else if (allowed && (r.abs === allowed[1] || r.abs === allowed[2] || (r.abs.startsWith(allowed[0]) && !r.abs.slice(allowed[0].length).includes('/')))) verdict = 'ok (GitHub, not fetched)';
+      } else if (allowed && (r.abs === allowed[1] || r.abs === allowed[2] || (allowed[3] && r.abs === allowed[3]) || (r.abs.startsWith(allowed[0]) && !r.abs.slice(allowed[0].length).includes('/')))) verdict = 'ok (GitHub, not fetched)';
       else verdict = 'NOT ALLOWED (leaves the page)';
       if (!verdict.startsWith('ok')) problems.push(`${label}: ${r.kind} "${r.text}" ${r.url}: ${verdict}`);
       console.log(`${verdict.padEnd(26)} ${r.kind.padEnd(5)} ${r.text.slice(0, 24).padEnd(24)} ${r.abs.startsWith(BASE) ? r.url : r.abs}`);

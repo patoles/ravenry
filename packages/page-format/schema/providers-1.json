@@ -199,7 +199,7 @@
       "fields": {
         "scope": { "type": "string", "description": "global for the files every project reads, else the project folder, with ~ for your home." },
         "scope_name": { "type": "string", "description": "Every project, or the names of the projects in that folder." },
-        "assistant": { "type": "string", "description": "Whose file it is: claude or codex today; more may come." },
+        "assistant": { "type": "string", "description": "Whose file it is: claude, codex, opencode or antigravity today; more may come." },
         "file_name": { "type": "string", "description": "CLAUDE.md, AGENTS.md or AGENTS.override.md." },
         "path": { "type": "string", "description": "The file's path, with ~ for your home." },
         "exists": { "type": "bool", "description": "false when there is no such file yet." },
@@ -228,7 +228,7 @@
         "sessions_text": { "type": "string", "description": "Those sessions in words, such as 3 Claude Code sessions." },
         "last": { "type": "date", "description": "When you last said it." },
         "tail": { "type": "string", "description": "Why it is suggested, in one sentence." },
-        "assistants": { "type": "list", "description": "Whose sessions said it: claude, codex." },
+        "assistants": { "type": "list", "description": "Whose sessions said it: claude, codex, opencode, antigravity." },
         "targets": { "type": "list", "description": "The files saving it writes to." },
         "quote": {
           "type": "object",
@@ -248,7 +248,7 @@
         "id": { "type": "string", "description": "The session's id, or pid:<n> when it maps to none." },
         "project": { "type": "string", "description": "The project's id, when it is in one." },
         "project_name": { "type": "string", "description": "The project's name, or its folder when it is in none." },
-        "assistant": { "type": "string", "description": "claude or codex today; more may come." },
+        "assistant": { "type": "string", "description": "claude, codex, opencode or antigravity today; more may come." },
         "state": { "type": "string", "description": "What its screen shows: working, dialog, asked, draft, idle and others." },
         "group": { "type": "enum", "values": ["use", "left", "handed", "idle", "unmapped"], "description": "use: in use. left: left with a question or a half-typed reply. handed: handed off. idle. unmapped: a process with no session found." },
         "line": { "type": "string", "description": "What it last said, in one line." },

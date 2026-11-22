@@ -455,7 +455,7 @@ One item per rules file an agent reads: Claude Code's CLAUDE.md and Codex's AGEN
 
 - `scope` (string): global for the files every project reads, else the project folder, with ~ for your home.
 - `scope_name` (string): Every project, or the names of the projects in that folder.
-- `assistant` (string): Whose file it is: claude or codex today; more may come.
+- `assistant` (string): Whose file it is: claude, codex, opencode or antigravity today; more may come.
 - `file_name` (string): CLAUDE.md, AGENTS.md or AGENTS.override.md.
 - `path` (string): The file's path, with ~ for your home.
 - `exists` (bool): false when there is no such file yet.
@@ -478,7 +478,7 @@ One item per thing you corrected in more than one session that no rule covers ye
 - `sessions_text` (string): Those sessions in words, such as 3 Claude Code sessions.
 - `last` (date): When you last said it.
 - `tail` (string): Why it is suggested, in one sentence.
-- `assistants` (list): Whose sessions said it: claude, codex.
+- `assistants` (list): Whose sessions said it: claude, codex, opencode, antigravity.
 - `targets` (list): The files saving it writes to.
 - `quote` (object): One of the times you said it.
   - `quote.text` (string): Your words.
@@ -492,7 +492,7 @@ One item per agent session running on this machine.
 - `id` (string): The session's id, or pid:<n> when it maps to none.
 - `project` (string): The project's id, when it is in one.
 - `project_name` (string): The project's name, or its folder when it is in none.
-- `assistant` (string): claude or codex today; more may come.
+- `assistant` (string): claude, codex, opencode or antigravity today; more may come.
 - `state` (string): What its screen shows: working, dialog, asked, draft, idle and others.
 - `group` (enum: use, left, handed, idle, unmapped): use: in use. left: left with a question or a half-typed reply. handed: handed off. idle. unmapped: a process with no session found.
 - `line` (string): What it last said, in one line.
