@@ -83,6 +83,10 @@ const modDown = { main: `win.webContents.sendInputEvent({ type: 'keyDown', keyCo
 const modUp = { main: `win.webContents.sendInputEvent({ type: 'keyUp', keyCode: '${MODKEY}', modifiers: [] }); await new Promise((r) => setTimeout(r, 200));` };
 const LINK = `(() => { const s = ${T}.linkState; const scr = document.querySelector('#term .xterm-screen'); return { ...s, cursor: scr ? getComputedStyle(scr).cursor : null }; })()`;
 const save = (name, expr) => ({ save: { expr, out: path.join(work, `${name}.json`) } });
+// Waits up to 3 s for the link state to settle (the app finds the link under
+// the pointer a moment after it moves; a busy machine takes longer), never
+// failing the run itself: the checks below say what was read.
+const settle = (cond) => ({ main: `for (let i = 0; i < 60; i++) { let v = false; try { v = await win.webContents.executeJavaScript(${JSON.stringify(`(() => { try { const s = ${T}.linkState || {}; return !!(${cond}); } catch (e) { return false; } })()`)}); } catch {} if (v) break; await new Promise((r) => setTimeout(r, 50)); }` });
 const read = (name) => { try { return JSON.parse(fs.readFileSync(path.join(work, `${name}.json`), 'utf8')); } catch { return null; } };
 const opened = () => { try { return fs.readFileSync(openLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).what); } catch { return []; } };
 const env = { RAVENRY_SERVICE: 'off', RAVENRY_DESKTOP_DATA: data, RAVENRY_UPDATES: '0', RAVENRY_OPEN_LOG: openLog };
@@ -96,12 +100,12 @@ try {
     { click: `#side .ss[data-key="${KEY}"]` },
     { until: `${T}.attached && ${T}.attached.pane === ${JSON.stringify(pane.id)} && ${SCREEN}.includes('Docs page')`, timeout: 15000 },
     save('default', `window.ravenry.settings.get().then((s) => s.settings.openLinksSingleClick)`),
-    ...kinds.flatMap(([, , text], i) => [
-      moveTo(text), save(`hover${i}`, LINK),
+    ...kinds.flatMap(([, uri, text], i) => [
+      moveTo(text), settle(`s.text === ${JSON.stringify(uri)} && s.tip`), save(`hover${i}`, LINK),
       ...(i === 0 ? [{ shot: path.join(OUT, 'link-hover-dark.png') }, { theme: 'light', after: 600 }, moveTo('read'), moveTo(text), { shot: path.join(OUT, 'link-hover-light.png') }, { theme: 'dark', after: 600 }, moveTo('read'), moveTo(text)] : []),
-      modDown, moveTo(text, [MOD]), save(`held${i}`, LINK),
+      modDown, moveTo(text, [MOD]), settle(`s.text === ${JSON.stringify(uri)} && s.underline`), save(`held${i}`, LINK),
       ...(i === 1 ? [{ shot: path.join(OUT, 'link-cmd-dark.png') }] : []),
-      modUp, moveTo(text), save(`released${i}`, LINK),
+      modUp, moveTo(text), settle(`s.text === ${JSON.stringify(uri)} && !s.underline`), save(`released${i}`, LINK),
       // A plain click: nothing opens.
       { clickAt: cellOf(text) }, { sleep: 300 },
       { main: `require('fs').writeFileSync(${JSON.stringify(path.join(work, `plain${i}.json`))}, JSON.stringify(require('fs').existsSync(${JSON.stringify(openLog)}) ? require('fs').readFileSync(${JSON.stringify(openLog)}, 'utf8') : ''))` },
