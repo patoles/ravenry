@@ -228,13 +228,14 @@ export function eventState({ ev, screen, screenAt, title, transcript: t }, setti
 }
 
 // handed: the session wrote its hand-off and a fresh one carries on.
-const RANK = { dialog: 0, asked: 1, draft: 2, working: 3, handback: 4, stale: 5, handed: 6, unknown: 7, none: 8 };
+// blocked: a program in its pane waits for you (server/programs.mjs).
+const RANK = { dialog: 0, asked: 1, blocked: 1, draft: 2, working: 3, handback: 4, stale: 5, handed: 6, unknown: 7, none: 8 };
 
 export function projectState(sessions, waitingOn) {
   const by = (states) => sessions.filter((s) => states.includes(s.st.state))
     .sort((a, b) => (RANK[a.st.state] - RANK[b.st.state]) || (Date.parse(b.st.since || 0) - Date.parse(a.st.since || 0)));
   let pick;
-  if ((pick = by(['dialog', 'asked', 'draft'])).length) return { state: 'you', primary: pick[0] };
+  if ((pick = by(['dialog', 'asked', 'blocked', 'draft'])).length) return { state: 'you', primary: pick[0] };
   if ((pick = by(['working'])).length) return { state: 'work', primary: pick[0] };
   if (waitingOn) return { state: 'wait', primary: by(['handback', 'stale', 'unknown', 'none'])[0] || sessions[0] || null };
   if ((pick = by(['handback'])).length) return { state: 'you', primary: pick[0] };

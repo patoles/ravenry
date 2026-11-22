@@ -259,7 +259,8 @@ when Codex's reading shows its menu with one selected.
 
 ## Project state
 
-1. **Needs you** if any session is dialog, asked or draft.
+1. **Needs you** if any session is dialog, asked, blocked (a program in
+   its pane that waits, below) or draft.
 2. **Working** if any session is working.
 3. **Waiting on others** if the project has a `waitingOn` in
    `~/.ravenry/projects.json` or a `Waiting on:` line in its brief.
@@ -282,8 +283,8 @@ The hub sends the sidebar ready to draw, as `sidebar` in its state (and
 shape. Every client draws it as it comes:
 
 - Each session carries `group`, the section of its own state: dialog,
-  asked, draft and handback are Needs you, working is Working, else the
-  group its words say, else Idle.
+  asked, blocked, draft and handback are Needs you, working is Working,
+  else the group its words say, else Idle.
 - A session with an open checkpoint (open or running, matched by its
   project and session, else by its pane and machine) needs you whatever
   its state, and its row shows the checkpoint's mark instead of its line.
@@ -300,6 +301,42 @@ shape. Every client draws it as it comes:
 - A project's `time` is `{ at, style }`: the client says it against its
   own clock, `clock` as the time of day today (else how long ago), `ago`
   as how long ago.
+
+## A program in a pane
+
+A plain program in a Ravenry pane (a build, a deploy) that says its own
+state with OSC 7501 (`packages/protocol/PROTOCOL.md`, The agent in a pane)
+is one more session of the project whose folder it runs in: the deepest
+project folder that holds the pane's working folder, on its machine
+(`server/programs.mjs`). There is no new kind of row: its row says Shell
+where a session says its model, its progress where the context is, and
+its own message as its line in every section. A program in no project's
+folder gets a card of its own, named after its folder, as a session in no
+project does. A pane an assistant's session runs in is that session's,
+never a program's.
+
+- **working**: the session is working, the project Working.
+- **blocked**: the session is blocked (Needs you), with the kind it gave
+  (auth, permission, question, else other); the project goes to Needs
+  you and the alert says "<Project> needs you" with the kind's fixed words
+  ("Needs you to sign in", `server/alertwords.mjs` PROGRAM_KINDS), never
+  the program's message or its command line. The composer and the Mac's
+  Reply box type the person's line into the pane, then Enter
+  (`POST /api/program/reply`, a person's route: docs/PERSON.md).
+- **done** and **failed**: the session is idle, so the project is back to
+  its own state, but its row stays (in Idle under its project, a green or
+  red dot by the project's name on the board) until the person sees it or
+  a new command starts in that shell. Seen: the person opened it and moved
+  on (`POST /api/program/seen`); kept in `programs-seen.json` so a restart
+  does not show it again. A new command: the daemon clears the program's
+  record. A program that said only working gets its outcome from the
+  command's exit status (0 done, else failed, 130 nothing); the page then
+  says "From the shell: its command ended with status N".
+
+The reason line says "From the program: it said ..." (its words by state
+and kind), and the page's status line "Failed at 2:10 PM" or "Done at ...".
+An older daemon keeps no program record: its working and blocked still
+show, done and failed do not.
 
 ## What a checkpoint says
 

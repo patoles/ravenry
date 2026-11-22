@@ -117,6 +117,8 @@ session's review comments and the agent's replies).
 | `/api/plan/discard` | person | It throws the person's draft away. |
 | `/api/send` | person | The composer types the person's words into a session; an agent would answer its own prompts. |
 | `/api/keys` | person | The key bar presses the person's keys in a session's pane; an agent would answer its own prompts. |
+| `/api/program/reply` | person | The Reply box types the person's answer into a waiting program's pane (a sign-in code, a yes); an agent would answer the program for them. |
+| `/api/program/seen` | person | Ambiguous, so the safer class: it takes a finished program's row off the board, which the person may not have looked at yet. |
 | `/api/opened` | person | Every client opens on the project the person opened last (server/openon.mjs); an agent would move where the person lands. |
 | `/api/sessions/start` | person | Judged (ambiguous): it starts an assistant on the person's account, with a first prompt. |
 | `/api/sessions/resume` | person | It starts the assistant again on one of the person's sessions, in a Ravenry pane. |

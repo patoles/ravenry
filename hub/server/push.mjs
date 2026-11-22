@@ -549,6 +549,14 @@ export function projectMessage(alert, p) {
     msg.body = head || p.line || 'Handed back';
     msg.actions = [{ id: 'open', label: 'Open' }];
     if (s) msg.reply = { action: 'send', label: 'Reply', hint: `Reply to ${who(s.assistant)}` };
+  } else if (kind === 'program') {
+    // A plain program that waits (SESS-056): the fixed words of what it
+    // waits for (alert.body, server/alertwords.mjs PROGRAM_KINDS), never
+    // its own message or its command line; a tap opens it on the board.
+    msg.body = alert.body || 'Waits for you';
+    msg.line = msg.body;
+    msg.session = s ? { surfaceId: s.surfaceId, topic: null, assistant: null } : null;
+    msg.actions = [{ id: 'open', label: 'Open' }];
   } else if (kind === 'gate') {
     msg.title = `${p.name}: plan gate`;
     msg.body = (p.planGate && (p.planGate.question || p.planGate.short)) || 'A plan waits at a gate';

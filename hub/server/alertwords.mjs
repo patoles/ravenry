@@ -10,6 +10,10 @@
 // What a session in Needs you waits for.
 export const KINDS = { question: 'Asked you a question', handback: 'Handed back', permission: 'Waiting for permission', gate: 'Plan gate' };
 
+// What a plain program in a pane waits for (SESS-056), by the kind it said
+// (OSC 7501 blocked's kind): never its own message.
+export const PROGRAM_KINDS = { auth: 'Needs you to sign in', permission: 'Waiting for permission', question: 'Asked you a question', other: 'Waits for you' };
+
 // What a checkpoint asks, for the channels and the Mac's notifications.
 export const CHECKPOINT_KINDS = { ask: 'Asks you something', approve: 'Wants to run a command', secret: 'Needs you to type a secret', drive: 'Wants to type into another tab', pick: 'Wants you to pick a variant' };
 

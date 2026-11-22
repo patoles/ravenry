@@ -49,7 +49,7 @@ import * as desktop from './desktop.mjs';
 import * as push from './push.mjs';
 import * as phone from './phone.mjs';
 import { t as words } from './strings.mjs';
-import { KINDS, CHECKPOINT_KINDS, DRIVE_ACTIONS } from './alertwords.mjs';
+import { KINDS, CHECKPOINT_KINDS, DRIVE_ACTIONS, PROGRAM_KINDS } from './alertwords.mjs';
 import {
   CHANNELS, DEFAULT_NTFY, telegramTokenOk, telegramMe, telegramFindChat,
   webhookKind, maskWebhook, ntfySubscribeLink, maskTopic, ntfyServerOk,
@@ -63,13 +63,24 @@ const RETRY_MS = num(env.MC_ALERT_RETRY_MS, 30 * 1000);
 const PRIME_MS = num(env.MC_ALERT_PRIME_MS, 8000);
 
 // The fixed words (server/alertwords.mjs), as this module has always exported them.
-export { KINDS, CHECKPOINT_KINDS, DRIVE_ACTIONS };
+export { KINDS, CHECKPOINT_KINDS, DRIVE_ACTIONS, PROGRAM_KINDS };
 
 // The alert's second line where it travels in clear (Telegram, a webhook,
 // ntfy): a fixed phrase for every kind, never the session's text or a plan
 // gate's question (tools/clear-alerts-test.mjs).
-export function kindText(kind) {
+// A plain program that waits (kind 'program', SESS-056) says what for by
+// the kind it gave (`p`, its project), never its own words.
+export function kindText(kind, p = null) {
+  if (kind === 'program') return PROGRAM_KINDS[programNeed(p)];
   return KINDS[kind];
+}
+
+// The kind a project's waiting program said it waits for (auth,
+// permission, question), else other.
+function programNeed(p) {
+  const s = p && (p.sessions || []).find((x) => x.surfaceId === p.primary);
+  const k = s && s.program && s.program.kind;
+  return PROGRAM_KINDS[k] ? k : 'other';
 }
 
 // The same line for the Mac's own notifications, which stay on this Mac: a
@@ -77,7 +88,7 @@ export function kindText(kind) {
 // server/planfmt.mjs shortQuestion).
 export function localKindText(kind, p) {
   if (kind === 'gate' && p && p.planGate && p.planGate.short) return `Plan gate: ${p.planGate.short}`;
-  return KINDS[kind];
+  return kindText(kind, p);
 }
 export const PHONE_REFUSED = 'Tokens are set up on the Mac only. From this phone you can turn alerts on or off and send a test.';
 
@@ -457,6 +468,8 @@ export function kindOf(p) {
   if (p.planGate) return 'gate';
   const s = (p.sessions || []).find((x) => x.surfaceId === p.primary);
   if (!s) return null;
+  // A plain program in its pane that waits (SESS-056).
+  if (s.state === 'blocked' && s.program) return 'program';
   if (s.state === 'asked') return 'question';
   if (s.state === 'handback') return 'handback';
   if (s.state !== 'dialog') return null;
@@ -526,7 +539,7 @@ function makeTrigger({ on, start }) {
         seen.set(key, moment);
         cooled.set(p.id, now);
       }
-      const alert = { test: false, kind, projectId: p.id, project: p.name, title: `${p.name} needs you`, body: kindText(kind), url: sessionUrl(boardUrl, p, (p.sessions || []).find((x) => x.surfaceId === p.primary)) };
+      const alert = { test: false, kind, projectId: p.id, project: p.name, title: `${p.name} needs you`, body: kindText(kind, p), url: sessionUrl(boardUrl, p, (p.sessions || []).find((x) => x.surfaceId === p.primary)) };
       out.push(alert);
       start(alert, p);
     }

@@ -352,6 +352,9 @@ export function tidy(text, lines) {
 export const pasteText = (id, text, by = null) => send(id, [{ text: String(text), mode: 'paste' }], by);
 // Text key by key, for the "!" that turns on Claude Code's bash mode.
 export const typeText = (id, text, by = null) => send(id, [{ text: String(text), mode: 'typed' }], by);
+// A line typed as if at the keyboard, then Enter: the person's answer to a
+// program that waits in its pane (POST /api/program/reply).
+export const typeLine = (id, text, by = null) => send(id, [{ text: String(text), mode: 'typed' }, { key: 'Enter' }], by);
 
 const KEYS = { enter: 'Enter', up: 'Up', down: 'Down', backspace: 'Backspace', escape: 'Escape', tab: 'Tab' };
 export async function pressKey(id, key, by = null) {
@@ -656,6 +659,10 @@ async function follow(d) {
 function take(d, rep, batch = null) {
   if (!rep || rep.seq <= (lastSeq.get(d.key) || 0)) return;
   lastSeq.set(d.key, rep.seq);
+  // A program's own status report (OSC 7501), or the daemon's word on what
+  // became of one: the board shows it from its pane (server/programs.mjs),
+  // so the panes are listed from now on.
+  if (rep.pane && (rep.source === 'program' || rep.program)) { programPanes.add(rep.pane); where.set(rep.pane, d.id); }
   const rec = recordOf(rep, d.machine, false);
   if (rec && rep.pane) where.set(rep.pane, d.id);
   if (rec && deferredTasks.has(rec)) {
@@ -687,9 +694,16 @@ async function answer(d, e) {
   try { await d.c.request('agent.decide', { request: e.request, ...(reply ? { reply } : {}) }, { timeoutMs: 2000 }); } catch { /* timed out on the daemon's side */ }
 }
 
+// The panes a program reported its state from (take): while there is one,
+// the board lists Ravenry's panes each tick even with no assistant session
+// in them, and shows the program from its pane's `agent.program`.
+const programPanes = new Set();
+export const hasPrograms = () => programPanes.size > 0;
+
 // A daemon's agent report as the board's hook record (server/hookrecord.mjs),
-// or null for a report the board's sessions do not use (a program's own
-// status report, which the app shows from the pane).
+// or null for a report the board's sessions do not keep as an event: a
+// program's own status report (OSC 7501) goes to take's programPanes, and
+// the board shows the program from its pane (server/programs.mjs).
 export function recordOf(rep, machine = null, tasks = true) {
   const r = recordOfReport(rep, tasks);
   if (r && machine) r.machine = machine;

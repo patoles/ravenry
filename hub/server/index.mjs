@@ -78,7 +78,7 @@ import * as worktrees from './worktrees.mjs';
 import { projectFiles } from './filesview.mjs';
 import * as reviewview from './reviewview.mjs';
 import * as reviews from './reviews.mjs';
-import { paneRequest, paneInfo, barKeys, recordOf as daemonRecordOf } from './ravenryd.mjs';
+import { paneRequest, paneInfo, barKeys, typeLine, hasPrograms, recordOf as daemonRecordOf } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
 import { drawPage } from './pagepicture.mjs';
 import * as pages from './pages.mjs';
@@ -99,6 +99,7 @@ import { openApp } from './openapp.mjs';
 import * as launch from './launch.mjs';
 import * as sessionenv from './sessionenv.mjs';
 import * as restart from './restart.mjs';
+import * as programs from './programs.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -242,6 +243,7 @@ let procsSoon = null;
 let lastResult = null;       // the last close, shown on the page for a while
 let picBudget = 0;           // project pictures worked out this tick (server/pictures.mjs)
 let loose = [];              // this tick's cards for sessions no project holds, in a too-broad folder
+let progRecs = [];           // this tick's programs shown (server/programs.mjs), each with its `owner` project id or null
 let unowned = [];            // this tick's cmux workspaces no project lists ("Not in a project")
 
 // Whether this copy's hooks are in ~/.claude/settings.json ('ok', 'missing',
@@ -624,7 +626,9 @@ async function refreshKind(kind, evAll) {
   const week = Date.now() - 7 * 86400000;
   const wanted = [...evAll.values()].filter((e) => termOf(e) === kind && !e.endedAt && Date.parse(e.lastEventAt) > week);
   const procs = procState.procs.filter((p) => p[PROC_TAB[kind]]);
-  if (!wanted.length && !procs.length) {
+  // A program that reported its state (OSC 7501) keeps Ravenry's panes
+  // listed: its row comes from the pane (server/programs.mjs).
+  if (!wanted.length && !procs.length && !(kind === 'ravenry' && hasPrograms())) {
     otherTabs[kind] = { ok: true, tabs: new Map(), asked: false };
     if (kind === 'rex') term.rexWatch([], rexSoon);
     return;
@@ -651,7 +655,9 @@ async function refreshKind(kind, evAll) {
   // The tabs sessions report from, and the tabs claude processes run in
   // (a session resumed in a Ravenry pane, whose events another terminal's
   // process keeps writing).
-  const ids = [...new Set([...wanted.map(otherTabId), ...procs.map((p) => term.tabIdFor(kind, p[PROC_TAB[kind]]))].filter((id) => id && tabs.has(id)))];
+  // And the panes of the programs the board shows, for their Live screen.
+  const progIds = kind === 'ravenry' ? [...tabs.values()].filter((t) => { const r = programs.fromTab(t); return r && programs.shown(r); }).map((t) => t.id) : [];
+  const ids = [...new Set([...wanted.map(otherTabId), ...procs.map((p) => term.tabIdFor(kind, p[PROC_TAB[kind]])), ...progIds].filter((id) => id && tabs.has(id)))];
   // Rex's events, per Rex session holding a tab the board reads, only make
   // the next refresh come sooner (as cmux's do).
   if (kind === 'rex') term.rexWatch([...new Set(ids.map((id) => tabs.get(id).sessionId).filter(Boolean))], rexSoon);
@@ -870,6 +876,37 @@ function workspaceCwd(w, hooks, evAll) {
   return (sb && sb.cwd) || (hook && hook.cwd) || (e && e.cwd) || null;
 }
 
+// The programs the board shows this tick (server/programs.mjs): from the
+// Ravenry panes as listed, each one working, blocked, or done or failed and
+// not seen yet, in a pane no assistant's session runs in, with the project
+// whose folder it runs in (`owner`, or null).
+function programRecs(evAll) {
+  const o = otherTabs.ravenry;
+  if (!o || !o.ok) return [];
+  const all = [...o.tabs.values()].map(programs.fromTab).filter(Boolean);
+  if (o.asked) programs.prune(all);
+  const busy = new Set([...paneHolders.values()].map((h) => term.tabIdFor('ravenry', h.pane)));
+  for (const e of evAll.values()) if (!e.endedAt && e.terminal === 'ravenry' && e.terminalId) busy.add(term.tabIdFor('ravenry', e.terminalId));
+  return all.filter((r) => programs.shown(r) && !busy.has(r.surfaceId)).map((r) => {
+    const own = programs.ownerOf(r, reg.projects);
+    return { ...r, owner: own ? own.id : null };
+  });
+}
+
+// A program as one more session of its project: its pane, its words, its
+// state (working, blocked, or idle while a done or failed one is held).
+function programSession(rec, project, now) {
+  const x = screens.get(rec.surfaceId);
+  const r = programs.reason(rec, now);
+  return {
+    marker: null, paneId: null, cwd: rec.cwd || project.folder, terminal: true, term: 'ravenry', cannot: null, assistant: 'shell',
+    surfaceId: rec.surfaceId, surfaceRef: term.nameOf('ravenry') + ' tab', workspaceId: null, workspaceRef: null,
+    topic: programs.nameOf(rec), live: false, sessionId: null, method: 'its program status (OSC 7501)',
+    transcript: null, screen: judgedScreen(x || null, null), st: { state: programs.sessionState(rec), since: rec.since, reasons: [r.text], source: r.source },
+    hook: null, real: null, sidebarStatus: null, program: rec,
+  };
+}
+
 // The cmux workspaces no project lists (docs/STATE-RULES.md, "Not in a
 // project"; docs/design/CodexStage2.dc.html, section 1, variant C): each is
 // a card of its own for this tick, keyed "ws:<workspace id>", named after its
@@ -1046,6 +1083,11 @@ function buildProject(project, wsById, hooks, settings, now) {
       sessionId: e.anon ? null : e.sessionId, method: e.fromPane ? `its process in a Ravenry pane (${e.anon ? 'no session id yet' : 'launch argument'})` : tab ? `hook events (${term.nameOf(tkind)} session id)` : 'hook events, no terminal tab', transcript: t, screen, st, hook: null, real, sidebarStatus: null,
     });
   }
+  // Its programs (server/programs.mjs): one more session each.
+  for (const rec of progRecs) {
+    const mine = project.programPane ? rec.pane === project.programPane && (rec.machine || null) === project.programMachine : rec.owner === project.id;
+    if (mine && !sessions.some((s) => s.surfaceId === rec.surfaceId)) sessions.push(programSession(rec, project, now));
+  }
   const brief = briefFor(project);
   const waitingOn = project.waitingOn || (brief && brief.waitingOn) || null;
   for (const s of sessions) boardTabs.push({ project, s, waitingOn });
@@ -1074,7 +1116,8 @@ function buildProject(project, wsById, hooks, settings, now) {
   const plan = brief ? activePlan(brief.plan, { working: ps.state === 'work', gatesFor: (o) => gates.forPlan(brief.path, o) }) : null;
   const planGate = plan && plan.gate && (plan.gate.fileOnly || (ps.state !== 'work' && !(primary && primary.st.state === 'dialog'))) ? plan.gate : null;
   const pstate = planGate ? 'you' : ps.state;
-  const words = describe({ ...project, waitingOn }, primary, pstate, now);
+  // A program's words are its own (server/programs.mjs words).
+  const words = primary && primary.program && !planGate ? programs.words(primary.program) : describe({ ...project, waitingOn }, primary, pstate, now);
   if (planGate) {
     words.line = `Plan gate: ${planGate.short}`;
     words.headline = planGate.question;
@@ -1089,7 +1132,7 @@ function buildProject(project, wsById, hooks, settings, now) {
   else if (planGate) since = (primary && primary.st.since) || planGate.since || null;
   else if (primary) since = primary.st.since || null;
   if (pstate === 'idle') {
-    const times = sessions.map((s) => s.transcript && (s.transcript.lastTurnEndAt || s.transcript.lastTextAt)).filter(Boolean).sort();
+    const times = sessions.map((s) => (s.program ? s.program.since : s.transcript && (s.transcript.lastTurnEndAt || s.transcript.lastTextAt))).filter(Boolean).sort();
     since = times.length ? times[times.length - 1] : null;
   }
   const cw = settings.contextWindow;
@@ -1118,6 +1161,8 @@ function buildProject(project, wsById, hooks, settings, now) {
   const recent = sessions.map((s) => s.handoff).filter((x) => x.state === 'resumed' && age(now, x.resumedAt) < 6 * 3600 * 1000)
     .sort((a, b) => Date.parse(b.resumedAt) - Date.parse(a.resumedAt))[0] || null;
   if (shared.length) flags.push({ kind: 'shared', title: 'Shares a folder' });
+  // A program done or failed and not seen yet: a green or red dot by its name.
+  for (const s of sessions) if (s.program && (s.program.state === 'done' || s.program.state === 'failed')) flags.push({ kind: s.program.state, title: `${programs.nameOf(s.program)} ${s.program.state === 'done' ? 'is done' : 'failed'}`, surfaceId: s.surfaceId });
   // The machine its folder is on (its own; the registry's folders are this
   // computer's otherwise): it is said against that machine's home. A
   // session's folder goes with the session's machine.
@@ -1154,9 +1199,11 @@ function buildProject(project, wsById, hooks, settings, now) {
       term: s.term || null, termName: s.term ? term.nameOf(s.term) : null,
       // The machine it runs on (a remote ravenryd), null on this one.
       machine: sessionMachine(s),
-      assistant: asst.kindOf(s.assistant),
+      assistant: s.program ? 'shell' : asst.kindOf(s.assistant),
       // The model its transcript last named, as people say it (server/models.mjs).
       ...models.modelView(s.transcript && s.transcript.model, asst.kindOf(s.assistant), s.transcript && s.transcript.modelLabel),
+      // A plain program in its pane (server/programs.mjs view): its state, progress and line.
+      ...(s.program ? { program: programs.view(s.program, homes.sayFolder(s.program.cwd, s.program.machine)) } : {}),
       cannot: s.cannot ? s.cannot.why : null, cannotType: s.cannot ? s.cannot.short : null,
       sidebarStatus: s.sidebarStatus, hookLifecycle: s.hook ? s.hook.lifecycle : null,
       ctx: ctx(s), draft: !!s.screen.draft, dialog: !!s.screen.dialog || s.st.state === 'dialog', working: s.st.state === 'working',
@@ -1288,9 +1335,10 @@ function planView(project, plan) {
   return { ...plan, refs: (plan.refs || []).map((r) => (r.image ? { ...r, url: url(r.path) } : r)), steps: plan.steps.map((s) => ({ ...s, proofs: s.proofs.map(pic) })) };
 }
 
-const SESSION_TO_PROJECT = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };
+const SESSION_TO_PROJECT = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', blocked: 'you', working: 'work' };
 function sessionWords(project, waitingOn, s, now) {
   const st = SESSION_TO_PROJECT[s.st.state] || 'idle';
+  if (s.program) { const w = programs.words(s.program); return { state: st, line: w.line, headline: w.headline, quick: [], question: null, dialog: null, draft: null }; }
   const w = describe({ ...project, waitingOn }, s, st, now);
   return { state: st, line: w.line, headline: w.headline, quick: w.quick, question: w.question, dialog: w.dialog || null, draft: w.draft || null };
 }
@@ -1441,8 +1489,16 @@ async function tick() {
     markers = handoff.listMarkers();
     boardTabs = [];
     picBudget = 3;
+    tp.mark('programs');
+    progRecs = programRecs(evAll);
     tp.mark('loose sessions');
     loose = looseSessions(evPanes);
+    // A program in no project's folder: a card of its own, as a session in
+    // no project gets.
+    {
+      const taken = new Set([...reg.projects.map((p) => p.id), ...loose.map((p) => p.id)]);
+      for (const r of progRecs) if (!r.owner) loose.push(programs.looseCard(r, taken));
+    }
     tp.mark('work folders');
     // An unowned workspace is on the board only while a session runs in it.
     // Each session's work folder (from its transcript's tool calls; read in
@@ -3457,6 +3513,29 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill 
   return { ok: true, delivered: screen.working ? 'after its current step' : 'now', sent: asked };
 }
 
+// POST /api/program/reply and /seen: the program session on the board
+// (by its project and tab), checked against this tick's own records.
+async function programWrite(what, body, by) {
+  const proj = snapshot.projects.find((x) => x.id === body.projectId);
+  const s = proj && proj.sessions.find((x) => x.surfaceId === body.surfaceId);
+  if (!s) return { ok: false, status: 404, error: 'That program is not on the board.' };
+  const rec = progRecs.find((r) => r.surfaceId === s.surfaceId);
+  if (!s.program || !rec) return { ok: false, status: 409, error: 'That row is not a program in a Ravenry pane.' };
+  if (what === 'seen') {
+    const was = programs.markSeen(rec);
+    if (was) { wantTick = true; setTimeout(tick, 20); }
+    return { ok: true, held: was };
+  }
+  const text = String(body.text == null ? '' : body.text).replace(/[\r\n]+/g, ' ').trim();
+  if (!text) return { ok: false, status: 400, error: 'Type something first.' };
+  if (text.length > 1000) return { ok: false, status: 400, error: 'At most 1000 characters.' };
+  const r = await typeLine(s.surfaceId.slice('ravenry:'.length), text, by);
+  if (!r.ok) return { ok: false, status: 502, error: `It did not reach the pane: ${r.err || 'no answer'}` };
+  console.log(`programs: typed a reply into ${s.surfaceId} (${programs.nameOf(rec)}), by ${by}`);
+  wantTick = true; setTimeout(tick, 200);
+  return { ok: true };
+}
+
 function safeName(name) {
   let n = path.basename(String(name || 'file')).replace(/[^\w.@+-]+/g, '-').replace(/^-+/, '').slice(0, 120) || 'file';
   if (/^image\.(png|jpe?g|gif|webp)$/i.test(n)) {
@@ -4689,6 +4768,14 @@ async function handleRequest(req, res) {
         const r = await barKeys(s.surfaceId, body.keys, req.mcPhone ? 'phone' : 'composer');
         if (r.ok) { wantTick = true; return sendJson(res, 200, { ok: true }); }
         return sendJson(res, 400, { error: r.err || 'The keys did not go through.' });
+      }
+      if (p === '/api/program/reply' || p === '/api/program/seen') {
+        // A plain program in its pane (SESS-056): the person's answer typed
+        // into the pane, then Enter; or its Done or Failed seen.
+        let body = null;
+        try { body = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}'); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const r = await programWrite(p.slice('/api/program/'.length), body || {}, req.mcPhone ? 'phone' : 'composer');
+        return sendJson(res, r.status || 200, r.ok ? { ok: true, ...(r.held != null ? { held: r.held } : {}) } : { error: r.error });
       }
       if (p.startsWith('/api/inbox/')) {
         const project = findProject(decodeURIComponent(p.slice(11)));

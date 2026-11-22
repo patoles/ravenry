@@ -96,6 +96,8 @@ export const ROUTES = [
   // Sessions
   { m: 'POST', p: '/api/send', c: P, what: 'type into a session from the board', why: 'The composer types the person\'s words into a session; an agent would answer its own prompts.' },
   { m: 'POST', p: '/api/keys', c: P, what: 'press keys in a session from the phone', why: 'The key bar presses the person\'s keys in a session\'s pane; an agent would answer its own prompts.' },
+  { m: 'POST', p: '/api/program/reply', c: P, what: 'type into a program\'s pane from the board', why: 'The Reply box types the person\'s answer into a waiting program\'s pane (a sign-in code, a yes); an agent would answer the program for them.' },
+  { m: 'POST', p: '/api/program/seen', c: P, what: 'mark a program\'s Done or Failed as seen', why: 'Ambiguous, so the safer class: it takes a finished program\'s row off the board, which the person may not have looked at yet.' },
   { m: 'POST', p: '/api/opened', c: P, what: 'say which project they opened', why: 'Every client opens on the project the person opened last (server/openon.mjs); an agent would move where the person lands.' },
   { m: 'POST', p: '/api/sessions/start', c: P, what: 'start a session', why: 'Ambiguous, so the safer class: it starts an assistant on the person\'s account, with a first prompt.' },
   { m: 'POST', p: '/api/sessions/resume', c: P, what: 'continue a session in Ravenry', why: 'It starts the assistant again on one of the person\'s sessions, in a Ravenry pane.' },

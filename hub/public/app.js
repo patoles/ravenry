@@ -39,9 +39,14 @@ const ST = {
 // A session the New session switch just started, until its first hook event.
 const ST_STARTING = { c: 'var(--work)', dash: '2.2 2', dot: 0 };
 const ORDER = ['you', 'work', 'wait', 'idle'];
-const FL = { note: 'var(--tx)', hand: 'var(--work)', shared: 'var(--bad)', ship: 'var(--ok)' };
-const SESSION_WORD = { dialog: 'Choice open', asked: 'Asked you', draft: 'Half-typed reply', working: 'Working', handback: 'Back to you', stale: 'Idle', handed: 'Handed off', unknown: 'Unknown', none: 'Ended' };
-const SESSION_STATE = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };
+// done and failed: a program's Done or Failed not seen yet (SESS-056), a dot by the project's name.
+const FL = { note: 'var(--tx)', hand: 'var(--work)', shared: 'var(--bad)', ship: 'var(--ok)', done: 'var(--ok)', failed: 'var(--bad)' };
+const SESSION_WORD = { dialog: 'Choice open', asked: 'Asked you', blocked: 'Needs you', draft: 'Half-typed reply', working: 'Working', handback: 'Back to you', stale: 'Idle', handed: 'Handed off', unknown: 'Unknown', none: 'Ended' };
+const SESSION_STATE = { dialog: 'you', asked: 'you', blocked: 'you', draft: 'you', handback: 'you', working: 'work' };
+// A plain program in its pane (SESS-056): done and failed in their own colour and word.
+const PROG_END = { done: { c: 'var(--ok)', word: 'Done', dash: '', dot: 2.6 }, failed: { c: 'var(--bad)', word: 'Failed', dash: '', dot: 2.6 } };
+const progEnd = (x) => (x && x.program && PROG_END[x.program.state]) || null;
+const sessWord = (x) => (progEnd(x) ? progEnd(x).word : SESSION_WORD[x.state]);
 const CHECK = 'M2 5.2l2 2 4-4.4';
 // Containers outside #sheet whose last html survives a sheet rebuild.
 const KEEP_HTML = ['list', 'views', 'pchips', 'idle-sheet', 'restart'];
@@ -323,6 +328,7 @@ const asName = (k) => (asEntry(asKind(k)) || AS_BUILTIN[0]).name;
 // With the session (`s`), the model its transcript last named in place of
 // the word ("Opus 5.5", "gpt-5.4"; server/models.mjs), the id in the tip.
 function asTag(kind, cls = '', s = null) {
+  if (s && s.program) return `<span class="as-tag${cls ? ' ' + cls : ''}" title="A program in its shell">Shell</span>`;
   const k = asKind(kind);
   const m = s && s.modelName;
   return `<span class="as-tag${cls ? ' ' + cls : ''}" title="${esc(asName(k))} session${m ? esc(', ' + s.model) : ''}">${m ? esc(m) : esc(asWord(k))}</span>`;
@@ -946,10 +952,12 @@ function renderSheet() {
   // The orange tick follows the Settings card's line, and goes when hand-off is off.
   const hc = handoffCfg();
   const past = !!(hc.enabled && ctx && ctx.pct >= hc.threshold);
+  // A program (SESS-056) has no context to show: the breadcrumb and Open alone.
+  const noCtx = !!(s && s.program);
   setHtml('d-strip', `<span class="t3" style="font-size: 12.5px; flex: 1 1 auto">${p.unowned ? 'Not in a project' : 'Projects'}<span style="padding: 0 6px">/</span><span style="color: var(--tx2)">${esc(p.name)}</span></span>
-<span class="t2" style="font-size: 12px" id="ctx-l">Context</span>
+${noCtx ? '' : `<span class="t2" style="font-size: 12px" id="ctx-l">Context</span>
 <div class="bar" style="width: 150px" role="meter" aria-labelledby="ctx-l" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${ctx ? Math.round(ctx.pct) : 0}" aria-valuetext="${esc(ctxLabel(ctx))}${past ? `, past the ${hc.threshold}% hand-off line` : ''}"><div class="f" style="width: ${ctx ? ctx.pct.toFixed(1) : 0}%; background: ${past ? 'var(--work)' : 'var(--tx)'}"></div>${hc.enabled ? `<div class="m" style="left: ${hc.threshold}%" title="Hand-off line at ${hc.threshold}%"></div>` : ''}</div>
-<span class="num" style="font-size: 12px">${esc(ctxLabel(ctx))}</span>
+<span class="num" style="font-size: 12px">${esc(ctxLabel(ctx))}</span>`}
 ${s && (s.memKb != null || s.live) ? `<span class="strip-sep" aria-hidden="true"></span><span class="t2" style="font-size: 12px">Memory</span><span class="num ${s.memKb != null ? '' : 't3'}" style="font-size: 12px" title="${esc(s.memKb != null ? 'Resident memory of its claude process, read every minute' : 'No claude process is mapped to this session')}">${s.memKb != null ? esc(fmtMem(s.memKb)) : 'not mapped'}</span>` : ''}
 ${handoffButton(s)}
 ${openButton(p, s)}`);
@@ -961,14 +969,17 @@ ${openButton(p, s)}`);
   // Head: status line, title, meta
   const since = parseT(state === 'idle' ? p.since : (s && s.since) || p.since);
   let statusLine;
-  if (state === 'you') statusLine = since ? 'Needs you since ' + longSince(since) : 'Needs you';
+  // A program's Done or Failed (SESS-056): when it ended, in its colour.
+  const pend = progEnd(s);
+  if (pend) statusLine = `${pend.word}${parseT(s.since) ? ' at ' + longSince(parseT(s.since)) : ''}`;
+  else if (state === 'you') statusLine = since ? 'Needs you since ' + longSince(since) : 'Needs you';
   else if (state === 'work') statusLine = 'Working now';
   else if (state === 'wait') statusLine = 'Waiting on someone else' + (since ? ' since ' + longSince(since) : '');
   else if (p.brief && p.brief.parked) statusLine = 'Parked' + (p.brief.parked.since ? ' ' + p.brief.parked.since : '');
   else statusLine = 'Idle' + (since ? ', last touched ' + rel(since) + ' ago' : '');
   // The reason line names where the state came from: Ravenry's hook
   // events first, the screen when a session has none (docs/STATE-RULES.md).
-  const SOURCE = { events: 'From hook events', screen: 'Read from the screen' };
+  const SOURCE = { events: 'From hook events', screen: 'Read from the screen', program: 'From the program', shell: 'From the shell' };
   const gateHere = !!(p.planGate && p.plan && (!s || s.surfaceId === p.primary));
   const why = gateHere ? p.planGate.fileOnly === 'removed' ? 'From the plan: a gate you set was taken out of the file, not by you' : `From the plan: step ${p.planGate.n} is ${p.planGate.fileOnly ? 'a gate marked passed in the file, not by you' : p.planGate.unforeseen ? 'not in the plan, so it stopped to ask' : `a gate, "${p.planGate.text.charAt(0).toLowerCase() + p.planGate.text.slice(1)}"`}`
     : s ? `${SOURCE[s.source] || SOURCE.screen}: ${s.reasons.join('; ')}` : `No ${projWho(p)} session in this project`;
@@ -983,13 +994,14 @@ ${openButton(p, s)}`);
     meta.push(`<span>${esc(p.brief.stage ? p.brief.stage + ' stage' : 'No stage')}</span>`);
   } else meta.push('<span>No brief yet</span>');
   // A session's id and how the board found it are never shown to the person.
-  if (s && s.sessionId) { /* nothing to say */ }
+  // A program in its pane (SESS-056) is no assistant's session: nothing to say either.
+  if (s && (s.sessionId || s.program)) { /* nothing to say */ }
   // Codex reports a session id with its first prompt (docs/ASSISTANTS.md).
   else if (p.unowned && s && asKind(s.assistant) === 'codex' && s.live) meta.push('<span>Session not started yet: Codex reports it with its first prompt</span>');
   else meta.push('<span>No session</span>');
   // "New sessions:" and its Claude / Codex switch, last on the line.
   if (!p.unowned) meta.push(pasHtml(p));
-  setHtml('d-head', `<div style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: ${t.c}" title="${esc(why)}">${stateIcon(t, state === 'you' ? 'pulse' : '')}${esc(statusLine)}<span class="sr-only">. </span></div>
+  setHtml('d-head', `<div style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: ${(pend || t).c}" title="${esc(why)}">${stateIcon(pend || t, state === 'you' && !pend ? 'pulse' : '')}${esc(statusLine)}<span class="sr-only">. </span></div>
 <div class="t3" id="d-why" style="font-size: 12px; line-height: 1.4; overflow-wrap: anywhere">${esc(why)}</div>
 ${psHeadTitle(p, `<h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">${esc(p.name)}</h1>`)}`);
   setHtml('d-meta', meta.join(''));
@@ -1008,13 +1020,13 @@ ${psHeadTitle(p, `<h1 style="margin: 0; font-size: 28px; font-weight: 700; lette
   ask.classList.toggle('pl-gate', gateHere);
   const sent = ui.sent[p.id];
   const showSent = sent && Date.now() - sent.at < 120000;
-  const cardTitle = state === 'idle' && p.brief && p.brief.parked ? 'Parked' : (state === 'you' && s && s.state === 'handback' ? 'Handed back to you' : t.card);
+  const cardTitle = pend ? pend.word : state === 'idle' && p.brief && p.brief.parked ? 'Parked' : (state === 'you' && s && s.state === 'handback' ? 'Handed back to you' : t.card);
   const live = p.sessions.some((x) => x.live);
   let headline = w.headline || (state === 'idle' ? (p.brief && p.brief.goal ? p.brief.goal : live ? 'At the prompt, nothing pending.' : `No ${projWho(p)} session running.`) : '');
   // While it works, the label carries the working dot, breathing
   // (docs/design/LiveCode.dc.html, S2).
   const doing = state === 'work' && cardTitle === t.card;
-  let top = `<h2 style="margin: 0; font-size: 12.5px; font-weight: 600; color: ${t.c}${doing ? '; display: flex; align-items: center; gap: 7px' : ''}">${doing ? stateIcon(t, 'doing') : ''}${esc(cardTitle)}</h2>
+  let top = `<h2 style="margin: 0; font-size: 12.5px; font-weight: 600; color: ${(pend || t).c}${doing ? '; display: flex; align-items: center; gap: 7px' : ''}">${doing ? stateIcon(t, 'doing') : ''}${esc(cardTitle)}</h2>
 <div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(headline)}</div>`;
   if (w.dialog && w.dialog.length) top += `<div class="t2 scr-lines">${w.dialog.slice(0, 8).map((l) => `<div${SCREEN_RULE.test(l) ? ' class="scr-rule"' : ''}>${esc(l)}</div>`).join('')}</div>`;
   if (w.draft) top += `<div class="t2" style="font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere">Typed in its prompt, not sent: "${esc(w.draft.length > 160 ? w.draft.slice(0, 157) + '...' : w.draft)}"</div>`;
@@ -1041,7 +1053,9 @@ ${psHeadTitle(p, `<h1 style="margin: 0; font-size: 28px; font-weight: 700; lette
   const ta = $('#compose');
   // An ask that takes words: the box answers it.
   const cpText = !!(cp && cp.kind === 'ask' && cp.free_text);
-  const canSend = cpText || !!(s && s.live && !s.dialog && !s.draft);
+  // A program's pane takes typing whatever it shows (SESS-056).
+  const prog = !cpText && !gateHere && s && s.program ? s.program : null;
+  const canSend = cpText || !!prog || !!(s && s.live && !s.dialog && !s.draft);
   let label = 'Message';
   const tn = termOf(s);
   if (s && s.terminal === false) label = (s.cannotType || `This session runs outside ${boardTerm()}, so the board cannot type into it`).replace(/\.$/, '');
@@ -1054,7 +1068,8 @@ ${psHeadTitle(p, `<h1 style="margin: 0; font-size: 28px; font-weight: 700; lette
   else if (state === 'you') label = 'Write an answer';
   else if (s.working) label = 'Message, delivered after its current step';
   if (cpText) label = 'Or answer in your own words';
-  let ph = canSend && !gateHere ? label + '. Paste a path, or drop or paste a file.' : label + '.';
+  if (prog) label = prog.state === 'blocked' ? 'Type your answer. It goes into the pane, as if typed there' : prog.state === 'working' ? 'Type into the pane. It goes in as if typed there' : 'Type a command. It goes into its shell';
+  let ph = canSend && !gateHere && !prog ? label + '. Paste a path, or drop or paste a file.' : label + '.';
   // Why Send is off, shown under the box once something is typed (the
   // placeholder says it while the box is empty).
   let offWhy = null;
@@ -1116,13 +1131,13 @@ ${psHeadTitle(p, `<h1 style="margin: 0; font-size: 28px; font-weight: 700; lette
 <span class="num" style="font-size: 11.5px; flex: 0 0 52px; text-align: right"></span>`;
     setHtml('d-sessions', `<div class="card" style="overflow: hidden"><h2 class="card-h"><span style="flex: 1">Sessions</span><span class="t2" style="font-weight: 500; font-size: 12px">${many.length + (pending ? 1 : 0)} in ${p.workspaces.length > 1 ? p.workspaces.length + ' workspaces' : 'this workspace'}${memSum ? ', ' + esc(fmtMem(memSum)) : ''}</span></h2>
 ${many.map((x) => {
-  const xs = ST[SESSION_STATE[x.state] || 'idle'];
+  const xs = progEnd(x) || ST[SESSION_STATE[x.state] || 'idle'];
   const on = s && x.surfaceId === s.surfaceId;
   if (x.surfaceId === startingId) return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${go.topic}, Starting`)}">${startRow(on)}</button>`;
-  return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${x.topic}, ${SESSION_WORD[x.state]}, context ${ctxLabel(x.ctx)}${x.memKb != null ? ', memory ' + fmtMem(x.memKb) : ''}`)}">
+  return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${x.topic}, ${sessWord(x)}${x.program ? '' : `, context ${ctxLabel(x.ctx)}`}${x.memKb != null ? ', memory ' + fmtMem(x.memKb) : ''}`)}">
 ${stateIcon(xs)}
 <span class="ss-t"><span class="ss-n" style="font-weight: ${on ? 600 : 400}">${esc(x.topic)}</span>${asTag(x.assistant, '', x)}</span>
-<span style="font-size: 11.5px; font-weight: 600; color: ${xs.c}">${esc(SESSION_WORD[x.state])}</span>
+<span style="font-size: 11.5px; font-weight: 600; color: ${xs.c}">${esc(sessWord(x))}</span>
 <span class="num t3" style="font-size: 11.5px; flex: 0 0 auto">${esc(x.ctx ? ctxLabel(x.ctx).split(' ')[0] : '')}</span>
 <span class="num" style="font-size: 11.5px; flex: 0 0 52px; text-align: right">${x.memKb != null ? esc(fmtMem(x.memKb)) : ''}</span></button>`;
 }).join('')}${pending ? `<div class="sess card-r ns-starting" role="status" aria-label="${esc(`${go.topic}, Starting`)}">${startRow(false)}</div>` : ''}</div>`);
@@ -1765,6 +1780,16 @@ function renderLiveStatus(p) {
   if (!el) return;
   const { s, state } = view(p);
   const st = lv.status;
+  // A program (SESS-056): its own state under its screen, whatever the screen shows.
+  if (s && s.program && !lv.empty) {
+    const pe = progEnd(s);
+    const tt = pe || ST[state] || ST.idle;
+    const sub = !pe && s.program.progress != null ? `${s.program.progress}%` : '';
+    const ph = `<div class="lv-st-r">${stateIcon(tt, state === 'work' && !pe ? 'working' : '')}<b>${esc(tt.word)}</b>${sub ? `<span class="sr-only">, </span><span class="lv-sub">${esc(sub)}</span>` : ''}</div>`;
+    el.hidden = false;
+    if (el.innerHTML !== ph) { el.innerHTML = ph; renderJump(); }
+    return;
+  }
   if (!s || lv.empty || !st) { el.hidden = true; el.innerHTML = ''; return; }
   const t = ST[state] || ST.idle;
   const parts = [];
@@ -1788,8 +1813,8 @@ function renderLive(p, s, state) {
   if (tagEl) {
     tagEl.hidden = !s;
     // "Claude Opus 5.5": the assistant and the model it runs (server/models.mjs).
-    const word = s ? s.modelTitle || asWord(lv.asst) : '';
-    if (s && tagEl.textContent !== word) { tagEl.textContent = word; tagEl.title = asName(lv.asst) + ' session' + (s.model ? ', ' + s.model : ''); }
+    const word = s ? (s.program ? 'Shell' : s.modelTitle || asWord(lv.asst)) : '';
+    if (s && tagEl.textContent !== word) { tagEl.textContent = word; tagEl.title = s.program ? 'A program in its shell' : asName(lv.asst) + ' session' + (s.model ? ', ' + s.model : ''); }
   }
   const sid = s && s.terminal !== false ? s.surfaceId : null;
   const watch = !!s && s.terminal === false;
@@ -2526,6 +2551,24 @@ async function sendCompose() {
     return;
   }
   if (!s) return;
+  // A program in its pane (SESS-056): the words typed into the pane, then Enter.
+  if (s.program) {
+    if (!text) { say('Type something first'); return; }
+    const btn = $('#send');
+    btn.disabled = true;
+    try {
+      await post('/api/program/reply', { projectId: p.id, surfaceId: s.surfaceId, text });
+      ui.drafts[p.id] = '';
+      $('#compose').value = '';
+      say(`Typed into ${s.topic}`);
+    } catch (e) {
+      say.error(e.message);
+    } finally {
+      btn.disabled = false;
+      render();
+    }
+    return;
+  }
   const btn = $('#send');
   btn.disabled = true;
   try {
@@ -5177,6 +5220,25 @@ function render() {
   else if (ui.view === 'plan') renderPlanPage();
   else renderSheet();
   psAfterRender();
+  noteProgramSeen();
+}
+
+// A program's Done or Failed the person opened (SESS-056): its row stays
+// while it is the one shown, and is seen (POST /api/program/seen) once the
+// person moves on to another session, project or view; the hub then takes
+// it off the board, and the project is back to its own state.
+let progShown = null; // { pid, surfaceId } of the held program on screen
+function noteProgramSeen() {
+  const p = ui.view === 'projects' && document.visibilityState !== 'hidden' ? project(ui.sel) : null;
+  const s = p && !p.cpOnly ? view(p).s : null;
+  const now = s && s.program && s.program.held ? { pid: p.id, surfaceId: s.surfaceId } : null;
+  const was = progShown;
+  progShown = now;
+  if (was && (!now || now.pid !== was.pid || now.surfaceId !== was.surfaceId)) {
+    const q = project(was.pid);
+    const still = q && q.sessions.find((x) => x.surfaceId === was.surfaceId && x.program && x.program.held);
+    if (still) post('/api/program/seen', { projectId: was.pid, surfaceId: was.surfaceId }).catch(() => {});
+  }
 }
 
 function select(id) {

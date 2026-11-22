@@ -30,6 +30,11 @@
 //                                          // label: the word before it ("Wants to run:")
 //           group,                         // its dot's colour
 //           machine: string | null,
+//           program: { state, progress } | null,  // a plain program (SESS-056):
+//                                          // state 'working' | 'blocked' | 'done' | 'failed',
+//                                          // progress 0 to 100 or null; its row says
+//                                          // assistant 'Shell', pct null, and its line
+//                                          // in every section
 //         }],
 //       }],
 //     }],
@@ -48,7 +53,8 @@ import { t } from './strings.mjs';
 export const GROUP_TITLES = { you: t('group.you'), work: t('group.work'), wait: t('group.wait'), idle: t('group.idle') };
 export const ORDER = ['you', 'work', 'wait', 'idle'];
 
-const SESSION_GROUP = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };
+// blocked: a program in its pane waits for you (server/programs.mjs).
+const SESSION_GROUP = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', blocked: 'you', working: 'work' };
 
 /** Which group a session's own state puts it in. */
 export function sessionGroup(s) {
@@ -137,7 +143,32 @@ export function marksOf(projects, checkpoints, { reviewFiles = () => null, now =
   return out;
 }
 
+// A plain program's row (SESS-056): Shell where a session says its model,
+// its progress where the context is, Done or Failed there once it ended,
+// and its own line in every section.
+function programRow(p, s, mark) {
+  const pr = s.program;
+  const g = mark ? 'you' : sessionGroup(s);
+  const line = pr.message || null;
+  return {
+    key: sessionKey(p.id, s),
+    surfaceId: s.surfaceId,
+    name: s.topic || pr.command || p.name,
+    assistant: 'Shell',
+    model: null,
+    modelShort: null,
+    pct: null,
+    pctWarn: false,
+    line: line ? String(line).replace(/\s+/g, ' ').trim() : null,
+    mark,
+    group: g,
+    machine: machineOf(p, s),
+    program: { state: pr.state, progress: pr.state === 'working' || pr.state === 'blocked' ? pr.progress ?? null : null },
+  };
+}
+
 function row(p, s, threshold, mark) {
+  if (s.program) return programRow(p, s, mark);
   const pct = s.ctx && Number.isFinite(s.ctx.pct) ? Math.round(s.ctx.pct) : null;
   const g = mark ? 'you' : sessionGroup(s);
   const w = s.words || {};
@@ -158,6 +189,7 @@ function row(p, s, threshold, mark) {
     mark,
     group: g,
     machine: machineOf(p, s),
+    program: null,
   };
 }
 
@@ -195,7 +227,9 @@ export function build(projects, { threshold = 50, marks = new Map(), now = Date.
       since.set(pr, first !== undefined ? first : p.since ? Date.parse(p.since) : now);
       by.set(k, [...(by.get(k) || []), pr]);
     };
-    if (g === 'idle') { add('idle', []); continue; }
+    // An idle project is one line, but for a program of it done or failed
+    // and not seen yet: its row stays under the project (SESS-056).
+    if (g === 'idle') { add('idle', live.filter((s) => s.program && s.program.held)); continue; }
     const buckets = new Map();
     for (const s of live) buckets.set(own(s), [...(buckets.get(own(s)) || []), s]);
     // In its section for its own reason: its main session there.
