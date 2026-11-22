@@ -151,10 +151,21 @@ export function decide(report) {
   if (!k || kindOf(k) !== k || !ADAPTERS[k].decide) return undefined;
   return ADAPTERS[k].decide(report);
 }
-// OpenCode's models as `opencode models` lists them (New session's Model).
+// OpenCode's models as `opencode models` listed them last (New session's
+// Model), and Antigravity CLI's as `agy models` did: [{ id, label }]. Never
+// a run of either: askModels runs one, only when the person needs the list
+// (server/modellists.mjs).
 export const opencodeModels = (env) => opencode.modelList(env);
-// Antigravity CLI's as `agy models` lists them: [{ id, label }].
 export const antigravityModels = (env) => antigravity.modelList(env);
+const ASK_MODELS = { opencode: opencode.askModels, antigravity: antigravity.askModels };
+const LISTED = { opencode: opencode.modelList, antigravity: antigravity.modelList };
+// What `kind`'s program listed last ([] when none, or not installed).
+export const cachedModels = (kind, env) => (LISTED[kind] ? LISTED[kind](env) : []);
+// Whether the assistant's models come from its own program (asked for).
+export const listsModels = (kind) => !!ASK_MODELS[kind];
+// The person needs `kind`'s models: a promise of its list ([] for one
+// whose models are not listed by its program, which never runs then).
+export const askModels = (kind, env) => (ASK_MODELS[kind] ? ASK_MODELS[kind](env) : Promise.resolve([]));
 export const antigravityLabel = (id) => antigravity.labelOf(id);
 export const readMenu = (kind, text) => menuOf(text, of(kind).parseScreen);
 

@@ -310,6 +310,26 @@ session, which runs the assistant of the session it hands off from.
   tools/start-with-test.mjs`: 0 px apart at 1440, 412 and 390, the line 15
   px with and without it).
 
+- **Model lists** (`server/modellists.mjs`): an assistant whose models
+  its own program lists (`opencode models`, `agy models`) has that program
+  run only when the person needs the list: New session opened (`GET
+  /api/setup/start`), the board's Model menu for that assistant drawn for
+  a project or opened (`POST /api/assistant/models { assistant }`, which
+  answers with the menu), or a session of that assistant starting
+  (`launchFor`). It runs again only when asked after 10 minutes (after a
+  run that failed or listed nothing: 10 s for OpenCode, a minute for
+  Antigravity CLI). The state's tick, a transcript's read and a board page
+  left open only read what was listed last, so nothing runs while nobody
+  looks. The last good list of each is kept in `~/.ravenry/model-lists.json`
+  for a restarted board. New session's answer waits for a run (at most 4
+  s) only when an assistant has no list yet. Before 2026-11-22 the tick
+  ran both programs every 10 minutes all night; `agy models` starts
+  Antigravity's language server and writes a log file into
+  `~/.gemini/antigravity-cli/log` each time. `codex debug models` runs only
+  when a board call's configured model is refused (Print mode, below).
+  Checked by `node tools/model-lists-test.mjs` (a board clock 60 times as
+  fast, stand-ins counting their runs).
+
 Measured live on 2026-11-04: a scratch board on :4697 with the real cmux,
 `startWith: 'codex'` and the measured refusal; New session typed `codex -m
 gpt-6-luna 'Reply with exactly: board-ok'` into a new tab of a throwaway
@@ -579,8 +599,8 @@ scratch HOME and its free model `opencode/deepseek-v4.1-flash-free`
   hand-off>'`. Hand off now types the request at its prompt as for the
   others.
 - **Its models**: New session's Model lists OpenCode's default, then what
-  `opencode models` prints (read in the background, at most every 10
-  minutes; OpenRouter's `openrouter/...` among them once OpenCode has its
+  `opencode models` prints (read only when the person needs it, at most
+  every 10 minutes: "Model lists" above; OpenRouter's `openrouter/...` among them once OpenCode has its
   key, through OPENROUTER_API_KEY or `opencode auth login`), then any other
   it ran. The chip says the model without its provider.
 - **The skill**: `<its folder>/skills/ravenry`, as for the others. OpenCode
@@ -696,8 +716,8 @@ below).
   typed from the board was answered in the same conversation.
 - **Its models**: `agy models` prints an id and its label a line
   (`gemini-3.8-flash-high	Gemini 3.8 Flash (High)`, `claude-sonnet-4-6`,
-  `gpt-oss-120b-medium`), read in the background at most every 10
-  minutes; New session's Model lists them by label, and the chip says the
+  `gpt-oss-120b-medium`), read only when the person needs them, at most
+  every 10 minutes ("Model lists" above); New session's Model lists them by label, and the chip says the
   label. A model seen with its assistant goes only to that assistant's
   menu, so its `claude-sonnet-4-6` never lands in Claude Code's.
 - **The skill**: `~/.gemini/antigravity-cli/skills/ravenry` ("Global

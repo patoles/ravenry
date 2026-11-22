@@ -17,16 +17,16 @@
 //                   use and the model's window, last message, prompts),
 //                   under <XDG_STATE_HOME or ~/.local/state>/ravenry/opencode
 //   its models      `opencode models` (provider/model, OpenRouter's among
-//                   them once OpenCode has its key), read at most every 10
-//                   minutes, in the background
+//                   them once OpenCode has its key), read only when the
+//                   person needs them (server/modellists.mjs)
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
 import * as hookonly from './hookonly.mjs';
 import { findBin } from './assistantfind.mjs';
 import { fromFile, lastUsage } from './opencodesession.mjs';
+import * as lists from './modellists.mjs';
 
 export { fromFile, lastUsage };
 
@@ -225,30 +225,28 @@ export async function chooseOption({ read, want, sessionId, where = 'the pane', 
 
 // ------------------------------------------------------------ its models
 
-let models = { at: 0, list: [], running: false, key: '' };
 const MODEL_LINE = /^[A-Za-z0-9][\w.-]*\/[\w.:/@+-]+$/;
 
 /** Parses `opencode models`: provider/model ids, one per line. */
 export const parseModels = (text) => String(text || '').split('\n').map((l) => l.trim()).filter((l) => MODEL_LINE.test(l) && l.length <= 120);
 
-/** The models `opencode models` listed last (read again in the background every 10 minutes). */
-export function modelList(env = process.env) {
-  const bin = env.MC_OPENCODE_BIN || findBin(ID, env);
-  if (!bin || !installed({}, env)) return [];
-  const key = bin;
-  if (!models.running && (models.key !== key || Date.now() - models.at > 10 * 60000)) {
-    models.running = true;
-    execFile(bin, ['models'], { env, timeout: 60000, maxBuffer: 4 << 20 }, (err, stdout) => {
-      const list = parseModels(stdout);
-      // A run that failed or listed nothing (OpenCode busy installing its
-      // plugins' packages on a first start) is tried again in 10 s.
-      if (err || !list.length) models = { at: Date.now() - 10 * 60000 + 10000, list: models.list, running: false, key };
-      else models = { at: Date.now(), list, running: false, key };
-    });
-  }
-  return models.list;
+const binOf = (env) => { const bin = env.MC_OPENCODE_BIN || findBin(ID, env); return bin && installed({}, env) ? bin : null; };
+
+/** The models `opencode models` listed last; never runs it (server/modellists.mjs). */
+export const modelList = (env = process.env) => (binOf(env) ? lists.cached(ID) : []);
+
+/**
+ * The person needs the list (New session, the Model menu, a session of it
+ * starting): `opencode models` runs when the last list is older than
+ * modellists.MAX_AGE. A run that failed or listed nothing (OpenCode busy
+ * installing its plugins' packages on a first start) is run again when
+ * asked 10 s later or more. A promise of the list.
+ */
+export function askModels(env = process.env) {
+  const bin = binOf(env);
+  return bin ? lists.ask(ID, { bin, args: ['models'], env, parse: parseModels, retryMs: 10000, maxBuffer: 4 << 20 }) : Promise.resolve([]);
 }
-export const modelsReady = () => models.list.length > 0;
+export const modelsReady = () => lists.cached(ID).length > 0;
 
 // ------------------------------------------------------------ the adapter
 

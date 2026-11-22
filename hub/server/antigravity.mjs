@@ -18,15 +18,15 @@
 //                   (server/antigravitysession.mjs): model, tokens in use,
 //                   last message, prompts; no context window
 //   its models      `agy models`: an id and its label a line ("gemini-3.8-
-//                   flash-high", "Gemini 3.8 Flash (High)"), read at most
-//                   every 10 minutes, in the background
+//                   flash-high", "Gemini 3.8 Flash (High)"), read only when
+//                   the person needs them (server/modellists.mjs)
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
 import * as hookonly from './hookonly.mjs';
 import { findBin, homeDir } from './assistantfind.mjs';
 import { readFile, lastUsage, fromText } from './antigravitysession.mjs';
+import * as lists from './modellists.mjs';
 
 export { readFile, lastUsage, fromText };
 
@@ -160,8 +160,7 @@ export function newestTranscriptFor(cwd, exclude = new Set()) {
 }
 
 export function readTranscript(file) {
-  // Its models' labels come from `agy models`, read in the background.
-  if (!models.list.length) modelList();
+  // Its model's label: from what `agy models` listed last, never a run of it.
   const v = readFile(file);
   if (v && v.model) v.modelLabel = labelOf(v.model);
   return v;
@@ -186,8 +185,6 @@ export function installed(settings, env = process.env) {
 
 // ------------------------------------------------------------ its models
 
-let models = { at: 0, list: [], labels: new Map(), running: false, key: '' };
-
 /** Parses `agy models`: [{ id, label }], one a line ("id<TAB>label"). */
 export function parseModels(text) {
   const out = [];
@@ -199,22 +196,25 @@ export function parseModels(text) {
 }
 
 /** The label `agy models` gave a model id ("Gemini 3.8 Flash (High)"), else null. */
-export const labelOf = (id) => models.labels.get(id) || null;
+export function labelOf(id) {
+  const m = lists.cached(ID).find((x) => x && x.id === id);
+  return m ? m.label : null;
+}
 
-/** The models `agy models` listed last (read again in the background every 10 minutes). */
-export function modelList(env = process.env) {
-  const bin = env.MC_ANTIGRAVITY_BIN || findBin(ID, env);
-  if (!bin || !installed({}, env)) return [];
-  if (!models.running && (models.key !== bin || Date.now() - models.at > 10 * 60000)) {
-    models.running = true;
-    execFile(bin, ['models'], { env, timeout: 60000, maxBuffer: 1 << 20 }, (err, stdout) => {
-      const list = parseModels(stdout);
-      // Signed out, offline, or busy: tried again in a minute.
-      if (err || !list.length) models = { ...models, at: Date.now() - 9 * 60000, running: false, key: bin };
-      else models = { at: Date.now(), list, labels: new Map(list.map((x) => [x.id, x.label])), running: false, key: bin };
-    });
-  }
-  return models.list;
+const binOf = (env) => { const bin = env.MC_ANTIGRAVITY_BIN || findBin(ID, env); return bin && installed({}, env) ? bin : null; };
+
+/** The models `agy models` listed last ([{ id, label }]); never runs it. */
+export const modelList = (env = process.env) => (binOf(env) ? lists.cached(ID) : []);
+
+/**
+ * The person needs the list (New session, the Model menu, a session of it
+ * starting): `agy models` runs when the last list is older than
+ * modellists.MAX_AGE, or a minute after a run that listed nothing (signed
+ * out, offline). A promise of the list.
+ */
+export function askModels(env = process.env) {
+  const bin = binOf(env);
+  return bin ? lists.ask(ID, { bin, args: ['models'], env, parse: parseModels, retryMs: 60000 }) : Promise.resolve([]);
 }
 
 // ------------------------------------------------------------ the adapter

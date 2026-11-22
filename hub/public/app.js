@@ -5584,11 +5584,35 @@ const pmNow = (pid) => (ui.pm && ui.pm.pid === pid && Date.now() < ui.pm.until ?
 function pmHtml(p, kind) {
   const menu = ui.snap && ui.snap.startModels && ui.snap.startModels[kind];
   if (!Array.isArray(menu) || !menu.length) return '';
+  pmAsk(p.id, kind);
   const pm = pmNow(p.id);
   const set = pm && pm.kind === kind && pm.want != null ? pm.want : (p.models && p.models[kind]) || '';
   const tip = `The model ${p.name}'s new ${asName(kind)} sessions start with. Remembered for this project. To switch during a session, type /model in it.`;
   // Its own item of the meta line, so a narrow line (the phone) wraps it under the switch rather than past the edge.
   return `<span class="pas-meta pas-pm"><select class="pm-sel" data-pm-pid="${escRaw(p.id)}" data-pm-kind="${kind}" aria-label="Model for new sessions" title="${esc(tip)}">${menu.map((o) => `<option value="${escRaw(o.id)}"${o.id === set ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></span>`;
+}
+
+// The hub reads an assistant's models only when the person needs them
+// (hub/server/modellists.mjs): when its Model menu is first drawn for a
+// project (the sheet opened on it, or its switch moved to that assistant)
+// and when the menu is opened (`open`), never on a redraw, so a board left
+// open runs nothing. The answer's menu shows at once; the state carries it too.
+function pmAsk(pid, kind, open = false) {
+  const key = `${pid}|${kind}`;
+  if (!open && ui.pmAsked === key) return;
+  ui.pmAsked = key;
+  const now = Date.now();
+  if (open && ui.pmOpenAt && ui.pmOpenAt.kind === kind && now - ui.pmOpenAt.at < 3000) return;
+  if (open) ui.pmOpenAt = { kind, at: now };
+  post('/api/assistant/models', { assistant: kind }).then((r) => {
+    if (r && Array.isArray(r.menu) && r.menu.length && ui.snap && ui.snap.startModels) { ui.snap.startModels[kind] = r.menu; render(); }
+  }).catch(() => { /* the menu keeps what it has */ });
+}
+for (const ev of ['pointerdown', 'focusin']) {
+  document.addEventListener(ev, (e) => {
+    const pm = e.target && e.target.closest && e.target.closest('select[data-pm-pid]');
+    if (pm) pmAsk(pm.dataset.pmPid, pm.dataset.pmKind, true);
+  });
 }
 
 async function pmChange(pid, kind, model) {

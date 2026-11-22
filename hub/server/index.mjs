@@ -89,6 +89,7 @@ import * as feed from './feed.mjs';
 import * as openon from './openon.mjs';
 import * as cpwords from './cpwords.mjs';
 import * as models from './models.mjs';
+import * as modellists from './modellists.mjs';
 import * as firstlaunch from './firstlaunch.mjs';
 import * as phonesess from './phonesessions.mjs';
 import * as skills from './skills.mjs';
@@ -279,6 +280,9 @@ function cfg() {
 // Model, server/models.mjs) goes on the command: `--model` or `-m`.
 function launchFor(choice, project = null, model = undefined) {
   const settings = reg ? reg.settings : {};
+  // A session of an assistant whose models its own program lists: the
+  // list for its chip's label and the menus, read now if it is old.
+  if (asst.listsModels(choice.kind)) asst.askModels(choice.kind).catch(() => {});
   const m = model !== undefined ? model : models.projectModel(project, choice.kind);
   return { kind: choice.kind, command: models.withModel(asst.startCommand(choice.kind, settings), choice.kind, m), note: choice.note, short: asst.of(choice.kind).SHORT, model: m || null };
 }
@@ -310,7 +314,9 @@ function assistantsView() {
 
 // New session's Model menus (server/models.mjs startMenus): the models the
 // sessions the board reads have named, the ones projects remember, and
-// Codex's config.toml model as its default.
+// Codex's config.toml model as its default. OpenCode's and Antigravity
+// CLI's lists are the ones their programs gave last: the tick never runs
+// them (askModels does, when the person needs a list).
 function startModels() {
   const seen = [];
   // Each with its assistant, so a model goes only to the menu of the
@@ -325,6 +331,18 @@ function startModels() {
   let antigravityModels = [];
   try { antigravityModels = asst.antigravityModels(); } catch { /* no Antigravity CLI */ }
   return models.startMenus({ seen, codexDefault, picked, opencodeModels, antigravityModels });
+}
+
+// The person needs the Model menus of these assistants (New session, the
+// board's Model menu): each whose models its own program lists reads them
+// again when its list is old (server/modellists.mjs). The answer waits for
+// a run on its way at most `ms`, and only for an assistant with no list yet
+// (`always`: for any), so a first open shows the list as soon as it comes.
+async function askModels(kinds, { ms = 4000, always = false } = {}) {
+  const want = kinds.filter((k) => asst.listsModels(k));
+  const runs = want.map((k) => asst.askModels(k).catch(() => []));
+  const empty = want.some((k) => !asst.cachedModels(k).length);
+  if (runs.length && (always || empty)) await modellists.within(Promise.all(runs), ms, null);
 }
 
 // While the board opens a workspace for a project, the tick must not import
@@ -3954,8 +3972,21 @@ async function phaseD(req, res, p) {
     const r = registry.saveProjectAssistant(body.projectId, body.assistant);
     if (!r.ok) return sendJson(res, r.status, { error: r.error });
     afterRegistry(r.reg);
-    const launch = continueLaunch(r.project);
+    // What its next session starts (no launch: nothing runs for it here).
+    const launch = asst.continueChoice(reg.settings, r.project);
     return sendJson(res, 200, { ok: true, projectId: body.projectId, assistant: r.assistant, starts: launch.kind, note: launch.note || null, backup: r.backup ? short(r.backup) : null });
+  }
+  if (p === '/api/assistant/models') {
+    // The board's Model menu for an assistant was opened: { assistant }.
+    // Its program lists its models again when the last list is old
+    // (server/modellists.mjs); the answer is the menu, once the run is
+    // done or after 8 s (the state carries it when it comes later).
+    let body;
+    try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+    const kind = body && typeof body.assistant === 'string' && asst.isKind(body.assistant) ? body.assistant : null;
+    if (!kind) return sendJson(res, 400, { error: 'Send { assistant }.' });
+    if (asst.listsModels(kind)) { await askModels([kind], { ms: 8000, always: true }); wantTick = true; setTimeout(tick, 30); }
+    return sendJson(res, 200, { ok: true, assistant: kind, menu: startModels()[kind] || null });
   }
   if (p === '/api/project/model') {
     // The model a project's next session of an assistant starts with (New
@@ -4608,7 +4639,9 @@ async function handleRequest(req, res) {
         name: m.name, up: m.state === 'connected',
         projects: (reg && reg.projects || []).filter((x) => x.machine === m.name && !x.hidden && typeof x.folder === 'string' && x.folder.startsWith('/')).map((x) => ({ name: x.name, path: x.folder, short: homes.sayFolder(x.folder, m.name), projectId: x.id })),
       }));
-      return sendJson(res, 200, { ok: true, ...v, all, machines: onMachines, words: phonesess.startWords(), models: snapshot.startModels || startModels() });
+      // New session opened: the models of the assistants it offers.
+      await askModels(asst.KINDS);
+      return sendJson(res, 200, { ok: true, ...v, all, machines: onMachines, words: phonesess.startWords(), models: startModels() });
     }
     if (req.method === 'GET' && p === '/api/setup/skills') {
       // ravenryd=<path> (on the Mac only): each row adds its hooks, on, off
