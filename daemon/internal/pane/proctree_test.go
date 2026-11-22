@@ -131,7 +131,7 @@ func TestCloseEndsDetachedHelpers(t *testing.T) {
 	if _, _, err := m.Close(p1.ID(), 600*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	if alive(h1) && !zombie(h1) {
+	if !endsSoon(h1) {
 		t.Fatalf("the detached helper %d survived the close of its pane", h1)
 	}
 	if !alive(h2) {
@@ -144,7 +144,21 @@ func TestCloseEndsDetachedHelpers(t *testing.T) {
 	if _, _, err := m.Close(p2.ID(), 600*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	if alive(h2) && !zombie(h2) {
+	if !endsSoon(h2) {
 		t.Fatalf("the other pane's helper %d survived its own close", h2)
 	}
+}
+
+// endsSoon: a killed process is gone, or a zombie, within a second. Close
+// returns once the kill is sent; the process itself ends a moment later, and
+// on a busy machine that moment can come after the check.
+func endsSoon(pid int) bool {
+	deadline := time.Now().Add(time.Second)
+	for alive(pid) && !zombie(pid) {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return true
 }
