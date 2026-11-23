@@ -28,6 +28,10 @@ Objectives page shows this file as "done of total".
 - [x] A tap on an Android alert opens its card, also when Android folds alerts together (ALERT-019)
 - [x] Model lists are read only when a menu needs them, never on a timer (SESS-051)
 
+## Shipped in 0.1.77
+
+- [x] A pick's video stops when the pick is closed or answered on the Mac (PANEL-038)
+
 ## Decided against
 
 - The phone away from the Mac's Wi-Fi without Tailscale (PHONE-045): it needs a relay server that the project would pay for and depend on. Tailscale, free on the person's own account, stays the way.
