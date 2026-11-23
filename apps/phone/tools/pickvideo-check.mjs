@@ -182,7 +182,11 @@ async function runEngine(E) {
     // The strip: each video's first frame.
     const strip = await until(() => p.evaluate((f) => { const s = [...document.querySelectorAll('#gl-strip .gl-thumb')].map((b) => (b.querySelector('img[data-frame]') ? eval(f)(b) : b.querySelector('img') ? 'img' : null)); return s.length === 4 && s[0] && s[1] && s[3] ? s : null; }, FRAME), 10000);
     check(N('board_strip_first_frames'), !!strip && strip[0].w === VW && strip[1].w === VW && strip[2] === 'img' && strip[3].w === VW2, JSON.stringify(strip));
+    // The viewer closed while D plays: its player stops and lets its video go (a player taken off the page plays on).
+    await p.evaluate(() => { window.__rvVid = document.getElementById('gl-vid'); });
     await p.keyboard.press('Escape');
+    const gone = await until(() => p.evaluate((f) => { const v = window.__rvVid; return v && v.paused && !v.getAttribute('src') ? eval(f)(v) : null; }, VID), 3000);
+    check(N('board_close_lets_go'), !!gone, JSON.stringify(await p.evaluate((f) => eval(f)(window.__rvVid), VID)));
     check(N('board_answered_nothing'), await stillOpen());
     await ctx.close();
   }
@@ -257,7 +261,14 @@ async function runEngine(E) {
     await sleep(1000);
     const b1 = await p.evaluate((f) => eval(f)(document.querySelector('.pzv-box video.pzv-vid')), VID);
     if (dark) check(N('phone_page_video_plays'), !!b0 && b1.t > b0.t + 0.6 && !b1.paused && (await p.evaluate(() => document.querySelector('.pzv-at').textContent)) === 'B, 2 of 4', `${JSON.stringify(b0)} then ${JSON.stringify(b1)}`);
-    if (!dark) { await ctx.close(); continue; }
+    if (!dark) {
+      // The viewer closed while B plays: its player stops and lets its video go.
+      await p.evaluate(() => { window.__rvVid = document.querySelector('.pzv-box video.pzv-vid'); });
+      await p.click(`button[aria-label="${EN['phone.pick.closeViewer']}"]`);
+      const gone = await until(() => p.evaluate((f) => { const v = window.__rvVid; return v && v.paused && !v.getAttribute('src') ? eval(f)(v) : null; }, VID), 3000);
+      check(N('phone_close_lets_go'), !!gone, JSON.stringify(await p.evaluate((f) => eval(f)(window.__rvVid), VID)));
+      await ctx.close(); continue;
+    }
     // Circle a part: it stops on the frame shown, its controls go; the hint says where.
     await p.click('.pzv-ctl .btn:not(.pri)');
     await sleep(400);
@@ -281,8 +292,12 @@ async function runEngine(E) {
     await p.evaluate(() => document.activeElement && document.activeElement.blur());
     await sleep(200);
     await p.screenshot({ path: path.join(OUT, PFX + `phone-note-${th}.png`) });
+    await p.evaluate(() => { window.__rvVid = document.querySelector('.pzv-box video.pzv-vid'); });
     await p.click('.pzv-ctl .btn.pri');
     const closed = await until(async () => !(await stillOpen()), 10000);
+    // Answered: the screen goes and its video is let go (its source dropped), or the page itself has gone.
+    const sentGone = await until(() => p.evaluate(() => { const v = window.__rvVid; return !v ? 'page gone' : v.paused && !v.getAttribute('src') ? 'let go' : null; }).catch(() => 'page gone'), 5000);
+    check(N('phone_send_lets_go'), !!sentGone, String(sentGone));
     const got = await until(() => { try { const t = fs.readFileSync(OUTFILE, 'utf8'); return /EXIT/.test(t) ? t : null; } catch { return null; } }, 10000);
     const line = `region ${['x', 'y', 'w', 'h'].map((k) => want[k].toFixed(4)).join(' ')} at ${(Math.round(c0.v.t * 1000) / 1000).toFixed(2)}`;
     // (WebKit's ring is drawn with the mouse, its points a pixel off the touch path's: within 1 %.)

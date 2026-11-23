@@ -399,10 +399,25 @@ final class PickPlayer: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// A video plays only while it is seen. The pick answered or closed, another view in the
+    /// middle, the window gone: the view (or one it is in) is hidden, and the video stops and
+    /// is let go, whoever hid it. Its picker shows it again when the pick comes back.
+    override func viewDidHide() {
+        super.viewDidHide()
+        stop()
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { stop() }
+    }
+    private var seen: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
     /// Shows the video at `path` from its file (nil: not read yet); the same one goes on as it is.
     func show(_ path: String, file: URL?) {
         if path == url, player != nil || web?.isHidden == false || !cantView.isHidden { return }
         stop()
+        // Not seen (a picker drawn while hidden, a file read after it closed): none starts.
+        guard seen else { return }
         url = path
         shown += 1
         natural = .zero

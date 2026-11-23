@@ -138,6 +138,18 @@ extension SelfTestBoard {
         _ = wait(10) { pl.url == vurl(1) && pl.time > 0.4 }
         settle(0.4)
 
+        // The pick's Close while B plays: the video stops and is let go, not left playing behind the view
+        // in front. The pick come back (the back stack's again): B plays up close again.
+        let closing = pl.shown
+        pk.buttons["close"]?.performClick(nil)
+        let gone = wait(3) { self.board.root.middle !== pk && pl.player == nil && pl.web?.isHidden != false && pl.url.isEmpty && !pl.playing }
+        check("pv_close_lets_go", gone && pl.letGo.contains(closing), "middle is picker \(board.root.middle === pk), player \(pl.player == nil ? "gone" : "kept"), web shown \(pl.web?.isHidden == false), url \(pl.url), playing \(pl.playing), let go \(pl.letGo.contains(closing))")
+        board.openPicker(id)
+        _ = wait(10) { pk.viewing == 1 && pl.url == vurl(1) && pl.time > 0.05 }
+        let r0 = pl.time
+        settle(1.0)
+        check("pv_back_plays_again", pk.viewing == 1 && pl.url == vurl(1) && !pl.isHidden && pl.playing && pl.time > r0 + 0.4, "viewing \(String(describing: pk.viewing)) url \(pl.url) playing \(pl.playing) time \(r0) to \(pl.time)")
+
         // Circle a part: B stops on the frame shown, no controls; a drag on it is the ring, in fractions of the video's frame.
         pk.buttons["circle"]?.performClick(nil)
         settle(0.3)
@@ -181,6 +193,9 @@ extension SelfTestBoard {
         check("pv_send_posts_region_t", last()?["id"] as? String == id && p?["label"] as? String == "Take two" && p?["note"] as? String == "Slower here" && tt.map { abs($0 - stopped) < 0.01 } == true
               && (reg?["w"] as? NSNumber)?.doubleValue == Double(want.width), "\(pvJSON(last()))")
         check("pv_send_landed", wait(6) { self.board.hub.answers.last { $0.seq >= sent && $0.path == "/api/checkpoints/answer" }?.code == 200 }, "hub answered \(lastStatus("/api/checkpoints/answer") ?? 0)")
+        // Answered, the pick closes and its video is let go (no player, no web page left playing).
+        check("pv_send_lets_go", wait(3) { self.board.root.middle !== pk && pl.player == nil && pl.web?.isHidden != false && pl.url.isEmpty && !pl.playing },
+              "middle is picker \(board.root.middle === pk), player \(pl.player == nil ? "gone" : "kept"), web shown \(pl.web?.isHidden == false), url \(pl.url)")
         // The region and its second for the agent's check (sidetest.mjs reads it from the result).
         check("pv_region_for_agent \(pvJSON(reg))", true)
         board.hub.testCheckpoints = nil
