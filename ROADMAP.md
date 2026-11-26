@@ -39,6 +39,7 @@ Objectives page shows this file as "done of total".
 - [x] A saved decision is never pushed to a phone: its toast stays in the apps (DEC-003)
 - [x] Hand off now reaches a session at rest, and says what it waits for (SESS-025)
 - [x] On the Mac, toasts sit at the top right of the terminal, off the typing area (SESS-019)
+- [x] A tap on a card's alert opens the card, not the project, and an answered card no longer hangs on Reaching (ALERT-012, ALERT-019)
 
 ## Decided against
 
