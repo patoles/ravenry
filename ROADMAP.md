@@ -32,6 +32,14 @@ Objectives page shows this file as "done of total".
 
 - [x] A pick's video stops when the pick is closed or answered on the Mac (PANEL-038)
 
+## Shipped in 0.1.78
+
+- [x] On a phone, a session's Open in Ravenry button reads Show on Mac (SESS-014)
+- [x] Decisions saved close together are one toast with one Undo (DEC-003)
+- [x] A saved decision is never pushed to a phone: its toast stays in the apps (DEC-003)
+- [x] Hand off now reaches a session at rest, and says what it waits for (SESS-025)
+- [x] On the Mac, toasts sit at the top right of the terminal, off the typing area (SESS-019)
+
 ## Decided against
 
 - The phone away from the Mac's Wi-Fi without Tailscale (PHONE-045): it needs a relay server that the project would pay for and depend on. Tailscale, free on the person's own account, stays the way.
