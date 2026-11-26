@@ -1257,13 +1257,20 @@ final class Board: NSObject {
         let scope = (d["scope"] as? String).map { $0.lowercased().hasPrefix("the ") ? String($0.dropFirst(4)) : $0 }
         let replaced = !((d["overrides"] as? [Any]) ?? []).isEmpty
         let quote = d["quote"] as? String ?? ""
-        let text = replaced ? (scope.map { t("dec.replacedScope", ["scope": $0]) } ?? t("dec.replacedToast"))
+        // Saved close together, one notice (the hub's `group`, server/push.mjs
+        // groupDecision): "Saved 3 decisions, the latest on the sails.", one
+        // toast that the next one updates, whose Undo takes them all back.
+        let group = j["group"] as? [String: Any]
+        let ids = (group?["ids"] as? [String]) ?? [id]
+        let many = ids.count > 1
+        let text = many ? (group?["words"] as? String ?? t("dec.savedMany", ["n": "\(ids.count)"]))
+            : replaced ? (scope.map { t("dec.replacedScope", ["scope": $0]) } ?? t("dec.replacedToast"))
             : (scope.map { t("dec.savedScope", ["scope": $0]) } ?? t("dec.savedQuote", ["quote": Self.short(quote, 48)]))
         var acts: [(String, () -> Void)] = []
-        if let u = When.date(d["undo_until"] as? String ?? j["undo_until"] as? String), u > When.now() {
+        if let u = When.date(group?["undo_until"] as? String ?? d["undo_until"] as? String ?? j["undo_until"] as? String), u > When.now() {
             acts.append((t("dec.undo"), { [weak self] in
-                self?.hub.post("/api/decisions/undo", ["id": id]) { code, r in
-                    self?.toast(code == 200 ? t("dec.undone") : r["error"] as? String ?? t("dec.undoOver"))
+                self?.hub.post("/api/decisions/undo", many ? ["ids": ids] : ["id": id]) { code, r in
+                    self?.toast(code == 200 ? (many ? t("dec.undoneMany", ["n": "\(ids.count)"]) : t("dec.undone")) : r["error"] as? String ?? t("dec.undoOver"))
                     self?.readDecisions()
                     if case .page("decisions", _) = self?.front { self?.decisions.load() }
                 }

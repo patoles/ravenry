@@ -94,6 +94,20 @@ extension SelfTestBoard {
         board.toastButtons.first?.performClick(nil)
         check("dec_toast_undo_posts", wait(5) { self.sentSince(s).contains("POST /api/decisions/undo") }, sentSince(s).joined(separator: ","))
         check("dec_toast_undo_done", wait(8) { self.toasts(since: n).contains(t("dec.undone")) && !self.shows(pg, "8 in the morning") && pg.cards["dnew2345"] != nil }, toasts(since: n).joined(separator: ","))
+
+        // Two saved close together (the hub's group, server/push.mjs groupDecision): one
+        // toast, the second updating the first, with the count and the latest, and Undo for both.
+        let until = ISO8601DateFormatter().string(from: When.now().addingTimeInterval(60))
+        let saved = { (id: String, quote: String, scope: String, ids: [String], words: String) in
+            self.board.onDecision(["type": "saved", "undo_until": until, "decision": ["id": id, "by": "agent", "quote": quote, "scope": scope, "overrides": [], "undo_until": until],
+                                   "group": ["id": "dec:\(ids[0])", "ids": ids, "count": ids.count, "words": words, "undo_until": until]])
+        }
+        saved("dgrpaaaa", "The dock is on the right.", "dock", ["dgrpaaaa"], "Saved your decision: the dock.")
+        saved("dgrpbbbb", "The dock hides in full screen.", "dock in full screen", ["dgrpaaaa", "dgrpbbbb"], "Saved 2 decisions, the latest on the dock in full screen.")
+        let saidNow = board.toastTexts.filter { $0.hasPrefix("Saved") }
+        check("dec_group_one_toast_updated", saidNow == ["Saved 2 decisions, the latest on the dock in full screen."] && board.toastButtons.map { $0.title } == [t("dec.undo"), t("dec.show")],
+              board.toastTexts.joined(separator: ",") + " " + board.toastButtons.map { $0.title }.joined(separator: ","))
+        board.toastStack.drop(key: "decision")
         screenDecisionsMore()
         finishDecisions()
     }
