@@ -2746,7 +2746,11 @@ function newPlace() {
 
 // "Open in <terminal>": the shown session's own tab when it is in a
 // terminal other than cmux the board can reach, else the project's cmux
-// workspace as before.
+// workspace as before. On a phone (the Ravenry app, or a browser that is not
+// on the Mac) the tab comes forward on the Mac's screen, not the phone's, so
+// the button says "Show on Mac" (2026-11-26: "is it normal I'm seeing
+// Open in Ravenry on the mobile app? it's already inside no?").
+const openWord = (term) => (window.ravenryApp || ui.local === false ? 'Show on Mac' : `Open in ${term}`);
 function openButton(p, s) {
   const other = !!(s && s.terminal !== false && s.term && s.term !== 'cmux');
   const on = other || (boardTerm() === 'cmux' && p.workspaces.some((x) => x.open));
@@ -2755,7 +2759,7 @@ function openButton(p, s) {
   // session only says the wrong terminal: show no button at all.
   if (s && s.terminal === false) return '';
   if (!on && boardTerm() !== 'cmux') return '';
-  return `<button class="btn sm" data-act="open" ${on ? '' : 'disabled'}>Open in ${esc(other ? s.termName : boardTerm())}</button>`;
+  return `<button class="btn sm" data-act="open" ${on ? '' : 'disabled'}>${esc(openWord(other ? s.termName : boardTerm()))}</button>`;
 }
 
 async function openInCmux() {

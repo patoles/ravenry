@@ -186,7 +186,7 @@ try {
     check(ok, `${scheme}: Try the demo opens the board on sample projects`);
     await sleep(1200);
     await barOk('the board', scheme);
-    check(await page('!document.querySelector(".cx-chip") || document.querySelector(".cx-chip").offsetParent === null'), `${scheme}: no connection chip, no Open in Ravenry`);
+    check(await page('!document.querySelector(".cx-chip") || document.querySelector(".cx-chip").offsetParent === null'), `${scheme}: no connection chip, no Show on Mac`);
     shot(`a02-board-${scheme}.png`);
     for (const k of ['ideas', 'rules', 'ship', 'pages']) {
       await tapPage(`#bnav [data-pnav="${k}"]`);

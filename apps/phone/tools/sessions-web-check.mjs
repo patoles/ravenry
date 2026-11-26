@@ -22,7 +22,9 @@
 //   First message); Start posts the folder, the assistant, the model, the
 //   project and the words with worktree (another session works in
 //   paper-boat), and the new session's live screen opens with the hub's
-//   toast; the stand-in ran in its own worktree with the words;
+//   toast; the stand-in ran in its own worktree with the words; back on
+//   its session view, the button that brings its tab forward on the Mac
+//   says "Show on Mac", never "Open in Ravenry";
 // - a project's New session opens it with that project picked; Runs on
 //   devbox starts the stand-in on devbox (machine posted, a pane there);
 // - an idle project's Last conversation: Continue this conversation resumes
@@ -300,6 +302,10 @@ try {
   await shot('03-after-start-live', p, { toast: true });
   await closeFull();
   await p.waitForTimeout(300);
+  // ---- 03b: the session view's button that brings its tab forward on the Mac says so on a phone
+  const showOnMac = await until(() => p.evaluate(() => { const b = document.querySelector('#d-strip [data-act="open"]'); return b && b.offsetParent !== null ? b.textContent.trim() : null; }), 10000);
+  check('show_on_mac', showOnMac === 'Show on Mac' && !(await p.evaluate(() => /Open in /.test(document.querySelector('#d-strip').textContent))), String(showOnMac));
+  await shot('03b-session-view-show-on-mac');
 
   // ---- 01b: a project's New session, that project picked; Runs on devbox (MACH-007)
   await openProject('notes-app');

@@ -1198,12 +1198,12 @@ final class FlowTests: XCTestCase {
         return ok
     }
 
-    /// The Mac's own controls are not on the iPad: Open in <terminal>, the Mac's notifications bell, its phone button.
+    /// The Mac's own controls are not on the iPad: Show on Mac, the Mac's notifications bell, its phone button.
     func noMacOnly(_ label: String) {
         let o = jsObject("""
         const vis = (e) => e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none';
         const hits = [...document.querySelectorAll('[data-act="open"], #alerts, #phone-anchor, #phone, button')].filter(vis)
-          .filter((e) => e.matches('[data-act="open"], #alerts, #phone-anchor, #phone') || /^Open in /.test((e.innerText || '').trim()));
+          .filter((e) => e.matches('[data-act="open"], #alerts, #phone-anchor, #phone') || /^(Open in |Show on Mac)/.test((e.innerText || '').trim()));
         return { n: hits.length, what: hits.map((e) => e.id || (e.innerText || '').trim()).join(', ') };
         """)
         mark("Mac-only controls \(label): \(o)")

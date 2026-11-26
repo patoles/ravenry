@@ -14,7 +14,7 @@ html.rv-demo-on .mc { min-height: calc(100vh - var(--rv-demo-h, 50px)); }
 html.rv-demo-on .lv-fs, html.rv-demo-on .gl-fs, html.rv-demo-on .pzv, html.rv-demo-on .sheet-bg, html.rv-demo-on .iph, html.rv-demo-on .modal-back, html.rv-demo-on .hs-pop, html.rv-demo-on .scrim, html.rv-demo-on .pn-scrim { top: var(--rv-demo-h, 50px) !important; }
 html.rv-demo-on .pn-menu { top: calc(var(--rv-demo-h, 50px) + 56px); }
 html.rv-demo-on .bsheet { max-height: calc(100dvh - 58px - var(--rv-demo-h, 50px)); }
-/* The Mac's own controls: Open in Ravenry brings a tab forward on the Mac's
+/* The Mac's own controls: Show on Mac brings a tab forward on the Mac's
    screen. And no connection chip: there is no connection, the bar says why. */
 html.rv-demo-on .mc [data-act="open"], html.rv-demo-on .mc .cx-chip { display: none !important; }
 html.rv-demo-on #pbar .pn-ttl { flex: 1 1 auto; }
