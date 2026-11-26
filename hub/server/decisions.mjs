@@ -55,6 +55,11 @@ export const MAX_SCOPE = 200;
 export const MAX_OVERRIDES = 16;
 // How long the person can undo an entry an agent recorded.
 export const UNDO_MS = 60 * 1000;
+// Decisions an agent saves for one project, each within this of the one
+// before, are one notice: one alert on the phone and one toast on the
+// board, updated in place, whose Undo takes them all back (server/push.mjs
+// groupDecision, undoMany).
+export const GROUP_MS = 2 * 60 * 1000;
 const KEEP_READ_DAYS = 30;
 const ID = /^d[a-z2-7]{7}$/;
 
@@ -224,6 +229,28 @@ export function undo(id, { file = FILE, now = Date.now() } = {}) {
   return remove(id, { file });
 }
 
+// Undo of one notice (GROUP_MS): the decisions it covers, newest first,
+// within a minute of the latest. They are an agent's (or a program's), of
+// one project, saved close together: the notice's own, never any set a
+// caller makes up. One already undone on its own is left out.
+export function undoMany(ids, { file = FILE, now = Date.now() } = {}) {
+  if (!Array.isArray(ids) || !ids.length || ids.length > 100 || !ids.every((x) => typeof x === 'string' && ID.test(x))) return { ok: false, status: 400, error: 'ids is a list of decision ids.' };
+  const want = new Set(ids);
+  const found = load(file).filter((d) => want.has(d.id));
+  if (!found.length) return { ok: false, status: 404, error: 'No such decision.' };
+  const ats = found.map((d) => Date.parse(d.at)).sort((a, b) => a - b);
+  const together = found.every((d) => d.by !== 'person' && d.project === found[0].project) && ats[ats.length - 1] - ats[0] <= (want.size - 1) * GROUP_MS;
+  if (!together) return { ok: false, status: 400, error: 'Those decisions were not saved together. Undo them one at a time on the Decisions page.' };
+  if (now - ats[ats.length - 1] > UNDO_MS) return { ok: false, status: 409, error: 'Undo lasts a minute after the latest was saved. Remove them on the Decisions page instead.' };
+  const removed = [];
+  // Newest first; two saved in the same millisecond, the later written first (the file's order).
+  for (const d of found.slice().reverse().sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))) {
+    const r = remove(d.id, { file });
+    if (r.ok) removed.push(r.removed);
+  }
+  return { ok: true, removed };
+}
+
 const today = (t = new Date()) => t.toISOString().slice(0, 10);
 
 // An agent read these entries: one read each, counted per day.
@@ -288,6 +315,17 @@ export function toastWords(d) {
   const quote = q.length > 48 ? `${q.slice(0, 47).replace(/\s+\S*$/, '')}...` : q;
   if ((d.overrides || []).length) return scope ? t('dec.replacedScope', { scope }) : t('dec.replacedToast');
   return scope ? t('dec.savedScope', { scope }) : t('dec.savedQuote', { quote });
+}
+
+// What the person is told when an agent saved several close together
+// (GROUP_MS), the latest named: "Saved 3 decisions, the latest on the
+// sails." One alone is toastWords().
+export function groupWords(latest, count) {
+  if (count <= 1) return toastWords(latest);
+  const scope = latest.scope ? latest.scope.replace(/^the\s+/i, '') : '';
+  const q = String(latest.quote || '');
+  const quote = q.length > 48 ? `${q.slice(0, 47).replace(/\s+\S*$/, '')}...` : q;
+  return scope ? t('dec.savedManyScope', { n: count, scope }) : t('dec.savedManyQuote', { n: count, quote });
 }
 
 // What the Decisions page shows (GET /api/decisions?page=1), worked out

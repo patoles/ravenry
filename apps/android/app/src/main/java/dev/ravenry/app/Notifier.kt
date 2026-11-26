@@ -67,7 +67,7 @@ object Notifier {
             if (x != null && android.os.SystemClock.elapsedRealtime() - x.at < ANSWER_HOLD_MS) { x.closed = true; return }
             cancel(context, a.id); return
         }
-        if (Store.get(context).seen(a.id)) return
+        if (Store.get(context).seen(a.seenKey)) return
         show(context, a)
     }
 
@@ -154,6 +154,10 @@ object Notifier {
             if (keyed && a.detail.startsWith("It would type: ")) text.append("It would type: ").append(typed(a.keys)) else text.append(a.detail)
         }
         val b = base(context, a).setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        // A saved decision is a quiet notice (2026-11-26): no sound, no buzz,
+        // no heads-up; decisions saved close together come as updates of the
+        // same notice (same id, so the same tag here), drawn in place.
+        if (a.quiet) b.setSilent(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_LOW)
         for (act in a.actions) b.addAction(0, act.label, actionIntent(context, a, act.id))
         a.reply?.let { r ->
             val input = RemoteInput.Builder(REPLY_KEY).setLabel(r.hint ?: r.label).build()

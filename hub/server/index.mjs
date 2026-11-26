@@ -3211,7 +3211,7 @@ async function decisionsWrite(req, res, p) {
   const b = body && typeof body === 'object' ? body : {};
   const projectOf = (v) => (v == null || v === '' ? { id: null } : { id: projectIdOf(v), bad: !projectIdOf(v) });
   const done = (r, extra = {}) => sendJson(res, r.ok ? 200 : r.status, r.ok ? { ok: true, ...extra } : { error: r.error });
-  const fields = { '/api/decisions/record': ['quote', 'project', 'replaces', 'scope'], '/api/decisions/add': ['quote', 'project', 'replaces', 'overrides', 'scope'], '/api/decisions/edit': ['id', 'quote', 'project', 'scope'], '/api/decisions/undo': ['id'], '/api/decisions/remove': ['id'] }[p];
+  const fields = { '/api/decisions/record': ['quote', 'project', 'replaces', 'scope'], '/api/decisions/add': ['quote', 'project', 'replaces', 'overrides', 'scope'], '/api/decisions/edit': ['id', 'quote', 'project', 'scope'], '/api/decisions/undo': ['id', 'ids'], '/api/decisions/remove': ['id'] }[p];
   // A field the ledger does not know is refused, not dropped: who
   // recorded an entry is never taken from the body.
   const unknown = fields ? Object.keys(b).filter((k) => !fields.includes(k)) : [];
@@ -3238,10 +3238,23 @@ async function decisionsWrite(req, res, p) {
     if (!r.ok) return done(r);
     const v = decisions.view(r.entry);
     console.log(`decisions: ${r.entry.id} recorded by ${pane ? `pane ${pane}` : 'a program outside every pane'} for ${projectId || 'every project'}`);
-    broadcast('decision', { type: 'saved', decision: v, undo_until: v.undo_until });
+    // Saved close together, one notice (server/push.mjs groupDecision): the
+    // board's toast and the phone's alert say the group and undo it whole.
     const proj = projectId ? findProject(projectId) : null;
-    try { push.fromDecision(r.entry, { project: proj }); } catch (e) { console.error('push:', e.message); }
+    let group = null;
+    try { group = push.groupDecision(r.entry, proj); } catch (e) { console.error('push:', e.message); }
+    broadcast('decision', { type: 'saved', decision: v, undo_until: (group && group.undo_until) || v.undo_until, ...(group ? { group } : {}) });
+    try { push.fromDecision(r.entry, { project: proj, group }); } catch (e) { console.error('push:', e.message); }
     return done(r, { decision: v });
+  }
+  // Undo of one notice: every decision it covers (`ids`), within the minute after the latest.
+  if (p === '/api/decisions/undo' && b.ids !== undefined) {
+    const r = decisions.undoMany(b.ids);
+    if (r.ok) {
+      for (const d of r.removed) broadcast('decision', { type: 'removed', id: d.id });
+      try { push.closeDecision(r.removed.map((d) => d.id)); } catch { /* none */ }
+    }
+    return done(r, r.ok ? { removed: r.removed } : {});
   }
   const id = String(b.id || '');
   if (p === '/api/decisions/undo' || p === '/api/decisions/remove') {

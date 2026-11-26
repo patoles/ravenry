@@ -148,6 +148,20 @@ class AlertsTest {
         assertEquals("""{"id":"dk4x34fg"}""", c.json)
     }
 
+    @Test fun decisionsSavedCloseTogetherAreOneQuietNoticeWhoseUndoTakesThemAllBack() {
+        val x = Alert.parse("""{"v":1,"type":"alert","id":"dec:dk4x34fg","kind":"decision","title":"Saved 3 decisions","body":"The tail is twice as long.","detail":"The latest of 3. Claude recorded them for Kite.","quiet":true,"decision":{"id":"dm32ryhf","ids":["dk4x34fg","dgfvunez","dm32ryhf"],"count":3,"rev":3,"undo_until":"2026-11-07T10:01:00.000Z"},"actions":[{"id":"undo","label":"Undo"}],"reply":null}""")!!
+        assertTrue(x.quiet)
+        assertEquals("dec:dk4x34fg#3", x.seenKey)
+        assertEquals(listOf("dk4x34fg", "dgfvunez", "dm32ryhf"), x.decisionIds)
+        val c = Actions.call(x, "undo") as ActionCall.Post
+        assertEquals("/api/decisions/undo", c.path)
+        assertEquals("""{"ids":["dk4x34fg","dgfvunez","dm32ryhf"]}""", c.json)
+        // An update of the same notice is drawn again; an alert of another kind is drawn once by its id.
+        val y = Alert.parse(x.raw.replace("\"rev\":3", "\"rev\":4"))!!
+        assertEquals("dec:dk4x34fg#4", y.seenKey)
+        assertEquals("cp:c1", Alert.parse("""{"v":1,"type":"alert","id":"cp:c1","kind":"ask","title":"t","body":"b","actions":[],"reply":null}""")!!.seenKey)
+    }
+
     @Test fun theConnectionLineSaysTheMacHowAndTheSessions() {
         val s = """{"projects":[{"machine":null,"sessions":[{"state":"working"},{"state":"dialog"}]},{"machine":"devbox","sessions":[{"state":"idle","words":{"state":"work"}},{"state":"asked"},{"state":"idle"}]}]}"""
         val c = ConnectionService.counts(s)!!

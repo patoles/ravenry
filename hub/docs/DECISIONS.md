@@ -60,7 +60,7 @@ one makes them active again.
 | `POST /api/decisions/record` | open | `{ quote, project?, replaces?, scope? }` | `{ ok, decision }` |
 | `POST /api/decisions/add` | person | `{ quote, project?, replaces? or overrides?, scope? }` | `{ ok, decision }` |
 | `POST /api/decisions/edit` | person | `{ id, quote?, project?, scope? }` | `{ ok, decision }` |
-| `POST /api/decisions/undo` | person | `{ id }`, within a minute of `at` | `{ ok, removed }` |
+| `POST /api/decisions/undo` | person | `{ id }`, within a minute of `at`; or `{ ids }`, the decisions of one notice (one project, saved by agents, each within 2 minutes of the one before), within a minute of the latest | `{ ok, removed }` (a list for `ids`) |
 | `POST /api/decisions/remove` | person | `{ id }` | `{ ok, removed }` |
 
 - `project` anywhere: a project's id, its name, or an absolute folder
@@ -82,10 +82,17 @@ one makes them active again.
   inside a pane. The board's and the app's own looks do not count.
 - A field the ledger does not know is refused (400), not dropped.
 - The board's event stream (`GET /api/events`) carries `event: decision`
-  with `{ type: "saved", decision, undo_until }`, `{ type: "edited",
+  with `{ type: "saved", decision, undo_until, group }`, `{ type: "edited",
   decision }` or `{ type: "removed", id }`. The phone gets an alert of
   kind `decision` (docs/PHONE.md section 5) with Undo, closed after the
   minute.
+- Decisions an agent saves for one project, each within 2 minutes of the
+  one before, are one notice (`group`: `{ id, ids, count, rev, latest,
+  words, undo_until }`, server/push.mjs groupDecision()): one quiet alert on
+  the phone, updated in place, and one toast on the board and the Mac
+  ("Saved 3 decisions, the latest on the sails."), whose Undo sends `{ ids }`
+  and takes them all back within the minute after the latest. The
+  Decisions page's own Undo still takes back one, within its own minute.
 
 ## Who reads it
 

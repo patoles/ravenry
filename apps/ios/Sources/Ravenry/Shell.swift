@@ -263,7 +263,7 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
     func message(_ m: [String: Any]) {
         guard let type = m["type"] as? String, let id = m["id"] as? String else { return }
         if type == "close" { remove(id); return }
-        guard type == "alert" || type == "test", !Store.shared.seen(id) else { return }
+        guard type == "alert" || type == "test", !Store.shared.seen(AlertContent.seenKey(m) ?? id) else { return }
         let c = UNMutableNotificationContent()
         AlertContent.prepare(c, m) {
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: c, trigger: nil)) { e in
@@ -317,11 +317,14 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
 
     /// In front: an alert through APNs that the live stream already drew is not drawn twice.
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification, withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
-        if n.request.trigger is UNPushNotificationTrigger, let id = Self.alertOf(n)?["id"] as? String {
-            DispatchQueue.main.async { done(Store.shared.seen(id) ? [] : [.banner, .list, .sound]) }
+        // A quiet notice (a saved decision) goes to the list only, never a banner or a sound.
+        let a = Self.alertOf(n)
+        let shown: UNNotificationPresentationOptions = a.map(AlertContent.quiet) == true ? [.list] : [.banner, .list, .sound]
+        if n.request.trigger is UNPushNotificationTrigger, let a, let key = AlertContent.seenKey(a) {
+            DispatchQueue.main.async { done(Store.shared.seen(key) ? [] : shown) }
             return
         }
-        done([.banner, .list, .sound])
+        done(shown)
     }
 
     /// A tap on an alert, or one of its buttons. iOS asks off the main thread, and
@@ -398,7 +401,8 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
             if let t = actionOf(act)?["text"] as? String { toSession(["text": t]) }
             else if let n = Int(act.dropFirst("quick:".count)) { toSession(["choice": n]) }
         case "undo":
-            if let d = (a["decision"] as? [String: Any])?["id"] as? String { sendTo("/api/decisions/undo", ["id": d]) }
+            // A notice of several saved close together takes them all back.
+            if let body = AlertContent.undoBody(a) { sendTo("/api/decisions/undo", body) }
         case "later":
             break
         case "reply":

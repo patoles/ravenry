@@ -27,7 +27,16 @@ enum AlertContent {
     static func fill(_ c: UNMutableNotificationContent, _ m: [String: Any]) {
         c.title = str(m["title"]) ?? "Ravenry"
         c.body = [str(m["body"]), str(m["detail"])].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
-        c.sound = .default
+        // A saved decision is a quiet notice (`quiet`, 2026-11-26): no sound,
+        // and passive, so it never lights the screen or buzzes. Decisions
+        // saved close together are one notice, updated in place: APNs's
+        // collapse id (the hub's) and the app's request id are the alert's id.
+        if quiet(m) {
+            c.sound = nil
+            c.interruptionLevel = .passive
+        } else {
+            c.sound = .default
+        }
         if let p = str((m["project"] as? [String: Any])?["id"]) { c.threadIdentifier = p }
         if let d = try? JSONSerialization.data(withJSONObject: m) { c.userInfo = ["alert": String(decoding: d, as: UTF8.self)] }
     }
@@ -103,6 +112,26 @@ enum AlertContent {
     static func alertOf(_ info: [AnyHashable: Any]) -> [String: Any]? {
         if let s = info["alert"] as? String { return (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any] }
         if let e = info["e"] as? String { return PushCrypto.message(e) }
+        return nil
+    }
+
+    /// Whether the message is a quiet notice (never a sound or a buzz).
+    static func quiet(_ m: [String: Any]) -> Bool { m["quiet"] as? Bool == true }
+
+    /// What "drawn once" remembers: the id, and for a notice updated in
+    /// place (a saved decisions' notice, `decision.rev`) which update, so
+    /// an update is drawn again.
+    static func seenKey(_ m: [String: Any]) -> String? {
+        guard let id = str(m["id"]) else { return nil }
+        if let rev = (m["decision"] as? [String: Any])?["rev"] as? Int, rev > 0 { return "\(id)#\(rev)" }
+        return id
+    }
+
+    /// The body of Undo: every decision a notice of several covers (`ids`), else its one id.
+    static func undoBody(_ m: [String: Any]) -> [String: Any]? {
+        let d = m["decision"] as? [String: Any]
+        if let ids = d?["ids"] as? [String], ids.count > 1 { return ["ids": ids] }
+        if let id = str(d?["id"]) { return ["id": id] }
         return nil
     }
 

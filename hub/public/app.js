@@ -502,17 +502,24 @@ function showKept() {
 }
 // "Decision replaced: the hull tilt." or "Saved your decision: ...", the
 // hub's words (`words`, server/decisions.mjs toastWords()), with Undo until
-// its minute is over (POST /api/decisions/undo, the person's).
-function decisionToast(d, undoUntil) {
+// its minute is over (POST /api/decisions/undo, the person's). Several
+// saved close together are one notice (`group`, server/push.mjs
+// groupDecision): this one toast says "Saved 3 decisions, the latest on
+// ...", and its Undo takes them all back.
+function decisionToast(d, undoUntil, group = null) {
   const t = $('#toast');
-  t.textContent = undash(d.words || '');
+  const many = !!(group && Array.isArray(group.ids) && group.ids.length > 1);
+  t.textContent = undash((many ? group.words : d.words) || '');
   const left = undoUntil ? Date.parse(undoUntil) - Date.now() : 0;
   if (left > 0) {
     const u = document.createElement('button');
     u.style.cssText = 'margin-left:12px;color:var(--work);font:inherit;background:none;border:0;padding:0;cursor:pointer';
     u.textContent = 'Undo';
     u.addEventListener('click', async () => {
-      try { await post('/api/decisions/undo', { id: d.id }); toast('Undone. The decision before it holds again.'); } catch (e) { toast(e.message, 5000, true); }
+      try {
+        await post('/api/decisions/undo', many ? { ids: group.ids } : { id: d.id });
+        toast(many ? `Undone, all ${group.ids.length}.` : 'Undone. The decision before it holds again.');
+      } catch (e) { toast(e.message, 5000, true); }
     });
     t.append(u);
   }
@@ -6471,7 +6478,7 @@ function connect() {
     let m = null;
     try { m = JSON.parse(ev.data); } catch { return; }
     if (!m || m.type !== 'saved' || !m.decision || m.decision.by === 'person') return;
-    decisionToast(m.decision, m.undo_until || m.decision.undo_until || null);
+    decisionToast(m.decision, m.undo_until || m.decision.undo_until || null, m.group || null);
   });
   // EventSource reconnects by itself; a phone signed out by New key gets 401.
   es.onerror = () => { checkSignedIn(); browserConn(es.readyState === EventSource.CLOSED ? 'offline' : 'reconnecting'); };

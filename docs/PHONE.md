@@ -845,7 +845,7 @@ tab", never the checkpoint's own title.
 | Alert | `id` |
 | --- | --- |
 | A checkpoint | `cp:<checkpoint id>` |
-| A decision an agent saved | `dec:<decision id>` |
+| Decisions an agent saved close together | `dec:<the first one's id>` |
 | A session in Needs you | `s:<project id>:<surface id>:<since>` |
 | A plan gate | `gate:<first 16 characters of the base64url SHA-256 of the gate key>` |
 | A test | `test:<time>` |
@@ -884,7 +884,7 @@ What each action does, as the device, on the phone port:
 | `allow:once`, `allow:session` (marked `biometric: true`) | BiometricPrompt, then `POST /api/checkpoints/answer { id: checkpoint, approve: true, allow: "once" or "session", by: "phone" }` |
 | `pick:<i>` | `POST /api/checkpoints/answer { id: checkpoint, pick: { label: checkpoint.variants[i].label }, by: "phone" }` |
 | `later` | nothing: the alert leaves the shade |
-| `undo` | `POST /api/decisions/undo { id: decision.id }` (refused after `decision.undo_until`) |
+| `undo` | `POST /api/decisions/undo { ids: decision.ids }` for a notice of several, else `{ id: decision.id }` (refused after `decision.undo_until`) |
 | `quick:<n>` | `POST /api/send { projectId, surfaceId, choice: n }`; an answer the screen gave no number carries its `text` on the action, and sends `{ projectId, surfaceId, text }` instead |
 | the reply of a session | `POST /api/send { projectId, surfaceId, text }` |
 | `open` | opens the app on that checkpoint or session |
@@ -938,8 +938,18 @@ around the path is the region) and type or speak a note, and it
 answers `{ id, pick: { label, region: { x, y, w, h } (each 0 to
 1 of the picture), note }, by: "phone" }`.
 
-**A saved decision** carries `decision: { id, undo_until }`, the quote in
-`body` and who recorded it in `detail`. With no fingerprint (or face) set up on the phone,
+**A saved decision** carries `decision: { id, ids, count, rev, undo_until }`,
+the quote in `body` and who recorded it in `detail`, and `quiet: true`.
+Decisions an agent saves for one project, each within 2 minutes of the one
+before, are one notice: the same alert `id` (`dec:` and the first one's id),
+sent again for each, with `title` "Saved 3 decisions", the latest's quote in
+`body` and "The latest of 3. Claude recorded them for kite." in `detail`;
+`decision.id` is the latest, `ids` all of them, `rev` counts the updates (an
+app that draws each alert once draws `id` and `rev` once) and `undo_until`
+is a minute after the latest. A `quiet` alert never sounds or buzzes:
+Android posts it silent and low on the same tag, so an update replaces it in
+place; iOS draws it with no sound and the passive interruption level, and
+APNs's collapse id (a hash of the alert's id) replaces the one before. With no fingerprint (or face) set up on the phone,
 Run says so and does nothing; the command is approved on the computer.
 
 After an action the notification says what was sent ("Sent: Ship it"),
