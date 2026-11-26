@@ -19,7 +19,9 @@ stays. An entry comes only by explicit capture:
   `recorded_by` is refused), and that pane's assistant and session from
   its daemon (`pane.list`). A caller outside every pane records as
   `client`. The person is told at once, "Saved your decision: ...", on the
-  board's stream and the phone, with Undo for a minute.
+  board's stream (a toast on the Mac's board, and on the apps' board while
+  open), with Undo for a minute. Never a push to a phone (2026-11-26: "No
+  push, keep it in the apps").
 - **The person** adds, edits, undoes (within the minute) or removes any
   entry: person rows (docs/PERSON.md).
 
@@ -83,16 +85,15 @@ one makes them active again.
 - A field the ledger does not know is refused (400), not dropped.
 - The board's event stream (`GET /api/events`) carries `event: decision`
   with `{ type: "saved", decision, undo_until, group }`, `{ type: "edited",
-  decision }` or `{ type: "removed", id }`. The phone gets an alert of
-  kind `decision` (docs/PHONE.md section 5) with Undo, closed after the
-  minute.
+  decision }` or `{ type: "removed", id }`. No phone gets an alert or a
+  push for it.
 - Decisions an agent saves for one project, each within 2 minutes of the
   one before, are one notice (`group`: `{ id, ids, count, rev, latest,
-  words, undo_until }`, server/push.mjs groupDecision()): one quiet alert on
-  the phone, updated in place, and one toast on the board and the Mac
-  ("Saved 3 decisions, the latest on the sails."), whose Undo sends `{ ids }`
-  and takes them all back within the minute after the latest. The
-  Decisions page's own Undo still takes back one, within its own minute.
+  words, undo_until }`, server/decisions.mjs groupDecision()): one toast on
+  the board and the Mac, updated in place ("Saved 3 decisions, the latest
+  on the sails."), whose Undo sends `{ ids }` and takes them all back within
+  the minute after the latest. The Decisions page's own Undo still takes
+  back one, within its own minute.
 
 ## Who reads it
 

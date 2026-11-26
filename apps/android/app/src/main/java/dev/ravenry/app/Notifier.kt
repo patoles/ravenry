@@ -15,15 +15,14 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 
 /**
- * An alert's colour: the small icon's circle, and on stock Android the app's
- * name above it (One UI keeps its own). A saved decision is done, green
- * (token `ok`); everything else waits for you, orange (token `you`), as the
+ * The colours of the shade: an alert waits for you, orange (token `you`),
+ * on the small icon's circle and on stock Android the app's name above it
+ * (One UI keeps its own); the connection line is green (token `ok`), as the
  * board draws them (shared/tokens/tokens.json, dark).
  */
 object AlertColor {
     const val YOU = 0xFFFF9F0A.toInt()
     const val OK = 0xFF30D158.toInt()
-    fun of(kind: String): Int = if (kind == "decision") OK else YOU
 }
 
 /** Alerts in the shade (docs/PHONE.md section 5). One notification per alert id. */
@@ -67,7 +66,7 @@ object Notifier {
             if (x != null && android.os.SystemClock.elapsedRealtime() - x.at < ANSWER_HOLD_MS) { x.closed = true; return }
             cancel(context, a.id); return
         }
-        if (Store.get(context).seen(a.seenKey)) return
+        if (Store.get(context).seen(a.id)) return
         show(context, a)
     }
 
@@ -105,7 +104,7 @@ object Notifier {
 
     private fun base(context: Context, a: Alert): NotificationCompat.Builder = NotificationCompat.Builder(context, NEEDS_YOU)
         .setSmallIcon(R.drawable.ic_perch)
-        .setColor(AlertColor.of(a.kind))
+        .setColor(AlertColor.YOU)
         .setContentTitle(a.title)
         .setSubText(a.projectName)
         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -154,10 +153,6 @@ object Notifier {
             if (keyed && a.detail.startsWith("It would type: ")) text.append("It would type: ").append(typed(a.keys)) else text.append(a.detail)
         }
         val b = base(context, a).setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text))
-        // A saved decision is a quiet notice (2026-11-26): no sound, no buzz,
-        // no heads-up; decisions saved close together come as updates of the
-        // same notice (same id, so the same tag here), drawn in place.
-        if (a.quiet) b.setSilent(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_LOW)
         for (act in a.actions) b.addAction(0, act.label, actionIntent(context, a, act.id))
         a.reply?.let { r ->
             val input = RemoteInput.Builder(REPLY_KEY).setLabel(r.hint ?: r.label).build()
@@ -237,7 +232,7 @@ object Notifier {
         all.take(5).forEach { lines.addLine(it.title) }
         val n = NotificationCompat.Builder(context, NEEDS_YOU)
             .setSmallIcon(R.drawable.ic_perch)
-            .setColor(AlertColor.of(top.kind))
+            .setColor(AlertColor.YOU)
             .setContentTitle(top.title)
             .setContentText(top.body.ifEmpty { top.title })
             .setStyle(lines)

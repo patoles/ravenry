@@ -718,8 +718,8 @@ channel's) is the message's `title` (Android's, word for word), its `line`
 Tailscale when the iPhone has it; elsewhere it does not load) and
 `priority` 4 (a test: 3). Never the body, the detail, the question, the
 command, the agent's words or the screen, and no buttons: an answer would
-need a credential inside a message that travels in clear. A saved decision
-is not sent (its only use is Undo), nor a close (ntfy cannot take a
+need a credential inside a message that travels in clear. A close is not
+sent (ntfy cannot take a
 notification back on iOS: an alert answered on the Mac stays until
 swiped).
 
@@ -835,7 +835,6 @@ same everywhere:
 | `ask`, `pick`, `drive` | as Android | Answer on the board. |
 | `secret` | Claude needs a secret for paper-boat | Type it on the Mac. |
 | `test` | Ravenry test | Alerts from MacBook Pro will land here. |
-| `decision` | Saved your decision | `null`: not sent in clear |
 
 A drive whose tab is not known is titled "Claude wants to use another
 tab", never the checkpoint's own title.
@@ -845,7 +844,6 @@ tab", never the checkpoint's own title.
 | Alert | `id` |
 | --- | --- |
 | A checkpoint | `cp:<checkpoint id>` |
-| Decisions an agent saved close together | `dec:<the first one's id>` |
 | A session in Needs you | `s:<project id>:<surface id>:<since>` |
 | A plan gate | `gate:<first 16 characters of the base64url SHA-256 of the gate key>` |
 | A test | `test:<time>` |
@@ -862,14 +860,19 @@ fit, it shows the first ones and **Open**.
 | `secret` | `ravenry secret` | **Type it** (`open`), **Not now** (`decline`) | **none**, ever: a secret is never typed into a notification |
 | `drive` | an agent typed into, closed, restarted or changed the test conditions of a pane it did not start (`checkpoint.drive.action`: `input`, `close`, `restart`, `override`), and waits | **Allow once** (`allow:once`, fingerprint first), **This session** (`allow:session`, fingerprint first), **Refuse** (`refuse`) | none |
 | `pick` | `ravenry pick` (2 to 4 variants) | the shade shows **Compare** (`open`, the app's swipe screen) and **Not now** (`later`: the alert goes, nothing is sent, the agent keeps waiting), whatever the message lists; `pick:<i>` per variant label still answers when a message's action asks for it | none: the region and the note ("this, but...") are in the app |
-| `decision` | an agent saved the person's words in the decision ledger | **Undo** (`undo`), for a minute; then the alert closes | none |
 | `permission` | the assistant's own permission menu | its answers, `quick:<n>` (Yes, Yes always, No) | none |
 | `question` | the assistant asked in the session | its quick answers, `quick:<n>`, at most two | **Reply** |
 | `handback` | the session handed back | **Open** | **Reply** |
 | `gate` | a plan waits at a gate | **Open** | none |
 
+A saved decision is never an alert (2026-11-26: "No push, keep it in the
+apps"): its only use was Undo for a minute, which the board's toast keeps
+(the Mac's board, and the apps' board while open) along with the Decisions
+page. A hub from before sent kind `decision` with **Undo**; an app now shows
+it as a kind it does not know, with **Open** only.
+
 Each alert is in the board's colours (`AlertColor` in `Notifier.kt`):
-`decision` green (token `ok`), every other kind orange (token `you`). On
+orange (token `you`), as everything in the shade waits for you. On
 stock Android that colours the small icon's circle and the app's name above
 it; Samsung's One UI keeps its own and ignores it.
 
@@ -884,7 +887,6 @@ What each action does, as the device, on the phone port:
 | `allow:once`, `allow:session` (marked `biometric: true`) | BiometricPrompt, then `POST /api/checkpoints/answer { id: checkpoint, approve: true, allow: "once" or "session", by: "phone" }` |
 | `pick:<i>` | `POST /api/checkpoints/answer { id: checkpoint, pick: { label: checkpoint.variants[i].label }, by: "phone" }` |
 | `later` | nothing: the alert leaves the shade |
-| `undo` | `POST /api/decisions/undo { ids: decision.ids }` for a notice of several, else `{ id: decision.id }` (refused after `decision.undo_until`) |
 | `quick:<n>` | `POST /api/send { projectId, surfaceId, choice: n }`; an answer the screen gave no number carries its `text` on the action, and sends `{ projectId, surfaceId, text }` instead |
 | the reply of a session | `POST /api/send { projectId, surfaceId, text }` |
 | `open` | opens the app on that checkpoint or session |
@@ -938,18 +940,7 @@ around the path is the region) and type or speak a note, and it
 answers `{ id, pick: { label, region: { x, y, w, h } (each 0 to
 1 of the picture), note }, by: "phone" }`.
 
-**A saved decision** carries `decision: { id, ids, count, rev, undo_until }`,
-the quote in `body` and who recorded it in `detail`, and `quiet: true`.
-Decisions an agent saves for one project, each within 2 minutes of the one
-before, are one notice: the same alert `id` (`dec:` and the first one's id),
-sent again for each, with `title` "Saved 3 decisions", the latest's quote in
-`body` and "The latest of 3. Claude recorded them for kite." in `detail`;
-`decision.id` is the latest, `ids` all of them, `rev` counts the updates (an
-app that draws each alert once draws `id` and `rev` once) and `undo_until`
-is a minute after the latest. A `quiet` alert never sounds or buzzes:
-Android posts it silent and low on the same tag, so an update replaces it in
-place; iOS draws it with no sound and the passive interruption level, and
-APNs's collapse id (a hash of the alert's id) replaces the one before. With no fingerprint (or face) set up on the phone,
+With no fingerprint (or face) set up on the phone,
 Run says so and does nothing; the command is approved on the computer.
 
 After an action the notification says what was sent ("Sent: Ship it"),
@@ -1104,7 +1095,6 @@ them.
 | A pick's picture in the alert | `BigPictureStyle` with the image variants side by side in one picture, fetched over the pinned connection when the alert arrives | a `UNNotificationAttachment` the Notification Service Extension fetches over the pinned connection |
 | A pick's region and note | the phone board's pick screen | the phone board's pick screen |
 | Allow an agent to type into a pane | an action that opens BiometricPrompt, then answers | an action with `.authenticationRequired`, then Face ID in the app |
-| Undo a saved decision | a notification action, for a minute | a notification action, for a minute |
 | Reply line | `RemoteInput` | `UNTextInputNotificationAction` |
 | Run from the shade | a small activity shows BiometricPrompt, then answers | an action with `.authenticationRequired`, then Face ID in the app |
 | Secret | never in the shade; opens the app | never in the shade; opens the app |

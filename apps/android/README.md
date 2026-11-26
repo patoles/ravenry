@@ -106,7 +106,7 @@ pairs and opens the board.
   session on a drive, which names its action and the pane ("Claude wants
   to close dev server"). A pick shows its pictures side by side
   (`Pictures`, fetched with the pin and the token) with Compare and Not
-  now; a saved decision has Undo. A secret is never typed into a
+  now. A secret is never typed into a
   notification.
 
 ## Tests

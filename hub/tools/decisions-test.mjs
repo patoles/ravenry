@@ -20,6 +20,8 @@
 // Usage: node tools/decisions-test.mjs
 import './test-guard.mjs';
 import fs from 'node:fs';
+import http from 'node:http';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -117,49 +119,33 @@ check('undo_until while the minute lasts', !!fresh.undo_until && !D.view(e1.entr
 const tw = (x) => D.view({ id: 'dwwwwwww', at: new Date().toISOString(), project: null, overrides: [], by: 'agent', ...x }).words;
 check('the toast\'s words: a scope with its own "the" says it once', tw({ quote: 'x', scope: 'the sails' }) === 'Saved your decision: the sails.' && tw({ quote: 'x', scope: 'The hull' }) === 'Saved your decision: the hull.' && tw({ quote: 'x', scope: 'theme colours' }) === 'Saved your decision: the theme colours.', JSON.stringify([tw({ quote: 'x', scope: 'the sails' }), tw({ quote: 'x', scope: 'theme colours' })]));
 check('the toast\'s words: replaced, and the quote\'s start without a scope', tw({ quote: 'x', scope: 'the hull tilt', overrides: ['daaaaaaa'] }) === 'Decision replaced: the hull tilt.' && tw({ quote: 'y', overrides: ['daaaaaaa'] }) === 'Decision replaced.' && tw({ quote: 'Use the phone width for every test shot, 390 px wide.' }) === 'Saved your decision: "Use the phone width for every test shot, 390..."', tw({ quote: 'Use the phone width for every test shot, 390 px wide.' }));
-const { decisionMessage } = await import('../server/push.mjs');
-const dm = decisionMessage(D.load(F).find((x) => x.id === e1.entry.id), { project: { id: 'proj', name: 'Proj' } });
-check('the phone\'s alert: "Saved your decision", the quote, Undo', dm.id === `dec:${e1.entry.id}` && dm.kind === 'decision' && dm.title === 'Saved your decision' && dm.body.endsWith('390 px.') && dm.actions.length === 1 && dm.actions[0].id === 'undo' && !!dm.decision.undo_until && dm.quiet === true, JSON.stringify(dm));
 
-// ------------------------------------------------------------ saved close together: one quiet notice
+// ------------------------------------------------------------ saved close together: one notice
 // (2026-11-26, "there's a bit of notification spamming when Ravenry saves a
-// decision": an agent saved 7 in one second, each its own alert.)
+// decision": an agent saved 7 in one second, each its own alert. Then "No
+// push, keep it in the apps": the board's toast only, never a push.)
 {
-  const push = await import('../server/push.mjs');
-  push._reset();
+  D._resetGroups();
   const G = path.join(T, 'group.json');
   const rec = (quote, projectId, scope) => D.add({ quote, projectId, scope, by: 'agent', recordedBy: { pane: 'pqwertyu', assistant: 'claude' } }, { file: G }).entry;
-  const proj = { id: 'kite', name: 'Kite' };
   const [g1, g2, g3] = [rec('The sail stays white.', 'kite', 'the sail'), rec('Two lines, not four.', 'kite'), rec('The tail is twice as long.', 'kite', 'tail')];
-  const n1 = push.groupDecision(g1, proj), n2 = push.groupDecision(g2, proj), n3 = push.groupDecision(g3, proj);
-  const other = push.groupDecision(rec('Ship on Mondays.', 'boat'), { id: 'boat', name: 'Boat' });
+  const n1 = D.groupDecision(g1), n2 = D.groupDecision(g2), n3 = D.groupDecision(g3);
+  const other = D.groupDecision(rec('Ship on Mondays.', 'boat'));
   check('decisions of one project saved close together are one notice, updated in place', n1.id === `dec:${g1.id}` && n2.id === n1.id && n3.id === n1.id && n3.count === 3 && n3.ids.join() === [g1.id, g2.id, g3.id].join() && n3.rev === 3 && n3.latest === g3.id && other.id !== n1.id && other.count === 1, JSON.stringify([n1, n3, other]));
   check('its words: the count and the latest', n3.words === 'Saved 3 decisions, the latest on the tail.' && n2.words === 'Saved 2 decisions, the latest: "Two lines, not four."' && n1.words === 'Saved your decision: the sail.', JSON.stringify([n1.words, n2.words, n3.words]));
-  const m3 = push.decisionMessage(g3, { project: proj, group: n3 });
-  check('the phone\'s alert for three: "Saved 3 decisions", the latest in the body, quiet, Undo for all three until a minute after the latest', m3.id === n1.id && m3.title === 'Saved 3 decisions' && m3.body === 'The tail is twice as long.' && m3.detail === 'The latest of 3. Claude recorded them for Kite.' && m3.quiet === true && m3.decision.id === g3.id && m3.decision.ids.length === 3 && m3.decision.rev === 3 && m3.decision.undo_until === new Date(Date.parse(g3.at) + 60000).toISOString() && m3.actions.map((a) => a.id).join() === 'undo', JSON.stringify(m3));
   const later = { ...g1, id: 'dlater22', at: new Date(Date.parse(g3.at) + 3 * 60000).toISOString() };
-  check('one saved more than two minutes after the latest starts a new notice', push.groupDecision(later, proj).id === 'dec:dlater22');
-  push._reset();
+  check('the notice\'s Undo lasts until a minute after the latest', n3.undo_until === new Date(Date.parse(g3.at) + 60000).toISOString());
+  check('one saved more than two minutes after the latest starts a new notice', D.groupDecision(later).id === 'dec:dlater22');
+  D._resetGroups();
+  D.groupDecision(g1); D.groupDecision(g2);
+  D.forgetDecisions([g2.id]);
+  check('a decision undone leaves its notice: the next one counts the ones that still hold', D.groupDecision(g3).ids.join() === [g1.id, g3.id].join());
+  D._resetGroups();
   const t3 = Date.parse(D.load(G).find((x) => x.id === g3.id).at);
   check('Undo of the notice: refused once the minute after the latest is over', D.undoMany([g1.id, g2.id, g3.id], { file: G, now: t3 + 61000 }).status === 409 && D.load(G).length === 4);
   check('Undo of the notice: refused for decisions not saved together (another project)', D.undoMany([g1.id, D.load(G)[3].id], { file: G }).status === 400 && D.undoMany('x', { file: G }).status === 400);
   const um = D.undoMany([g1.id, g2.id, g3.id], { file: G, now: t3 + 30000 });
   check('Undo of the notice takes back every decision it covers, the newest first', um.ok && um.removed.map((x) => x.id).join() === [g3.id, g2.id, g1.id].join() && D.load(G).length === 1, JSON.stringify(um));
-  // What a paired phone gets (its live stream, a made-up device of this test's own): three saved in a row are
-  // three updates of one quiet alert, never three alerts; Undo of all three closes it once.
-  fs.writeFileSync(path.join(MC, 'phone.json'), JSON.stringify({ key: 'k'.repeat(48), access: true, away: false, tokens: [{ id: 'tphone01', hash: 'h'.repeat(64), name: 'Test phone', platform: 'android', push: null }] }));
-  const got = [];
-  push.onLive((dev, msg) => got.push(msg));
-  const [h1, h2, h3] = [rec('One.', 'kite'), rec('Two.', 'kite'), rec('Three.', 'kite')];
-  for (const h of [h1, h2, h3]) push.fromDecision(h, { project: proj, group: push.groupDecision(h, proj) });
-  const alerts = got.filter((m) => m.type === 'alert');
-  check('a phone gets one quiet alert updated in place: the same id, each update counted, never a close in between', alerts.length === 3 && new Set(alerts.map((m) => m.id)).size === 1 && alerts.map((m) => m.decision.rev).join() === '1,2,3' && alerts.every((m) => m.quiet === true) && alerts.map((m) => m.title).join('|') === 'Saved your decision|Saved 2 decisions|Saved 3 decisions' && alerts[2].body === 'Three.' && !got.some((m) => m.type === 'close'), JSON.stringify(got.map((m) => [m.type, m.id, m.title])));
-  got.length = 0;
-  push.closeDecision([h1.id, h2.id, h3.id]);
-  check('Undo of the notice closes it once', got.length === 1 && got[0].type === 'close' && got[0].id === alerts[0].id, JSON.stringify(got));
-  push._reset();
-  push.onLive(() => {});
-  fs.rmSync(path.join(MC, 'phone.json'), { force: true });
 }
 
 // ------------------------------------------------------------ checked before an ask
@@ -211,6 +197,16 @@ const env = {
   MC_PS_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), MC_LSOF_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), STUB_PS_STATE: path.join(T, 'ps.json'),
 };
 fs.writeFileSync(path.join(T, 'ps.json'), '[]');
+// A paired phone of this test's own: its push endpoint is a listener here
+// (UnifiedPush, its body sealed for a key made here), which counts what the
+// board sends it. A saved decision sends it nothing (2026-11-26: "No push,
+// keep it in the apps"); a test alert, sent first, shows the path works.
+const pushed = [];
+const pushSrv = http.createServer((req, res) => { req.resume(); req.on('end', () => { pushed.push(req.url); res.writeHead(201); res.end(); }); });
+await new Promise((r) => pushSrv.listen(0, '127.0.0.1', r));
+const ecdh = crypto.createECDH('prime256v1'); ecdh.generateKeys();
+fs.writeFileSync(path.join(MC, 'phone.json'), JSON.stringify({ key: 'k'.repeat(48), access: true, away: false, tokens: [{ id: 'tphone01', hash: 'h'.repeat(64), name: 'Test phone', platform: 'android', push: { kind: 'unifiedpush', endpoint: `http://127.0.0.1:${pushSrv.address().port}/up`, p256dh: ecdh.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url'), at: new Date().toISOString() } }] }));
+process.on('exit', () => pushSrv.close());
 fs.writeFileSync(path.join(T, 'settings.json'), '{}');
 const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 board.stdout.on('data', (d) => { boardLog += d; });
@@ -269,6 +265,13 @@ check('two saved close together: the stream\'s second says the one notice of bot
 const ug = await post('/api/decisions/undo', { ids: gj ? gj.ids : [] });
 check('Undo of the notice ({ ids }) takes both back, and the stream says so for each', ug.status === 200 && ug.body.removed.length === 2 && !(await get('/api/decisions?project=proj')).body.decisions.some((x) => x.id === r1.body.decision.id || x.id === r2.body.decision.id) && !!(await until(async () => { const all = events.join(''); return all.includes(`"type":"removed","id":"${r1.body.decision.id}"`) && all.includes(`"type":"removed","id":"${r2.body.decision.id}"`); })), ug.text);
 check('the undo route still refuses a field it does not know', (await post('/api/decisions/undo', { ids: [], all: true })).status === 400);
+// The paired phone: a test alert reaches it; a saved decision never does.
+const tst = await post('/api/alerts/test', {});
+const reached = await until(async () => pushed.length > 0);
+const before = pushed.length;
+const r3 = await post('/api/decisions/record', { quote: 'The dock is grey.', project: 'proj', scope: 'dock colour' });
+await sleep(1500);
+check('a saved decision sends nothing to a paired phone (no push, no alert); a test alert reaches it', tst.status === 200 && !!reached && r3.status === 200 && pushed.length === before, `test ${tst.status} ${tst.text}, pushes ${before} then ${pushed.length}`);
 ac.abort();
 
 console.log(fails ? `\n${fails} failed\n${boardLog.slice(-2000)}` : `\nall passed  (scratch: ${T})`);

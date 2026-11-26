@@ -76,24 +76,6 @@ final class PushTests: XCTestCase {
         XCTAssertNotNil(c.userInfo["alert"] as? String)
     }
 
-    /// Decisions saved close together: one quiet notice, updated in place, whose Undo takes them all back.
-    func testASavedDecisionsNoticeIsQuiet() {
-        let m: [String: Any] = ["id": "dec:dk4x34fg", "kind": "decision", "title": "Saved 3 decisions", "body": "The tail is twice as long.", "quiet": true,
-                                "decision": ["id": "dm32ryhf", "ids": ["dk4x34fg", "dgfvunez", "dm32ryhf"], "count": 3, "rev": 3], "actions": [["id": "undo", "label": "Undo"]]]
-        let c = UNMutableNotificationContent()
-        AlertContent.fill(c, m)
-        XCTAssertNil(c.sound, "a saved decision never sounds")
-        XCTAssertEqual(c.interruptionLevel, .passive, "nor lights the screen or buzzes")
-        XCTAssertEqual(AlertContent.seenKey(m), "dec:dk4x34fg#3", "an update of the notice is drawn again")
-        XCTAssertEqual(AlertContent.undoBody(m)?["ids"] as? [String], ["dk4x34fg", "dgfvunez", "dm32ryhf"])
-        let one: [String: Any] = ["id": "dec:dk4x34fg", "kind": "decision", "decision": ["id": "dk4x34fg", "ids": ["dk4x34fg"], "rev": 1]]
-        XCTAssertEqual(AlertContent.undoBody(one)?["id"] as? String, "dk4x34fg")
-        let ask = UNMutableNotificationContent()
-        AlertContent.fill(ask, ["id": "cp:x", "title": "notes-app asks", "body": "Ship it?"])
-        XCTAssertNotNil(ask.sound, "a question still sounds")
-        XCTAssertEqual(AlertContent.seenKey(["id": "cp:x"]), "cp:x")
-    }
-
     let fixtureKey = "yfKh0Ljn9qXEs6KRgPfm1cSzopGPfm1cSzopGAf25dQ"
     let fixtureAuth = "ABEiM0RVZneImaq7zN3u_w"
     let fixtureBody = "_ty6mHZUMhABI0VniavN7wAAEABBBLWhBLbKrfoVpvues5OSNyhNQE6dlIa3BkEUV6FvEuhKGLvr2X5SWGcHVEK9Uw6k0p7nrYc6gqYugEvjwI40ydalr6HnwaJFUh8IeNhYvq5rVmt5Cl1r3v1BWMmOK3P9GhM8Aj0FCy6YBjxKHV6mtlAFngyVbS3_vX2Q4UAGvGvHpq3fwMi3-3odSqLJp8_TwtNtACGFjE9lxL0VEWS1jAAPhNwj0yasqy6rB1rXrvsfgZtazIoy_syGUST81lnA-37mGLnv7xzcEnESV4r2GU8g1Yq4HJYkp7BBwBzxvZIodMT4PFmffyOcKGJX3TrLZ7z65Of192nAbCq6OuXjCennd3Doez8PnMQJ1BLKic-j7xbH5MDKPOezn8EYF4jB_2C27m0kEObgKzBlin_AnTqxqa3ENGMlj6d8as-3Taf-6PSbs4qqt51aPQieg_W5hHvMzQrcGvc9YPhSlDzSE1qy4SL673wb370NSjQ2J36V9uFY"

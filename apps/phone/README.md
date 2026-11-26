@@ -70,7 +70,7 @@ pictures, the swipe screen, the circle and note, an HTML pick in its
 sandboxed frame, and the drives' screens (close and type, with the agent's
 words); then, as the person, the pick sent, a typing allowed with a
 fingerprint (enrolled on the emulator first), a close refused, and Not now
-and Undo tapped in the shade: `node tools/pick-shots.mjs <outDir>` after
+tapped in the shade: `node tools/pick-shots.mjs <outDir>` after
 building the debug APK. It starts its own read-only emulator and names it
 on every adb command.
 `tools/demo.mjs --phone` also turns phone access on for an emulator.

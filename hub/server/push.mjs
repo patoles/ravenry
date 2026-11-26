@@ -36,7 +36,6 @@ import { keyLine, keyParts } from '../public/keys.mjs';
 import { CHANNELS } from './channels.mjs';
 import { KINDS as WORDS, CHECKPOINT_LINES } from './alertwords.mjs';
 import * as assistants from './assistants.mjs';
-import { GROUP_MS, UNDO_MS, groupWords } from './decisions.mjs';
 
 const env = process.env;
 const num = (v, d) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
@@ -240,7 +239,7 @@ async function sendApns(dev, msg) {
     // Still too long (a pick's many variants): what the alert needs, the rest in the app.
     if (Buffer.byteLength(JSON.stringify(m)) > APNS_CAP) {
       const cp = m.checkpoint ? { id: m.checkpoint.id, kind: m.checkpoint.kind, expires_at: m.checkpoint.expires_at || null } : null;
-      m = capped({ v: m.v, type: m.type, id: m.id, at: m.at, kind: m.kind, title: m.title, body: m.body, detail: m.detail, line: m.line, project: m.project, machine: m.machine, session: m.session, checkpoint: cp, decision: m.decision, quiet: m.quiet, actions: [{ id: 'open', label: 'Open' }], reply: null }, APNS_CAP);
+      m = capped({ v: m.v, type: m.type, id: m.id, at: m.at, kind: m.kind, title: m.title, body: m.body, detail: m.detail, line: m.line, project: m.project, machine: m.machine, session: m.session, checkpoint: cp, actions: [{ id: 'open', label: 'Open' }], reply: null }, APNS_CAP);
     }
     body = encrypt(Buffer.from(JSON.stringify(m)), unb64u(t.p256dh), unb64u(t.auth));
   } catch (e) { return { ok: false, final: true, error: e.message }; }
@@ -279,9 +278,9 @@ async function sendUnifiedPush(dev, msg) {
 }
 
 // What a transport that carries text in clear may be sent: an alert's
-// title and its fixed line (never a decision: its only use is Undo), and a
-// test. Never a close: ntfy cannot take a notification back on iOS.
-export const clearOk = (msg) => msg && (msg.type === 'test' || (msg.type === 'alert' && msg.kind !== 'decision' && typeof msg.line === 'string' && !!msg.line));
+// title and its fixed line, and a test. Never a close: ntfy cannot take a
+// notification back on iOS.
+export const clearOk = (msg) => msg && (msg.type === 'test' || (msg.type === 'alert' && typeof msg.line === 'string' && !!msg.line));
 
 // The JSON an iPhone's ntfy topic is sent (the ntfy channel's own publish,
 // server/channels.mjs): the title as the app's, the line, the board's
@@ -596,123 +595,6 @@ export function fromCheckpoint(cp, where = {}) {
   return msg;
 }
 
-// "Saved your decision": an agent recorded the person's words in the
-// ledger (server/decisions.mjs). Undo, for a minute, takes it back
-// (POST /api/decisions/undo { id }, or { ids } for a group).
-//
-// Decisions saved close together are one quiet notice (2026-11-26, "there's
-// a bit of notification spamming when Ravenry saves a decision": an agent
-// saving a round of notes recorded up to 7 in one second, each its own
-// alert): those an agent saves for one project, each within GROUP_MS of
-// the one before, share one alert id, updated in place, never stacked.
-// "Saved your decision" for one, "Saved 3 decisions" for more, the latest
-// in the body; `quiet`: never a sound or a buzz. Undo takes back every
-// decision the notice covers (`decision.ids`), within the minute after the
-// latest (`decision.undo_until`), and the notice closes then. `decision.id`
-// is the latest, for an app that knows one id only; `decision.rev` counts
-// the notice's updates, so an app that draws each alert once still draws
-// an update.
-export function decisionMessage(d, { project = null, group = null } = {}) {
-  const g = group || { id: `dec:${d.id}`, ids: [d.id], count: 1, rev: 1, undo_until: new Date(Date.parse(d.at) + UNDO_MS).toISOString() };
-  const one = g.count <= 1;
-  const by = who(d.recorded_by && d.recorded_by.assistant);
-  const where = project ? ` for ${project.name}` : '';
-  return capped({
-    v: 1, type: 'alert', id: g.id, at: d.at, kind: 'decision',
-    title: one ? 'Saved your decision' : `Saved ${g.count} decisions`, body: clip(d.quote.replace(/\s*\n\s*/g, ' '), 600), line: null,
-    detail: one ? `${by} recorded it${where}.` : `The latest of ${g.count}. ${by} recorded them${where}.`,
-    project: project ? { id: project.id, name: project.name } : null, machine: (d.recorded_by && d.recorded_by.machine) || null, session: null,
-    decision: { id: d.id, ids: g.ids.slice(), count: g.count, rev: g.rev, undo_until: g.undo_until },
-    quiet: true,
-    actions: [{ id: 'undo', label: 'Undo' }], reply: null,
-  });
-}
-
-// The notices of saved decisions: project id (or '' for every project) ->
-// { id, list: [entry], project, rev, timer (its close, a minute after the
-// latest), open }. Kept GROUP_MS after the latest, so a decision saved then
-// joins it (shown again if it had closed).
-const decGroups = new Map();
-const GROUP_MAX = 50;
-
-const groupOf = (g) => {
-  const latest = g.list[g.list.length - 1];
-  return { id: g.id, ids: g.list.map((x) => x.id), count: g.list.length, rev: g.rev, latest: latest.id, words: groupWords(latest, g.list.length), undo_until: new Date(Date.parse(latest.at) + UNDO_MS).toISOString() };
-};
-
-// Adds a saved decision to its notice (a new one when its project has none
-// saved in the last GROUP_MS) and returns the notice: { id, ids, count, rev,
-// latest, words, undo_until }. The board's event and the phone's alert both
-// carry it, whether or not a phone is paired.
-export function groupDecision(d, project = null) {
-  const key = d.project || '';
-  const at = Date.parse(d.at) || Date.now();
-  for (const [k, g] of decGroups) {
-    const last = Date.parse(g.list[g.list.length - 1].at) || 0;
-    if (at - last > GROUP_MS && !g.timer) decGroups.delete(k);
-  }
-  let g = decGroups.get(key);
-  // A notice holds at most GROUP_MAX (its Undo's list stays small enough for a push).
-  if (g && (!(at - (Date.parse(g.list[g.list.length - 1].at) || 0) <= GROUP_MS) || g.list.length >= GROUP_MAX)) { if (g.timer) { clearTimeout(g.timer); timers.delete(g.timer); send({ v: 1, type: 'close', id: g.id }); } g = null; }
-  if (!g) { g = { id: `dec:${d.id}`, list: [], project, rev: 0, timer: null, open: false }; decGroups.set(key, g); }
-  g.list.push(d);
-  g.rev++;
-  if (project) g.project = project;
-  return groupOf(g);
-}
-
-// Sends the notice of `g` (its latest decision) and closes it a minute
-// after the latest; one whose minute is over already closes now.
-function sendGroup(g) {
-  const latest = g.list[g.list.length - 1];
-  if (g.timer) { clearTimeout(g.timer); timers.delete(g.timer); g.timer = null; }
-  const at = Date.parse(latest.at);
-  const left = Number.isFinite(at) ? at + UNDO_MS - Date.now() : UNDO_MS;
-  if (left <= 0) { g.open = false; send({ v: 1, type: 'close', id: g.id }); return null; }
-  const msg = decisionMessage(latest, { project: g.project, group: groupOf(g) });
-  send(msg);
-  g.open = true;
-  // Undo lasts a minute after the latest; then the notice has nothing left to offer.
-  const tm = setTimeout(() => { timers.delete(tm); g.timer = null; g.open = false; send({ v: 1, type: 'close', id: msg.id }); }, left);
-  if (tm.unref) tm.unref();
-  g.timer = tm;
-  timers.add(tm);
-  return msg;
-}
-
-// `where.group`: the notice groupDecision() already put it in (the record
-// route makes it once for the board's event and the phone); else made here.
-export function fromDecision(d, where = {}) {
-  const group = where.group || groupDecision(d, where.project || null);
-  if (!ready()) return null;
-  const g = decGroups.get(d.project || '');
-  if (!g || g.id !== group.id) return null;
-  return sendGroup(g);
-}
-
-// Decisions undone or removed (an id or a list): each leaves its notice;
-// a notice left with none closes, one with some left says so, quietly.
-export function closeDecision(ids) {
-  const gone = new Set([].concat(ids).map(String));
-  let touched = false;
-  for (const [k, g] of decGroups) {
-    const before = g.list.length;
-    g.list = g.list.filter((x) => !gone.has(x.id));
-    if (g.list.length === before) continue;
-    touched = true;
-    if (!g.list.length) {
-      if (g.timer) { clearTimeout(g.timer); timers.delete(g.timer); g.timer = null; }
-      decGroups.delete(k);
-      send({ v: 1, type: 'close', id: g.id });
-    } else {
-      g.rev++;
-      if (g.open && ready()) sendGroup(g);
-    }
-  }
-  // A decision no notice holds (the hub restarted since): its own id, as before.
-  if (!touched) for (const id of gone) send({ v: 1, type: 'close', id: `dec:${id}` });
-}
-
 export function fromProject(alert, p) {
   if (!ready()) return null;
   const msg = projectMessage(alert, p);
@@ -743,4 +625,4 @@ export function syncProjects(projects) {
   }
 }
 
-export function _reset() { shownAlerts.clear(); lastBy.clear(); decGroups.clear(); for (const t of timers) clearTimeout(t); timers.clear(); }
+export function _reset() { shownAlerts.clear(); lastBy.clear(); for (const t of timers) clearTimeout(t); timers.clear(); }

@@ -33,23 +33,12 @@ data class Alert(
     val raw: String,
     /** A pick's pictures, in order. */
     val variants: List<AlertVariant> = emptyList(),
-    /** A saved decision's id, for Undo (the latest of its notice). */
-    val decisionId: String? = null,
     /** What a drive would type, in parts, so its keys are drawn as keys. */
     val keys: List<KeyPart> = emptyList(),
-    /** Every decision a notice of decisions saved close together covers: its Undo takes them all back. */
-    val decisionIds: List<String> = emptyList(),
-    /** A notice that never rings or buzzes (a saved decision): drawn silently, updated in place. */
-    val quiet: Boolean = false,
-    /** Which update of its alert this is (a notice of decisions counts them), so an update is drawn though its id was seen. */
-    val rev: Int = 0,
 ) {
-    /** What "drawn once" remembers: the id, and the update for a notice that is updated in place. */
-    val seenKey: String get() = if (rev > 0) "$id#$rev" else id
-
     companion object {
         const val VERSION = 1
-        private val KNOWN = setOf("ask", "approve", "secret", "permission", "question", "handback", "gate", "drive", "pick", "decision")
+        private val KNOWN = setOf("ask", "approve", "secret", "permission", "question", "handback", "gate", "drive", "pick")
 
         private fun keysOf(a: org.json.JSONArray?): List<KeyPart> = (0 until (a?.length() ?: 0)).mapNotNull { i ->
             val p = a!!.optJSONObject(i) ?: return@mapNotNull null
@@ -117,8 +106,6 @@ data class Alert(
                 val open = actions.firstOrNull { it.id == "open" } ?: AlertAction("open", "Open")
                 actions = actions.filter { it.id != "open" }.take(room - 1) + open
             }
-            val dec = o.optJSONObject("decision")
-            val dids = dec?.optJSONArray("ids")
             return Alert(
                 type, id, kind, title, body, detail,
                 project.str("id"), project.str("name"),
@@ -126,11 +113,7 @@ data class Alert(
                 session.str("surfaceId"),
                 cp.str("id"),
                 actions, reply, text, variants,
-                dec.str("id"),
                 keysOf(cp?.optJSONObject("drive")?.optJSONArray("keys")),
-                (0 until (dids?.length() ?: 0)).mapNotNull { i -> dids!!.optString(i).takeIf { it.isNotEmpty() } },
-                o.optBoolean("quiet", false),
-                dec?.optInt("rev", 0) ?: 0,
             )
         }
     }
@@ -214,9 +197,6 @@ object Actions {
                 val v = if (i == null) null else a.variants.getOrNull(i)
                 if (cp == null || v == null || v.label.isEmpty()) null else answer(cp, "\"pick\":{\"label\":${q(v.label)}}")
             }
-            // A notice of several saved close together takes them all back; one alone by its id.
-            id == "undo" -> if (a.decisionIds.size > 1) ActionCall.Post("/api/decisions/undo", "{\"ids\":[${a.decisionIds.joinToString(",") { q(it) }}]}")
-                else if (a.decisionId == null) null else ActionCall.Post("/api/decisions/undo", "{\"id\":${q(a.decisionId)}}")
             id == "later" -> ActionCall.Later
             id == "refuse" || id == "decline" -> if (cp == null) null else answer(cp, "\"decline\":true")
             id.startsWith("quick:") -> {
@@ -237,7 +217,7 @@ object Actions {
  * is still worth showing (Notifier.sweep).
  */
 class Waiting private constructor(private val open: Set<String>, private val projects: Map<String, org.json.JSONObject>) {
-    /** Whether the alert's question still waits. Alerts of other kinds (a test, a saved decision) say yes: they end on their own. */
+    /** Whether the alert's question still waits. Alerts of other kinds (a test) say yes: they end on their own. */
     fun still(a: Alert): Boolean = when {
         a.id.startsWith("cp:") -> a.checkpointId != null && a.checkpointId in open
         a.id.startsWith("s:") -> projects[a.projectId]?.let { p -> p.str("state") == "you" && p.str("primary") == a.surfaceId } ?: false

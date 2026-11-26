@@ -12,8 +12,9 @@
 // weather-widget's "Cache forecasts" to close it, garden-planner's "Phone
 // preview" to type in it. Then, as the person on the phone: the pick sent
 // with a circle and a note, the typing allowed with a fingerprint (enrolled
-// on the emulator first), the close refused, Not now on the HTML pick's
-// alert and Undo on a decision an agent saved, both tapped in the shade.
+// on the emulator first), the close refused, and Not now on the HTML pick's
+// alert, tapped in the shade. (A decision an agent saves has no alert: no
+// push, kept in the apps, 2026-11-26.)
 //
 //   node build.mjs && (cd ../android && ./gradlew assembleDebug)
 //   node tools/pick-shots.mjs <outDir> [--port 5560] [--avd ravenry-pixel]
@@ -155,8 +156,6 @@ try {
     delay: 4,
     screen: `${C.box} > Make the hull tilt with the slope on steep waves, then let me pick on my phone ${C.r}\\n\\n${C.g}⏺${C.r} ${C.w}Bash${C.r}(npm run render -- --frame 412 --variants tilt)\\n${C.dim}  ⎿  3 renders in shots/tilt/${C.r}\\n\\n${C.y}⏺${C.r} ${C.w}Bash${C.r}(ravenry pick "Which tilt reads best on the steep wave?" ...)\\n${C.dim}  ⎿  Waiting for your pick in Ravenry.${C.r}\\n`,
     wait: `'${BIN}' pick "$(printf 'Which tilt reads best on the steep wave?\\nRendered from the game at the same moment, frame 412 of the storm level.')" ${variants} --timeout 30m`,
-    // Once its pick is answered, it saves what the person said, as an agent records a decision.
-    after: `while [ ! -f '${path.join(WORK, 'decide')}' ]; do sleep 0.3; done; RAVENRY_HUB_URL='${hub.url}' '${BIN}' decide ${q('Tilt the hull with the slope, but only half as much as the wave.')} --project paper-boat >"$HOME/.decide-out" 2>&1`,
   });
   const htmlS = sessionScript(S['recipe-box'], {
     title: 'Recipe card layout',
@@ -501,21 +500,6 @@ try {
   const alive = (Array.isArray(listed) ? listed : listed.panes || []).some((x) => x.id === devPane && x.state === 'running');
   check(refused && alive, 'the close refused from the phone, and the dev server still runs', JSON.stringify(refused && refused.answer));
 
-  // A decision the agent saves: its alert, Undo tapped in the shade, and
-  // the decision is gone from the hub.
-  fs.writeFileSync(path.join(WORK, 'decide'), '1');
-  const dec = await until(async () => { const r2 = await (await fetch(`${hub.url}/api/decisions?project=paper-boat`)).json(); return (r2.decisions || [])[0] || null; }, 20000, 500);
-  check(!!dec, 'the agent saved a decision', JSON.stringify(dec && dec.quote) + ' ' + fs.readFileSync(path.join(WORK, '.decide-out'), 'utf8').trim());
-  await until(() => alertShown(`dec:${dec && dec.id}`), 15000, 500);
-  await openShade();
-  const dt = await until(() => find('Saved your decision'), 15000, 800);
-  const undo = await until(() => screen().filter((n) => n.text === 'Undo' && dt && n.y > dt.y).sort((x, y2) => x.y - y2.y)[0] || null, 10000, 500);
-  shot('phone-31-decision-shade-light.png');
-  if (undo) tap(undo);
-  const gone = await until(async () => { const r2 = await (await fetch(`${hub.url}/api/decisions?project=paper-boat&all=1`)).json(); return !(r2.decisions || []).some((d) => d.id === dec.id); }, 15000, 500);
-  await sleep(1500);
-  shot('phone-31-decision-undone-light.png');
-  check(undo && gone, 'Undo in the shade takes the saved decision back', screen().filter((n) => n.text).map((n) => n.text).filter((t) => /Taken back|Saved your/.test(t)).join(' | '));
   adb('shell', 'cmd', 'statusbar', 'collapse');
   if (results.some((x) => !x)) process.exitCode = 1;
 } catch (e) {

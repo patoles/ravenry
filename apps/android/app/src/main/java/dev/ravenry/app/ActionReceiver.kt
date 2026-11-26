@@ -34,7 +34,6 @@ class ActionReceiver : BroadcastReceiver() {
             val r = runCatching { hub.call("POST", call.path, call.json) }
             val ok = r.getOrNull()?.status == 200
             val said = when {
-                ok && call.path == "/api/decisions/undo" -> if (a.decisionIds.size > 1) context.getString(R.string.undone_many, a.decisionIds.size) else context.getString(R.string.undone)
                 ok -> context.getString(R.string.sent, label)
                 r.isFailure -> context.getString(R.string.not_sent_why, Reach.why(context, hub.allHosts, r.exceptionOrNull()).words)
                 else -> runCatching { JSONObject(r.getOrThrow().text).str("error") }.getOrNull()

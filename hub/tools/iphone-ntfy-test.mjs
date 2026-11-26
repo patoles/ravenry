@@ -10,7 +10,7 @@
 //    here), the iPhone and the ntfy channel once each; the exact JSON the
 //    iPhone's topic gets (title as Android's, the fixed line, the board's
 //    session link, priority 4) and never the question, the command or the
-//    agent's words; a decision and a close are not sent; the line of every
+//    agent's words; a close is not sent; the line of every
 //    kind; Remove forgets the topic. The model leaves room for the iPhone
 //    app later: a target of a kind built later, with the ntfy one kept in
 //    `push.was`, is sent through that kind's sender and never through ntfy.
@@ -176,10 +176,6 @@ all = await settle(n, 1, 800);
 const ups = toUp(all).map((x) => decrypt(x.raw, pixelKey, pixelAuth));
 check('the same moment again (a blip): no second alert to any of them (one dedupe; the Pixel only hears its close)', toTopic(all, s1.topic).length === 0 && toTopic(all, chanTopic).length === 0 && ups.every((m) => m.type === 'close'), JSON.stringify(ups.map((m) => m.type)));
 n = reqs.length;
-push.fromDecision({ id: 'dec1', at: new Date().toISOString(), quote: `${SECRET} decided`, recorded_by: { assistant: 'claude' } }, {});
-all = await settle(n, 1, 800);
-check('a saved decision: the Pixel only (its only use is Undo), never the iPhone', toUp(all).length === 1 && toTopic(all, s1.topic).length === 0, String(all.length));
-n = reqs.length;
 push.syncCheckpoints([]);
 all = await settle(n, 1, 800);
 check('a close: the Pixel only (ntfy cannot take a notification back on iOS)', toUp(all).length >= 1 && toTopic(all, s1.topic).length === 0, String(all.length));
@@ -194,8 +190,9 @@ check('a close: the Pixel only (ntfy cannot take a notification back on iOS)', t
   const bad = [...Object.entries(want).filter(([k, [t, l]]) => lines[k].title !== t || lines[k].line !== l), ...Object.entries(cwant).filter(([k, [t, l]]) => cps[k].title !== t || cps[k].line !== l)];
   check('each kind\'s title (as Android\'s) and line (fixed words) as the table says', bad.length === 0, JSON.stringify(bad.map(([k]) => [k, (lines[k] || cps[k]).title, (lines[k] || cps[k]).line])));
   check('a drive with no tab known: fixed words, never the agent\'s own title', !cps.drive.title.includes(SECRET));
-  check('what a clear transport may carry: an alert with its line and a test; never a decision or a close',
-    push.clearOk(lines.question) && push.clearOk(push.testMessage()) && !push.clearOk(push.decisionMessage({ id: 'x', at: new Date().toISOString(), quote: 'q', recorded_by: {} })) && !push.clearOk({ v: 1, type: 'close', id: 'cp:x' }));
+  check('what a clear transport may carry: an alert with its line and a test; never a close',
+    push.clearOk(lines.question) && push.clearOk(push.testMessage()) && !push.clearOk({ v: 1, type: 'close', id: 'cp:x' }));
+  check('a saved decision has no phone message at all (it is never pushed)', !('decisionMessage' in push) && !('fromDecision' in push));
 }
 
 // Send a test from the phones list: one phone only.

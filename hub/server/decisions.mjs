@@ -9,8 +9,10 @@
 //   - an agent records the person's words verbatim with `ravenry decide`
 //     (POST /api/decisions/record, an open row). It counts at once, marked
 //     with who recorded it (the pane the caller runs in, as `ravenryd peer`
-//     judges it, and that pane's assistant session), and the person gets
-//     "Saved your decision: ..." with Undo for a minute;
+//     judges it, and that pane's assistant session), and the board says
+//     "Saved your decision: ..." with Undo for a minute (a toast on the
+//     Mac's board and in the apps' board while open; never a push to a
+//     phone, 2026-11-26: "No push, keep it in the apps");
 //   - the person adds, edits, undoes or removes one (person rows).
 //
 // <RAVENRY_HOME>/decisions.json, mode 0600, written atomically:
@@ -56,10 +58,11 @@ export const MAX_OVERRIDES = 16;
 // How long the person can undo an entry an agent recorded.
 export const UNDO_MS = 60 * 1000;
 // Decisions an agent saves for one project, each within this of the one
-// before, are one notice: one alert on the phone and one toast on the
-// board, updated in place, whose Undo takes them all back (server/push.mjs
-// groupDecision, undoMany).
+// before, are one notice: one toast on the board, updated in place, whose
+// Undo takes them all back (groupDecision, undoMany).
 export const GROUP_MS = 2 * 60 * 1000;
+// A notice holds at most this many (its Undo's list stays small).
+const GROUP_MAX = 50;
 const KEEP_READ_DAYS = 30;
 const ID = /^d[a-z2-7]{7}$/;
 
@@ -316,6 +319,39 @@ export function toastWords(d) {
   if ((d.overrides || []).length) return scope ? t('dec.replacedScope', { scope }) : t('dec.replacedToast');
   return scope ? t('dec.savedScope', { scope }) : t('dec.savedQuote', { quote });
 }
+
+// The notices of decisions saved close together, in this hub's memory:
+// project id (or '' for every project) -> { id, list: [entry], rev }.
+const groups = new Map();
+
+// Adds a decision an agent saved to its notice (a new one when its project
+// has none saved in the last GROUP_MS) and returns the notice the board's
+// event carries: { id, ids, count, rev, latest, words, undo_until }.
+export function groupDecision(d) {
+  const key = d.project || '';
+  const at = Date.parse(d.at) || Date.now();
+  const lastAt = (g) => Date.parse(g.list[g.list.length - 1].at) || 0;
+  for (const [k, g] of groups) if (at - lastAt(g) > GROUP_MS) groups.delete(k);
+  let g = groups.get(key);
+  if (g && g.list.length >= GROUP_MAX) g = null;
+  if (!g) { g = { id: `dec:${d.id}`, list: [], rev: 0 }; groups.set(key, g); }
+  g.list.push(d);
+  g.rev++;
+  const latest = g.list[g.list.length - 1];
+  return { id: g.id, ids: g.list.map((x) => x.id), count: g.list.length, rev: g.rev, latest: latest.id, words: groupWords(latest, g.list.length), undo_until: new Date(Date.parse(latest.at) + UNDO_MS).toISOString() };
+}
+
+// Decisions undone or removed leave their notice, so the next one saved
+// close by counts only the ones that still hold.
+export function forgetDecisions(ids) {
+  const gone = new Set([].concat(ids).map(String));
+  for (const [k, g] of groups) {
+    g.list = g.list.filter((x) => !gone.has(x.id));
+    if (!g.list.length) groups.delete(k);
+  }
+}
+
+export function _resetGroups() { groups.clear(); }
 
 // What the person is told when an agent saved several close together
 // (GROUP_MS), the latest named: "Saved 3 decisions, the latest on the

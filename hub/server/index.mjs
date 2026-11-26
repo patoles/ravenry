@@ -3314,13 +3314,12 @@ async function decisionsWrite(req, res, p) {
     if (!r.ok) return done(r);
     const v = decisions.view(r.entry);
     console.log(`decisions: ${r.entry.id} recorded by ${pane ? `pane ${pane}` : 'a program outside every pane'} for ${projectId || 'every project'}`);
-    // Saved close together, one notice (server/push.mjs groupDecision): the
-    // board's toast and the phone's alert say the group and undo it whole.
-    const proj = projectId ? findProject(projectId) : null;
-    let group = null;
-    try { group = push.groupDecision(r.entry, proj); } catch (e) { console.error('push:', e.message); }
-    broadcast('decision', { type: 'saved', decision: v, undo_until: (group && group.undo_until) || v.undo_until, ...(group ? { group } : {}) });
-    try { push.fromDecision(r.entry, { project: proj, group }); } catch (e) { console.error('push:', e.message); }
+    // Saved close together, one notice (decisions.groupDecision): the
+    // board's toast says the group and undoes it whole. Never a push to a
+    // phone (2026-11-26: "No push, keep it in the apps"): its only use was
+    // Undo for a minute; the apps' board shows the toast while open.
+    const group = decisions.groupDecision(r.entry);
+    broadcast('decision', { type: 'saved', decision: v, undo_until: group.undo_until, group });
     return done(r, { decision: v });
   }
   // Undo of one notice: every decision it covers (`ids`), within the minute after the latest.
@@ -3328,14 +3327,14 @@ async function decisionsWrite(req, res, p) {
     const r = decisions.undoMany(b.ids);
     if (r.ok) {
       for (const d of r.removed) broadcast('decision', { type: 'removed', id: d.id });
-      try { push.closeDecision(r.removed.map((d) => d.id)); } catch { /* none */ }
+      decisions.forgetDecisions(r.removed.map((d) => d.id));
     }
     return done(r, r.ok ? { removed: r.removed } : {});
   }
   const id = String(b.id || '');
   if (p === '/api/decisions/undo' || p === '/api/decisions/remove') {
     const r = p === '/api/decisions/undo' ? decisions.undo(id) : decisions.remove(id);
-    if (r.ok) { broadcast('decision', { type: 'removed', id }); try { push.closeDecision(id); } catch { /* none */ } }
+    if (r.ok) { broadcast('decision', { type: 'removed', id }); decisions.forgetDecisions(id); }
     return done(r, r.ok ? { removed: r.removed } : {});
   }
   if (p === '/api/decisions/edit') {

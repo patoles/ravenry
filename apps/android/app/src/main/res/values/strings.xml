@@ -9,8 +9,6 @@
   <string name="run">Run</string>
   <string name="cancel">Cancel</string>
   <string name="sent">Sent: %1$s</string>
-  <string name="undone">Taken back. It is off your decisions.</string>
-  <string name="undone_many">Taken back, all %1$d. They are off your decisions.</string>
   <string name="not_sent_why">Not sent. %1$s</string>
   <string name="open_tailscale">Open Tailscale</string>
   <string name="get_tailscale">Get Tailscale</string>
