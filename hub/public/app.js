@@ -2375,7 +2375,7 @@ function handoffButton(s) {
   // Its start failed: Retry (the same start, by hand) and the command to copy.
   if (h.state === 'written' && h.resumeError) return `<button class="btn sm pri" data-act="handoff-start">Retry</button>${h.resumeCommand ? '<button class="btn sm" data-act="handoff-copy" title="Copy the command that starts the fresh session, to run it yourself">Copy command</button>' : ''}`;
   if (h.state === 'written' || h.state === 'resumed') return '';
-  if (h.manual) return '<button class="btn sm" disabled title="Asked for. It hands off at the next clean point.">Hand-off queued</button>';
+  if (h.manual) return `<button class="btn sm" disabled title="${esc(h.waits || 'Asked for. It hands off at the next clean point.')}">Hand-off queued</button>`;
   return `<button class="btn sm" data-act="handoff" title="Hand off at the next clean point: task finished, work committed, nothing running">Hand off now</button>`;
 }
 
@@ -2388,9 +2388,11 @@ function handoffCard(p, s) {
   const notes = [];
   if (h.state === 'queued' || h.state === 'requested') {
     line = h.over ? `Past the ${h.ceiling}% ceiling. It hands off at its next commit:` : 'Hand-off queued. It waits for a clean point:';
+    // Asked for by hand and waiting: what for, in the hub's words (server/handoffnow.mjs WAITS).
+    if (h.waits) notes.push(h.waits);
     if (h.lastCheck && !h.lastCheck.clean) notes.push(`At its last stop: ${h.lastCheck.why}.`);
     if (h.state === 'requested') notes.push(`Asked at ${h.asks > 1 ? 'its last ' + h.asks + ' stops' : 'its last stop'}. It writes the hand-off to ${name} when the task is done.`);
-    else if (h.atRest) notes.push("It asks at this session's next stop. Send it any message to get there sooner.");
+    else if (h.atRest && !h.manual) notes.push("It asks at this session's next stop. Send it any message to get there sooner.");
   } else if (h.state === 'written') {
     if (h.resumeError) {
       line = `Hand-off written to ${name}. ${h.resumeError}`;

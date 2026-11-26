@@ -36,7 +36,7 @@ import { HOME_OVERRIDE, RAVENRY_HOME } from './home.mjs';
 import { record, deferredTasks } from './hookrecord.mjs';
 import { stateInput } from './assistanthook.mjs';
 import * as assistants from './assistants.mjs';
-import { runningTasksAsync, logTasks } from './tasks.mjs';
+import { runningTasksAsync, logTasks, kindsOf } from './tasks.mjs';
 import { decideStop } from './handoffstop.mjs';
 import * as machines from './machines.mjs';
 import { answerKey } from './person.mjs';
@@ -679,6 +679,7 @@ async function settle(rec) {
   try {
     const running = await runningTasksAsync(input);
     rec.background_tasks = running.length;
+    if (running.length) rec.background_kinds = kindsOf(running); else delete rec.background_kinds;
     logTasks(RAVENRY_HOME, input, running);
   } catch { /* Claude Code's count stands */ }
   if (statusOpts) statusOpts.onChange();

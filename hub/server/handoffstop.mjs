@@ -144,7 +144,11 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
 
   // Clean-point checks the hook can see for itself. A question to the user
   // does not hold the hand-off back: the hand-off carries it in its open items.
-  const tasks = h.runningTasks(input);
+  // Asked for by hand, a shell or a monitor left running (a dev server)
+  // does not hold it back: the person sees no task there, and it may never
+  // end (h.holdsManual). The words ask to name it in the hand-off.
+  const running = h.runningTasks(input);
+  const tasks = manual ? running.filter(h.holdsManual) : running;
   if (tasks.length) return queue(`${tasks.length} background task${tasks.length > 1 ? 's' : ''} running`);
   const crons = Array.isArray(input.session_crons) ? input.session_crons : [];
   if (crons.length) return queue(`${crons.length} scheduled loop${crons.length > 1 ? 's' : ''} set in this session`);
@@ -160,7 +164,7 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
     requestedAt: (marker && marker.requestedAt) || now,
     asks: ((marker && marker.asks) || 0) + 1, lastAskAt: now,
     over,
-    lastCheck: { at: now, clean: true, why: 'no background tasks running' },
+    lastCheck: { at: now, clean: true, why: running.length > tasks.length ? `asked by hand; ${running.length - tasks.length} shell or monitor left running` : 'no background tasks running' },
   });
   return done({ decision: 'block', reason });
 }

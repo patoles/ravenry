@@ -350,6 +350,17 @@ export async function runningTasksAsync(input) {
   return live.filter((t) => !done.has(t.id) && (String(t.type || '').toLowerCase() !== 'monitor' || monFound.has(t.id)));
 }
 
+// What a person's "Hand off now" does not wait for: a shell or a monitor
+// left running in the background (a dev server, a log tail, a watch). The
+// person sees no task there, and it may never end, so a request by hand
+// went on waiting for good (a dev server listed at every stop of a session
+// at rest). Any other kind (an agent, a workflow, a teammate) is work that
+// reports back into the session, and the request waits for it.
+export const LEFT_RUNNING = new Set(['shell', 'monitor']);
+export const holdsManual = (t) => !LEFT_RUNNING.has(String((t && t.type) || '').toLowerCase());
+// The kinds among running tasks, for the event record (background_kinds).
+export const kindsOf = (ts) => [...new Set((ts || []).map((t) => String((t && t.type) || '').toLowerCase()).filter(Boolean))].sort();
+
 // The background tasks of a Stop hook input that are still running.
 export function runningTasks(input, { transcript = true } = {}) {
   const ts = Array.isArray(input && input.background_tasks) ? input.background_tasks : [];

@@ -13,7 +13,13 @@
 //   notes-app:      not written, at an empty prompt: the hook's request is
 //                   typed now; the marker is requested.
 //   garden-planner: not written, with text typed in its prompt: nothing is
-//                   typed; it waits for its next stop, as before.
+//                   typed; it waits, and the board says what for. Once
+//                   the text is cleared, the board's tick asks it (the
+//                   request queued, the session at rest, then delivered).
+//   recipe-box:     its last stop listed a dev server left running in the
+//                   background, so the board shows it working (the
+//                   2026-11-24 case, which waited "(it is working)" for
+//                   good): Hand off now asks it now.
 //
 // Needs ravenryd: RAVENRYD_BIN, else ../daemon/ravenryd.
 // Usage: node tools/handoff-now-e2e.mjs
@@ -58,7 +64,7 @@ try {
   execFileSync(BIN, ['serve', '--detach'], { env: DENV });
   hub = await startDemoHub({
     dir: path.join(WORK, 'demo'), port: await freePort(), runtime: RT,
-    panes: ['paper-boat', 'notes-app', 'garden-planner'],
+    panes: ['paper-boat', 'notes-app', 'garden-planner', 'recipe-box'],
     env: { MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: BIN, RAVENRY_STATE_DIR: path.join(WORK, 'hub-state') },
   });
   const S = hub.sessions;
@@ -84,7 +90,9 @@ try {
   const panes = {};
   for (const id of Object.keys(S)) {
     const s = S[id];
-    const hook = (ev) => `printf '%s' '${JSON.stringify({ hook_event_name: ev, session_id: s.sid, cwd: s.folder, transcript_path: s.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : ev === 'Stop' ? { stop_hook_active: false } : { prompt: '' }) })}' | '${BIN}' hook --assistant claude >/dev/null 2>&1`;
+    // recipe-box's stop lists a dev server it left running.
+    const jobs = id === 'recipe-box' ? { background_tasks: [{ id: 'bdevsrv1', type: 'shell', status: 'running', description: 'dev server' }] } : {};
+    const hook = (ev) => `printf '%s' '${JSON.stringify({ hook_event_name: ev, session_id: s.sid, cwd: s.folder, transcript_path: s.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : ev === 'Stop' ? { stop_hook_active: false, ...jobs } : { prompt: '' }) })}' | '${BIN}' hook --assistant claude >/dev/null 2>&1`;
     const f = path.join(WORK, `session-${id}.sh`);
     fs.writeFileSync(f, [hook('SessionStart'), hook('UserPromptSubmit'), hook('Stop'), `exec '${process.execPath}' '${path.join(ROOT, 'tools', 'fake-claude.mjs')}'`].join('\n') + '\n', { mode: 0o755 });
     panes[id] = cli('new', '--cwd', s.folder, '--name', id, '--size', '100x30', '--label', 'ravenry.session=claude', '--', '/bin/sh', f).trim();
@@ -94,10 +102,11 @@ try {
   // The board follows each one, at rest at its prompt.
   const ready = await until(async () => {
     const st = await hub.state();
-    return Object.keys(S).every((id) => { const x = sessionOf(st, id); return x && x.live && !x.working && !x.dialog && /^ravenry:/.test(x.surfaceId) && /❯/.test(capture(id)); });
+    // recipe-box: shown working, from its stop's dev server alone.
+    return Object.keys(S).every((id) => { const x = sessionOf(st, id); return x && x.live && x.working === (id === 'recipe-box') && !x.dialog && /^ravenry:/.test(x.surfaceId) && /❯/.test(capture(id)); });
   }, 30000);
   const st0 = await hub.state();
-  check('the board follows the three sessions, at rest in their panes', !!ready, Object.keys(S).map((id) => { const x = sessionOf(st0, id); return x ? { id, state: x.state, live: x.live, sf: x.surfaceId } : { id, missing: true }; }));
+  check('the board follows the four sessions in their panes, at rest but recipe-box (working, by its dev server)', !!ready, Object.keys(S).map((id) => { const x = sessionOf(st0, id); return x ? { id, state: x.state, live: x.live, working: x.working, sf: x.surfaceId } : { id, missing: true }; }));
 
   // Text typed into garden-planner's prompt, not sent.
   cli('send', panes['garden-planner'], '--typed', 'also check the');
@@ -126,14 +135,51 @@ try {
   const got = await until(() => /received: \[ravenry hand-off\]/.test(capture('notes-app')), 8000);
   check('2. the hook\'s request reached its prompt', !!got, capture('notes-app').slice(-400));
 
-  // Text in the prompt: never typed into; at the next stop, as before.
+  // Text in the prompt: never typed into; it waits and says what for.
   const c = await press('garden-planner');
   const mc = marker(S['garden-planner'].sid);
-  check('text in its prompt: not typed, queued for its next stop', c.status === 200 && c.j.state === 'queued' && c.j.delivered === 'next stop' && /text in its prompt/.test(c.j.why || '') && /next stop/.test(c.j.say), c);
-  check('...its marker stays queued, asked by hand', mc && mc.state === 'queued' && !!mc.manualAt && !mc.asks, mc);
-  await sleep(500);
+  check('text in its prompt: not typed, queued, and the answer says what it waits for', c.status === 200 && c.j.state === 'queued' && c.j.delivered === 'next stop' && c.j.wait === 'draft' && /text in its prompt/.test(c.j.why || '') && /^Waits until you send or clear the text typed in its prompt/.test(c.j.say), c);
+  check('...its marker stays queued, asked by hand, its wait recorded', mc && mc.state === 'queued' && !!mc.manualAt && !mc.asks && mc.wait && mc.wait.code === 'draft', mc);
+  const shown = await until(async () => { const x = sessionOf(await hub.state(), 'garden-planner'); return x && x.handoff && x.handoff.waits; }, 8000);
+  check('...the board (card, phone, Mac tooltip) shows what it waits for', /^Waits until you send or clear/.test(shown || ''), shown);
+  // The board's card, as the person sees it on the Mac board and the phone (headless).
+  {
+    const { chromium } = await import('playwright');
+    const browser = await chromium.launch();
+    try {
+      for (const [name, viewport] of [['desktop', { width: 1273, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
+        const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2 });
+        const pg = await ctx.newPage();
+        await pg.goto(`${hub.url}/#garden-planner`);
+        await pg.waitForSelector('#d-handoff .card', { timeout: 15000 });
+        const card = await pg.textContent('#d-handoff .card');
+        const title = await pg.$eval('#d-strip button[disabled]', (b) => b.title).catch(() => null);
+        check(`the board (${name}): the card and the queued button say what it waits for`, card.includes('Waits until you send or clear the text typed in its prompt, then it hands off.') && /^Waits until you send or clear/.test(title || ''), { card: card.slice(0, 300), title });
+        await pg.locator('#d-handoff').scrollIntoViewIfNeeded();
+        await pg.locator('#d-handoff').screenshot({ path: path.join(WORK, `waits-card-${name}.png`) });
+        await ctx.close();
+      }
+    } finally { await browser.close(); }
+  }
+  await sleep(6000);
   const gp = capture('garden-planner');
-  check('...and its prompt holds only what was typed there', !/received:/.test(gp) && /❯ also check the/.test(gp), gp.slice(-300));
+  check('...the tick tries again and still types nothing over the text', !/received:/.test(gp) && /❯ also check the/.test(gp), gp.slice(-300));
+
+  // The person clears the text: the session is at rest with an empty prompt, and the board asks it, no message needed.
+  cli('send', panes['garden-planner'], ...Array(14).fill(['--key', 'Backspace']).flat());
+  const cleared = await until(() => !/also check the/.test(capture('garden-planner')), 5000);
+  check('...the text cleared from its prompt', !!cleared, capture('garden-planner').slice(-200));
+  const late = await until(() => /received: \[ravenry hand-off\]/.test(capture('garden-planner')), 20000);
+  const mc2 = marker(S['garden-planner'].sid);
+  check('queued, then at rest: the board\'s tick delivers the request', !!late, capture('garden-planner').slice(-300));
+  check('...its marker records the ask, the press\'s time kept, the wait cleared', mc2 && mc2.state === 'requested' && mc2.asks === 1 && mc2.askedBy === 'board' && mc2.manualAt === mc.manualAt && !mc2.wait, mc2);
+
+  // 3. A dev server left running at its last stop: the board showed it working; Hand off now asks it now.
+  const d = await press('recipe-box');
+  const md = marker(S['recipe-box'].sid);
+  check('3. a dev server left running does not hold it back: asked now', d.status === 200 && d.j.delivered === 'now' && md && md.state === 'requested' && md.askedBy === 'board', { d, state: md && md.state });
+  const gotD = await until(() => /received: \[ravenry hand-off\]/.test(capture('recipe-box')), 8000);
+  check('3. the request reached its prompt', !!gotD, capture('recipe-box').slice(-400));
 } catch (e) {
   check('the test ran', false, String(e.stack || e).slice(0, 1500));
 } finally {

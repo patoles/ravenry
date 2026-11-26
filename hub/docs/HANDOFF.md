@@ -82,17 +82,34 @@ has no next stop until it gets a message, so on a session at rest the hub acts a
 - its hand-off is already written (a new dated bullet in the Hand-off section that its own transcript wrote
   since the person's last prompt, as when the person asked for it in the chat): the marker is `written` at
   once and the fresh session starts as for any written hand-off;
-- otherwise, in a Ravenry pane on this Mac, the hub types the hook's own request (the tagged reason a stop
-  would get) at the session's prompt and records the ask as the hook does (`requested`, the section's base,
-  `askedBy: board`), so the stop that ends that turn finds the hand-off. Only after a fresh read shows the
-  assistant at its prompt: never while it works, has a dialog open or background agents running, or has
-  typed text in its input box (Claude Code's dim suggestion is typed over only when a styled read is sure of
-  it; nothing is typed to find out). A refused or failed typing, another terminal (cmux, iTerm2, Rex) and
-  another machine keep the request for the next stop, and the answer says so ("Send it any message to get
-  there sooner").
+- otherwise, in a tab on this Mac the board types into (a Ravenry pane, cmux, iTerm2, Rex), the hub types
+  the hook's own request (the tagged reason a stop would get) at the session's prompt and records the ask
+  as the hook does (`requested`, the section's base, `askedBy: board`), so the stop that ends that turn
+  finds the hand-off. Only after a fresh read shows the assistant at its prompt: never while it works, has a
+  dialog open or background agents running, or has typed text in its input box (Claude Code's dim
+  suggestion is typed over only when a styled read is sure of it; a press in a terminal with no styled
+  read, iTerm2 or Rex, makes sure as a message from the board does, with the probe; the tick never probes).
 
-The answer of `POST /api/handoff` carries `delivered` (`written`, `now` or `next stop`), `why` when it waits,
-and `say`, the words every client shows.
+A shell or a monitor left running in the background (a dev server, a log tail) holds back neither this nor
+the hook's stop when the hand-off was asked for by hand: the person sees no task there and it may never end
+(2026-11-24: Hand off now pressed on a session at rest waited "(it is working)" because its last stop listed
+a dev server; the hook declined at every stop for the same reason). The stop's event record names the
+kinds still running (`background_kinds`), and the request's words ask to name the server in the hand-off.
+An agent or any other kind still holds it.
+
+A request that waits is never silent and never waits for a stop that may not come. The marker records why
+(`wait: { code, why, at }`, `handoffnow.WAITS`), the board's view words it as `handoff.waits`
+(shared/strings `session.handOffWaits.<code>`: "Waits until Claude finishes its turn, then it hands off.",
+"Waits until you answer the choice open in it...", "Waits until you send or clear the text typed in its
+prompt..."), and the board's card, the phone, the toast and the Mac panel's tooltip show it. The hub's tick
+takes up a request by hand that still waits (`handoffnow.waiting`: queued, or asked and put off with the
+hook's hold over) on a session now at rest, at most every 5 s, and runs the press's path again (`by:
+'tick'`, the press's time kept): a turn that ends, a dialog answered, agents done or the typed text cleared
+deliver it with no message from the person. Another machine and a tab the board cannot type into wait for
+the next stop, and say so.
+
+The answer of `POST /api/handoff` carries `delivered` (`written`, `now` or `next stop`), `why` and `wait`
+when it waits, and `say`, the words every client shows.
 
 ## Where the hand-off lands
 
@@ -336,10 +353,14 @@ work without it.
 - `node tools/handoff-now-test.mjs` replays Hand off now on a session at rest with a stand-in pane: written
   since its last prompt (counted as written), not written (the request typed, then the real hook's stop
   finds the hand-off), a hand-off from before the last prompt, a suggestion typed over, and every refusal
-  (working, a dialog, background agents, typed text, a shell, not a Ravenry pane, another machine, a failed
-  typing). `node tools/handoff-now-e2e.mjs` runs the same through the hub's `POST /api/handoff` with three
-  sessions in panes of a throwaway ravenryd running `tools/fake-claude.mjs` (RAVENRYD_BIN, else
-  `../daemon/ravenryd`).
+  (working, a dialog, background agents, typed text, a shell, no tab to type into, another machine, a failed
+  typing) with its wait code; a dev server left running at the last stop (the board's check, the hook's,
+  the event record's kinds); which requests the tick takes up again; queued while working, then delivered by
+  the tick at rest; put off, then asked again once the hold is over. `node tools/handoff-now-e2e.mjs` runs
+  the same through the hub's `POST /api/handoff` with four sessions in panes of a throwaway ravenryd running
+  `tools/fake-claude.mjs` (RAVENRYD_BIN, else `../daemon/ravenryd`), including text typed in a prompt that
+  waits, shows why on the board, and is delivered by the tick once cleared, and a session the board shows
+  working from a dev server alone, asked at once.
 - `node tools/handoff-e2e.mjs docs/shots/phase-c` runs the whole loop on a
   scratch cmux workspace it creates (`mc-test-handoff`, never focused) and
   closes, with a test server on :4601 that reads only a scratch registry,

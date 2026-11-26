@@ -438,7 +438,7 @@ export function lastPromptAt(file, sinceIso = null, io = localIo) {
 // Which background tasks are still running: server/tasks.mjs, shared with
 // the events hook. It reads the session's transcript too, because Claude
 // Code can keep a finished task listed as running.
-export { runningTasks } from './tasks.mjs';
+export { runningTasks, holdsManual, LEFT_RUNNING } from './tasks.mjs';
 
 // ------------------------------------------------------------ the words
 
@@ -463,6 +463,8 @@ export function reasonText({ pct, tokens, window, threshold, ceiling, manual, fi
     if (manual) lines.push(`The user asked for a hand-off from Ravenry, with context at ${used}. Do it at a clean point.`);
     else lines.push(`Context is at ${used}, past the ${threshold}% hand-off line. Hand off to a fresh session, but only at a clean point.`);
     lines.push(`If you are in the middle of a task, or have background agents, tests or jobs still running, do not hand off yet: reply with exactly this one line and nothing else, then carry on as before: ${DEFERRED} The hook asks again after the user's next message, or in 10 minutes.`);
+    // A dev server left running made a request by hand wait for good (server/tasks.mjs LEFT_RUNNING).
+    if (manual) lines.push('A server or watcher left running in the background (a dev server, a log tail) is not a task: say in the hand-off that it is running, and hand off.');
     lines.push("Otherwise you are at a clean point, even if you are waiting on the user's answer to a question. Hand off:");
   }
   lines.push(

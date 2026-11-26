@@ -5,7 +5,7 @@
 // Loaded by the hook on every event, so its imports stay the hook's own.
 
 import { endingQuestion } from './state.mjs';
-import { runningTasks, logTasks } from './tasks.mjs';
+import { runningTasks, logTasks, kindsOf } from './tasks.mjs';
 import { terminalOf } from './termenv.mjs';
 import { shape } from './assistanthook.mjs';
 
@@ -83,12 +83,17 @@ export function record(assistant, input, { env = {}, ppid = 0, daemon = false, h
     }
     // Only tasks still running: Claude Code can keep a finished one listed
     // (server/tasks.mjs checks the transcript). What it sent is logged.
+    // Their kinds too (shell, subagent...): a Hand off now does not wait
+    // for a shell left running (server/handoffnow.mjs restOf).
     if (tasks) {
       const running = runningTasks(input);
       if (home) logTasks(home, input, running);
       r.background_tasks = running.length;
+      if (running.length) r.background_kinds = kindsOf(running);
     } else {
-      r.background_tasks = runningTasks(input, { transcript: false }).length;
+      const listed = runningTasks(input, { transcript: false });
+      r.background_tasks = listed.length;
+      if (listed.length) r.background_kinds = kindsOf(listed);
       deferredTasks.set(r, input);
     }
     if (Array.isArray(input.session_crons) && input.session_crons.length) r.crons = input.session_crons.length;

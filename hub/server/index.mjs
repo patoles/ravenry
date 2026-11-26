@@ -1630,6 +1630,7 @@ async function tick() {
       });
     } catch (e) { console.error('open on:', e.message); snapshot.openOn = null; }
     if (process.env.MC_NO_AUTOSTART !== '1') autoStarts(workspaces, cmuxOk);
+    retryHandoffs(projects);
   } catch (e) {
     snapshot = { ...snapshot, cmuxOk: false, error: 'The board could not read its terminals: ' + String(e.message || e), generatedAt: new Date().toISOString() };
     console.error('tick:', e.message);
@@ -2587,6 +2588,14 @@ function handoffView(project, s, c, settings, now) {
   const jobs = s.screen.agentsRunning > 0 || /background agent/i.test(s.screen.busyLine || '');
   const dirty = dirtyOf((m && m.cwd) || s.cwd);
   const manual = !!(m && m.manualAt);
+  // A request by hand that waits: what for, in words (handoffnow.WAITS).
+  // The board's state now first (working, a dialog, agents), else what the
+  // last try found (text in its prompt, nowhere to type...).
+  let waits = null;
+  if (manual && (state === 'queued' || handoffnow.waiting(m))) {
+    const rest = handoffnow.restOf({ live: s.live, working: s.st.state === 'working', dialog: s.st.state === 'dialog' || !!s.screen.dialog, last: (ev.all.get(s.sessionId) || {}).last || null });
+    waits = waitWords(rest.atRest ? (m.wait && m.wait.code) : rest.busy, s.assistant);
+  }
   const checks = [
     { label: finished ? `Was past ${threshold}%` : (!past && manual ? 'Asked for by you' : `Past ${threshold}%`), ok: finished || past || manual },
     { label: 'Task finished', ok: finished || !busy },
@@ -2594,7 +2603,7 @@ function handoffView(project, s, c, settings, now) {
     { label: 'No jobs running', ok: finished || !jobs },
   ];
   return {
-    state, pct, threshold, ceiling: settings.handoffCeiling, autoStart, manual,
+    state, pct, threshold, ceiling: settings.handoffCeiling, autoStart, manual, waits,
     sessionId: s.sessionId, surfaceId: s.surfaceId,
     file: short(file), fileName: file ? path.basename(file) : 'BRIEF.md',
     checks, live: s.live, atRest: !busy && s.live,
@@ -2895,8 +2904,10 @@ function autoStarts(workspaces, cmuxOk) {
 // session at rest, which has no next stop until it gets a message, it acts
 // at once (server/handoffnow.mjs): a hand-off already written since the
 // person's last prompt counts as written; otherwise the hook's own request
-// is typed at its prompt, in a Ravenry pane on this Mac whose screen shows
-// it idle with nothing typed. Anything else waits for the next stop.
+// is typed at its prompt, in a tab on this Mac the board types into, whose
+// fresh read shows it idle with nothing typed. Anything else waits, says
+// why on the board, and is delivered by the tick once the session is at
+// rest (retryHandoffs).
 async function requestHandoff({ projectId, surfaceId }) {
   const p = snapshot.projects.find((x) => x.id === projectId);
   if (!p) return { ok: false, status: 404, error: 'No such project.' };
@@ -2904,43 +2915,108 @@ async function requestHandoff({ projectId, surfaceId }) {
   if (!s || !s.sessionId) return { ok: false, status: 409, error: `No ${asst.of(s ? s.assistant : p.assistant).SHORT} session to hand off here.` };
   const prev = handoff.readMarker(s.sessionId);
   if (prev && (prev.state === 'written' || prev.state === 'resumed')) return { ok: false, status: 409, error: 'This session has already handed off.' };
-  const e = ev.all.get(s.sessionId) || {};
-  const kind = asst.kindOf(s.assistant);
-  const atRest = !!s.live && !s.working && !s.dialog;
-  const local = !s.machine && !p.machine;
-  const cwd = e.cwd || (prev && prev.cwd) || null;
-  const target = local && cwd ? targetFor(cwd, s.workspaceId, p.id) : null;
-  let tab = null;
-  if (atRest && local && term.kindOf(s.surfaceId) === 'ravenry') {
-    try { tab = await freshTab(s.surfaceId); } catch { tab = null; }
-  }
+  const r = await deliverHandoff(p, s, prev, 'press');
+  if (r.delivered === 'next stop') console.log(`hand-off: ${s.sessionId} asked for by hand; it waits (${r.why})`);
   const settings = reg.settings || {};
-  const where = term.nameOf(term.kindOf(s.surfaceId));
-  const r = await handoffnow.request({
-    session: { sessionId: s.sessionId, workspaceId: s.workspaceId, surfaceId: s.surfaceId, atRest, local, pane: !!tab, kind },
-    prev, target, cwd, transcriptPath: e.transcriptPath || (prev && prev.transcriptPath) || null,
-    ctx: s.ctx || {}, settings,
-    decisions: (() => { try { return decisions.promptBlock((target && target.projectId) || p.id); } catch { return ''; } })(),
-    pane: tab ? {
-      read: async () => asst.parseScreen(await term.readScreen(tab, 40), kind),
-      // Claude Code's dim suggestion, told apart by a styled read alone.
-      suggestion: async (screen) => {
-        if (kind !== 'claude') return false;
-        const g = await term.readStyled(tab).catch(() => null);
-        const v = suggest.judgePrompt({ text: screen.draft, styled: suggest.styledPrompt(g) });
-        return v.sure && v.kind === 'suggestion';
-      },
-      type: (text) => asst.typeMessage(kind, { ...tab, by: 'hand-off' }, text, { where }),
-    } : null,
-    log: (line) => console.log(line),
-  });
-  if (r.delivered === 'next stop') console.log(`hand-off: ${s.sessionId} asked for by hand; it waits for its next stop (${r.why})`);
-  markers.set(s.sessionId, handoff.readMarker(s.sessionId));
-  wantTick = true;
   // The words every client shows for the answer (shared/strings/en.json).
   const say = r.delivered === 'written' ? word(settings.handoffAutoStart !== false ? 'session.handOffWritten' : 'session.handOffWrittenStart')
-    : r.delivered === 'now' ? word('session.handOffAsked') : atRest ? word('session.handOffNextStop') : word('session.handOffQueued');
-  return { ok: true, state: r.state, atRest, delivered: r.delivered, say, ...(r.why ? { why: r.why } : {}) };
+    : r.delivered === 'now' ? word('session.handOffAsked') : waitWords(r.wait, s.assistant) || word('session.handOffQueued');
+  return { ok: true, state: r.state, atRest: r.atRest, delivered: r.delivered, say, ...(r.why ? { why: r.why } : {}), ...(r.wait ? { wait: r.wait } : {}) };
+}
+
+// Why a request by hand waits, worded for the card, the phone and the
+// toast (shared/strings session.handOffWaits.<code>), or null.
+function waitWords(code, assistant) {
+  if (!code || !handoffnow.WAITS[code]) return null;
+  return word(`session.handOffWaits.${code}`, { name: asst.of(asst.kindOf(assistant)).SHORT });
+}
+
+// The board's state of a snapshot session, for handoffnow.restOf.
+function restOfSession(s) {
+  return handoffnow.restOf({ live: !!s.live, working: !!s.working, dialog: !!s.dialog, last: (ev.all.get(s.sessionId) || {}).last || null });
+}
+
+// One Hand off now, from a press or from the tick (`by`), on a snapshot
+// session: its fresh tab, its target and the same path either way.
+const handingOff = new Set(); // sessionIds with a request under way
+async function deliverHandoff(p, s, prev, by) {
+  const sid = s.sessionId;
+  const rest = restOfSession(s);
+  if (handingOff.has(sid)) return { state: (prev && prev.state) || 'queued', delivered: 'next stop', why: 'a request is already under way', atRest: rest.atRest };
+  handingOff.add(sid);
+  try {
+    const e = ev.all.get(sid) || {};
+    const kind = asst.kindOf(s.assistant);
+    const local = !s.machine && !p.machine;
+    const cwd = e.cwd || (prev && prev.cwd) || null;
+    const target = local && cwd ? targetFor(cwd, s.workspaceId, p.id) : null;
+    // Any tab on this Mac the board types into (a Ravenry pane, cmux,
+    // iTerm2, Rex), as a message from the board would be.
+    let tab = null;
+    if (rest.atRest && local && !s.cannotType && !String(s.surfaceId || '').startsWith('ev:')) {
+      try { tab = await freshTab(s.surfaceId); } catch { tab = null; }
+    }
+    const settings = reg.settings || {};
+    const where = term.nameOf(term.kindOf(s.surfaceId));
+    const r = await handoffnow.request({
+      session: { sessionId: sid, workspaceId: s.workspaceId, surfaceId: s.surfaceId, atRest: rest.atRest, busy: rest.busy, local, pane: !!tab, kind },
+      prev, target, cwd, transcriptPath: e.transcriptPath || (prev && prev.transcriptPath) || null,
+      ctx: s.ctx || {}, settings, by,
+      decisions: (() => { try { return decisions.promptBlock((target && target.projectId) || p.id); } catch { return ''; } })(),
+      pane: tab ? {
+        read: async () => asst.parseScreen(await term.readScreen(tab, 40), kind),
+        // Text in the prompt: the assistant's suggestion (Claude Code's dim
+        // one) is typed over, never a half-typed reply. A styled read
+        // decides where the terminal has one; a press in a terminal without
+        // (iTerm2, Rex) makes sure as a message from the board does (the
+        // probe). The tick never probes.
+        suggestion: async (screen, { probe = false } = {}) => {
+          if (kind !== 'claude') return false;
+          const g = await term.readStyled(tab).catch(() => null);
+          const v = suggest.judgePrompt({ text: screen.draft, styled: suggest.styledPrompt(g) });
+          if (v.sure) return v.kind === 'suggestion';
+          if (!probe) return 'unsure';
+          const sure = await asst.surePrompt(kind, tab, screen).catch(() => null);
+          return !!(sure && sure.sure && sure.kind === 'suggestion');
+        },
+        type: (text) => asst.typeMessage(kind, { ...tab, by: 'hand-off' }, text, { where }),
+      } : null,
+      log: (line) => console.log(line),
+    });
+    markers.set(sid, handoff.readMarker(sid));
+    wantTick = true;
+    return { ...r, atRest: rest.atRest };
+  } finally {
+    handingOff.delete(sid);
+  }
+}
+
+// A request by hand that waits (handoffnow.waiting) on a session now at
+// rest: the press's path again, at most every RETRY_MS per session, so a
+// turn that ends, a dialog answered or agents done deliver it with no
+// message from the person. A wait that changes is logged once.
+const HANDOFF_RETRY_MS = 5000;
+const handoffTried = new Map(); // sessionId -> { at, wait }
+function retryHandoffs(projects) {
+  const nowMs = Date.now();
+  for (const p of projects) {
+    for (const s of p.sessions) {
+      if (!s.sessionId || !s.live || handingOff.has(s.sessionId)) continue;
+      // Nowhere the board can type: it waits for its next stop, and says so.
+      if (s.machine || p.machine || s.cannotType || String(s.surfaceId || '').startsWith('ev:')) continue;
+      const m = markers.get(s.sessionId);
+      if (!handoffnow.waiting(m, nowMs)) { handoffTried.delete(s.sessionId); continue; }
+      if (!restOfSession(s).atRest) continue;
+      const t = handoffTried.get(s.sessionId);
+      if (t && nowMs - t.at < HANDOFF_RETRY_MS) continue;
+      handoffTried.set(s.sessionId, { at: nowMs, wait: t ? t.wait : null });
+      deliverHandoff(p, s, handoff.readMarker(s.sessionId) || m, 'tick').then((r) => {
+        const seen = handoffTried.get(s.sessionId);
+        if (r.delivered !== 'next stop') { handoffTried.delete(s.sessionId); return; }
+        if (seen && seen.wait !== r.wait) { seen.wait = r.wait; console.log(`hand-off: ${s.sessionId} at rest, asked for by hand, still waits (${r.why})`); }
+      }).catch((e) => console.error('hand-off retry:', e.message));
+    }
+  }
 }
 
 // ------------------------------------------------------------ actions
