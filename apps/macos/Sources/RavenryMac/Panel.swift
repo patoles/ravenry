@@ -538,7 +538,8 @@ final class PanelView: Box {
             let queued = s.handoffQueued
             let hand = RButton(queued ? t("panel.handOffQueued") : t("session.handOffNow"), small: true) { [weak self] in self?.handOff(p, s) }
             hand.isEnabled = !queued
-            if queued { hand.toolTip = t("panel.handOffQueuedTip") }
+            // What it waits for, in the hub's words ("Waits until Claude finishes its turn..."), when it says.
+            if queued { hand.toolTip = (s.handoff?["waits"] as? String) ?? t("panel.handOffQueuedTip") }
             buttons["handoff"] = hand
             // A written hand-off whose fresh session waits for the person, or did not start (SESS-044).
             let fresh = FreshStart.state(s)
