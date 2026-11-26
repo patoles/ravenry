@@ -1055,6 +1055,15 @@ final class TerminalView: NSView, NSTextInputClient {
     func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
     func characterIndex(for point: NSPoint) -> Int { NSNotFound }
 
+    /// The cursor's row across the view, in its points (the toasts keep off it, Board.swift ToastView).
+    var cursorRow: NSRect {
+        screen.lock()
+        let c = screen.cursor
+        screen.unlock()
+        let h = renderer.fonts.cellHeight / renderer.fonts.scale
+        return NSRect(x: 0, y: renderer.padding + CGFloat(c.y) * h, width: bounds.width, height: h)
+    }
+
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         // The cursor's cell, for the input method's candidate window.
         screen.lock()

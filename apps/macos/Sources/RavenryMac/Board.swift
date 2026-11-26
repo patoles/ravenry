@@ -2060,8 +2060,10 @@ final class Board: NSObject {
     }
 }
 
-/// The toasts at the bottom of the window (app.ts showToast, app.css
-/// .toast): up to three, the newest last. A plain one goes after 5 s and
+/// The toasts at the top right of the terminal, under its pane's head (app.ts
+/// showToast, app.css .toast; at the window's bottom they covered the input
+/// line, 2026-11-26, "on mac the notifications cover the typing area"):
+/// up to three, the newest last. A plain one goes after 5 s and
 /// when the person moves to another view; one with an action (Show, Undo)
 /// stays at least 12 s (Undo a minute), with an x. The pointer over them
 /// pauses their time, and they get 2 s more once it leaves (2026-11-07,
@@ -2079,11 +2081,26 @@ final class ToastView: Flipped {
         var since = Date()
         var timer: Timer?
         var buttons: [RButton] = []
+        /// Its words and its row; the row's width besides the words; the words' width now.
+        var words: NSTextField?
+        var row: NSStackView?
+        var besides: CGFloat = 0
+        var wordsMax: CGFloat = 520
         init(key: String, text: String, plain: Bool, at: String, seconds: Double) {
             self.key = key; self.text = text; self.plain = plain; self.at = at; self.seconds = seconds; left = seconds
             super.init(fill: "card2", radius: 9)
         }
         required init?(coder: NSCoder) { fatalError() }
+        /// Its words wrapped to fit `width` (520 pt at most, a narrow window less).
+        func fit(_ width: CGFloat) {
+            guard let l = words, let st = row else { return }
+            let m = min(520, max(120, (width - besides).rounded(.down)))
+            if m == wordsMax { return }
+            wordsMax = m
+            l.preferredMaxLayoutWidth = m
+            st.frame.size = st.fittingSize
+            frame.size = st.fittingSize
+        }
         override func updateLayer() {
             super.updateLayer()
             // box-shadow: 0 10px 30px rgba(0,0,0,.35)
@@ -2136,6 +2153,9 @@ final class ToastView: Flipped {
         item.addSubview(st)
         st.frame.size = st.fittingSize
         item.frame.size = st.fittingSize
+        item.words = l
+        item.row = st
+        item.besides = st.fittingSize.width - l.fittingSize.width
         item.setAccessibilityElement(true)
         item.setAccessibilityRole(.group)
         item.setAccessibilityLabel(s)
@@ -2174,18 +2194,85 @@ final class ToastView: Flipped {
     func dropSaidElsewhere(_ here: String) { for i in items where (i.plain || i.key == "kept") && i.at != here { drop(i) } }
     func clear() { for i in items { drop(i) } }
 
-    /// The stack at the bottom, centred, 20 pt up, the newest last.
+    /// The stack at the top right of the terminal: under the head of the
+    /// pane at the stage's top right (Design.headHeight + 10), 14 pt in from
+    /// its right edge, each toast right-aligned, the newest last; a page in
+    /// front, the top right of the page. Its words wrap to the room there
+    /// is, and it never reaches that pane's last six rows (the prompt and the
+    /// input line), its cursor's line (a shell's prompt at the top) nor the
+    /// phone card: the older toasts that do not fit wait hidden, the newest
+    /// always shows.
     func place(in root: NSView) {
         guard superview === root, !isHidden else { return }
         root.addSubview(self, positioned: .above, relativeTo: nil)
-        let w = items.map(\.frame.width).max() ?? 0
+        let area = ToastView.area(in: root)
+        for i in items { i.fit(area.width) }
+        var shown: [Item] = []
+        var used: CGFloat = 0
+        for i in items.reversed() {
+            let add = i.frame.height + (shown.isEmpty ? 0 : 8)
+            if !shown.isEmpty && used + add > area.height { break }
+            shown.insert(i, at: 0)
+            used += add
+        }
+        for i in items { i.isHidden = !shown.contains { $0 === i } }
+        let w = shown.map(\.frame.width).max() ?? 0
         var y: CGFloat = 0
-        for i in items {
-            i.setFrameOrigin(NSPoint(x: (w - i.frame.width) / 2, y: y))
+        for i in shown {
+            i.setFrameOrigin(NSPoint(x: w - i.frame.width, y: y))
             y += i.frame.height + 8
         }
-        let h = max(0, y - 8)
-        frame = NSRect(x: (root.bounds.width - w) / 2, y: root.bounds.height - h - 20, width: w, height: h)
+        frame = NSRect(x: area.maxX - w, y: area.minY, width: w, height: max(0, y - 8))
+    }
+
+    /// Where the stack may lie, in the root's points: see place(in:).
+    static func area(in root: NSView) -> NSRect {
+        guard let rv = root as? RootView else { return root.bounds.insetBy(dx: 14, dy: 12) }
+        var r = root.bounds, top = r.minY + 12, bottom = r.maxY - 12
+        if let mv = rv.middle, mv.superview != nil, !mv.isHiddenOrHasHiddenAncestor {
+            r = mv.convert(mv.bounds, to: root)
+            top = r.minY + (rv.wideMiddle ? Design.stripHeight : 0) + 12
+            bottom = r.maxY - 12
+        } else if let stage = rv.stage {
+            r = stage.convert(stage.bounds, to: root)
+            top = r.minY + 12
+            bottom = r.maxY - 12
+            // The pane at the stage's top right: the rightmost of the top row.
+            let shown = (rv.workspace?.boxes.values.map { $0 } ?? []).filter { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
+                .map { ($0, $0.convert($0.bounds, to: root)) }
+            if let first = shown.min(by: { ($0.1.minY.rounded(), -$0.1.maxX) < ($1.1.minY.rounded(), -$1.1.maxX) }) {
+                let (b, pr) = first
+                r = pr
+                top = pr.minY + (b.showsHead ? Design.headHeight : 0) + 10
+                bottom = (ToastView.typing(b, in: root)?.minY ?? pr.maxY) - 8
+                // The line being typed higher up (a shell's prompt at the top): the larger side of it.
+                let cur = b.term.convert(b.term.cursorRow, to: root)
+                let lo = cur.minY - 8, hi = cur.maxY + 8
+                if hi > top && lo < bottom {
+                    if lo - top >= bottom - hi { bottom = lo } else { top = hi }
+                }
+            }
+        }
+        var left = r.minX + 14
+        let right = r.maxX - 14
+        // The phone card beside it: narrower words, else above the card.
+        for v in root.subviews where v is PhoneCard && !v.isHidden {
+            let c = v.frame
+            guard c.minY < bottom, c.maxY > top, c.maxX > left else { continue }
+            if right - (c.maxX + 8) >= 240 { left = c.maxX + 8 } else { bottom = min(bottom, c.minY - 8) }
+        }
+        return NSRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
+    }
+
+    /// A pane's last six rows, where the prompt and the input line are, in the root's points.
+    static func typing(_ b: PaneBox, in root: NSView) -> NSRect? {
+        let t = b.term, rd = t.renderer
+        guard t.window != nil else { return nil }
+        let cell = rd.fonts.cellHeight / rd.fonts.scale
+        let rows = rd.grid(for: t.bounds.size).rows
+        let tr = t.convert(t.bounds, to: root)
+        let y = tr.minY + rd.padding + CGFloat(max(0, rows - 6)) * cell
+        return NSRect(x: tr.minX, y: y, width: tr.width, height: tr.maxY - y)
     }
 
     // The pointer over the toasts pauses them; once it leaves, at least 2 s more.
