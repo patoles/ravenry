@@ -358,8 +358,12 @@ turns blue once a test went through and then turns alerts on.
   `permission_prompt` Notification, or a permission dialog on screen). A
   half-typed reply sends nothing. Nothing for states already Needs you when
   the board starts (8 s, and each project's first look), the same session,
-  kind and moment seen again, a project alerted in the last 10 minutes, or
-  a project in an `mc-test*` workspace. The alert is "<Project> needs you"
+  kind and moment seen again, a project alerted in the last 10 minutes,
+  a project in an `mc-test*` workspace, or a session at rest (asked or
+  handed back) while a card it asked is still open: an agent that runs
+  `ravenry ask` in the background ends its turn, and Claude Code's idle
+  prompt a minute later puts it at rest; the card's own alert is the one,
+  whose tap opens the card. The alert is "<Project> needs you"
   plus "Asked you a question", "Handed back" or "Waiting for permission",
   never the session's text, and links to `http://<Wi-Fi address>:<port>/#<project id>`,
   where the phone's sign-in cookie opens it. A plan gate ("Plan gate",

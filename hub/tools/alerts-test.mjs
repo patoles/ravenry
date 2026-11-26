@@ -8,7 +8,8 @@
 // 2. Triggers, in process with crafted projects: question, hand-back,
 //    permission (from the Notification type and from the screen), no alert
 //    at start, dedupe per session and kind, the 10-minute cooldown per
-//    project, no alert for mc-test workspaces, a failure and its one retry;
+//    project, no alert for mc-test workspaces, a failure and its one retry,
+//    none for a session at rest while its own card is open (the card's is);
 //    plan gates once per distinct gate (plan, step, question), outside the
 //    cooldown, which still holds for the other kinds.
 // 3. A test board on :4665 (RAVENRY_HOME under .tmp/alerts-test, the fake
@@ -248,6 +249,25 @@ await sleep(600);
 st = al.status();
 check('two failures: exactly one retry, then the failure stays on the status line', sendsSince(n).length === 2 && st.last.ok === false && st.last.retrying === false, `${sendsSince(n).length} sends, ${JSON.stringify(st.last)}`);
 check('status carries no secret', !JSON.stringify(al.status()).match(/AAH|5123456789|ravenry-/));
+
+// A session at rest while its own card is open (it ran `ravenry ask` in the
+// background and ended its turn; Claude Code's idle prompt a minute later):
+// the card's alert went out when it opened, so no second alert titled the
+// same whose tap opened the project instead of the card (2026-11-26). A
+// dialog on its screen is another question: still alerted.
+await sleep(50);
+n = reqs.length;
+const obsC = (ps, min, carded) => al.observe(ps, { now: T0 + min * 60000, boardUrl: BU, carded: new Set(carded) });
+obsC([proj('k', 'work', sess('sk', 'working')), proj('l', 'work', sess('sl', 'working')), proj('m', 'work', sess('sm', 'working'))], 80, []);
+out = obsC([proj('k', 'you', sess('sk', 'handback')), proj('l', 'you', sess('sl', 'asked')), proj('m', 'you', sess('sm', 'dialog', { nt: 'permission_prompt' }))], 81, ['sf-sk', 'sf-sl', 'sf-sm']);
+check('a session at rest with its own card open: no alert of its own (handed back or asked); a dialog on screen still alerts',
+  !out.some((x) => x.projectId === 'k' || x.projectId === 'l') && out.some((x) => x.projectId === 'm'), JSON.stringify(out.map((x) => [x.projectId, x.kind])));
+check('... nor on the Mac\'s notifications or the phone apps', !(out.desktop || []).some((x) => x.projectId === 'k' || x.projectId === 'l') && !(out.apps || []).some((x) => x.projectId === 'k' || x.projectId === 'l'), JSON.stringify({ d: out.desktop, a: out.apps }));
+obsC([proj('k', 'work', sess('sk', 'working'))], 90, []);
+out = obsC([proj('k', 'you', sess('sk', 'handback', { since: '2026-11-03T11:31:00.000Z' }))], 91, ['sf-other']);
+check('the same session at rest with no card of its own open (another session\'s is): alerted', out.length === 1 && out[0].projectId === 'k', JSON.stringify(out));
+await waitReqs(n, 2, 3000);
+await sleep(300);
 
 // Plan gates: each distinct gate (plan, step, question) alerts once, never
 // held back by the 10-minute cooldown, which still holds for the other kinds.

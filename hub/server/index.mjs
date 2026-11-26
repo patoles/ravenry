@@ -1565,7 +1565,7 @@ async function tick() {
     // moved into Needs you starts a send that never holds up the tick. Only on a full read: a
     // tick without cmux sees fewer sessions and would make false moves.
     tp.mark('alerts');
-    if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
+    if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl(), carded: cardedTabs() }); } catch (e) { console.error('alerts:', e.message); } }
     // A card whose session the person wrote to after it went out is
     // withdrawn: answered in the terminal (server/terminalanswer.mjs).
     try { withdrawAnswered(projects); } catch (e) { console.error('checkpoints:', e.message); }
@@ -3062,6 +3062,13 @@ function cpWords(cp, projects = snapshot.projects || []) {
 function withPageRun(cp) {
   const run = cp && pageRuns.get(cp.id);
   return run ? { ...cp, page: { title: run.page, label: run.label } } : cp;
+}
+
+/** The tabs whose session asked a card that is still open (its pane's tab): alerted by the card. */
+function cardedTabs() {
+  const out = new Set();
+  for (const cp of checkpoints.list()) if (cp.state === 'open' && cp.pane) { const tab = term.tabIdFor('ravenry', cp.pane); if (tab) out.add(tab); }
+  return out;
 }
 
 function checkpointsView(projects) {

@@ -322,7 +322,10 @@ export function checkpointScreen(id: string): Screen {
     const cp = find(id);
     // A pick is drawn again only when its state changes: a minute passing
     // must not take the picture from under a finger or a note being typed.
-    const key = cp ? `${cp.state}|${!!cp.words}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${cp.kind === 'pick' ? (cp.variants || []).map((v) => (v as { video?: string }).video || '').join() : Math.floor(Date.now() / 30000)}` : 'gone';
+    // A card not in the state is drawn again once the state comes: "Reaching
+    // the computer..." until then, then that it is no longer open (an
+    // answered card's alert tapped stayed on "Reaching" for good).
+    const key = cp ? `${cp.state}|${!!cp.words}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${cp.kind === 'pick' ? (cp.variants || []).map((v) => (v as { video?: string }).video || '').join() : Math.floor(Date.now() / 30000)}` : `gone|${!!hub.live.state}`;
     if (!force && key === lastKey) return;
     lastKey = key;
     // A pick no longer open (answered, withdrawn, gone): its video stops and lets go.

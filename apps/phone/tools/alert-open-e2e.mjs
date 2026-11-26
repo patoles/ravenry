@@ -17,7 +17,20 @@
 //     phone on Android 16, 0.1.75); the app's own summary opens the newest
 //     alert's card.
 //     API 34 does not fold, so the stack's tap is sent as the summary's
-//     intent: the app's own when it posts one, else the launcher's.
+//     intent: the app's own when it posts one, else the launcher's;
+//   - a card asked in the background (2026-11-26, "opening the
+//     notification doesn't open the card anymore, it just opens the
+//     project page"): the agent runs `ravenry ask` as a background task and
+//     ends its turn, and Claude Code's idle prompt follows (a minute on;
+//     here a few seconds). The session is at rest, so the hub sent the
+//     session an alert of its own ("<Project> needs you", Handed back) on
+//     top of the card's, and that alert, the newest, opened the project.
+//     The card's alert is the only one: the top alert in the shade, the
+//     stack's summary, and a tap with the process ended each open the card;
+//     and a card's alert tapped once it was answered says so on its screen
+//     ("This checkpoint is no longer open."), never "Reaching the
+//     computer..." for good (the screen was not drawn again when the state
+//     came for a card it does not hold).
 //
 // What the board shows is read from the WebView (DevTools: a debug build):
 // a session's alert shows its project with that session; a checkpoint's
@@ -76,15 +89,26 @@ const check = (ok, what, detail = '') => { if (ok) passes++; else fails++; conso
 
 const localEnv = { HOME: WORK, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/sh', LANG: 'en_US.UTF-8', TERM: 'xterm-256color', RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state') };
 // A session in a real pane that asks, one question per `go-<n>` file.
+// A question with `bg` is asked as an agent that runs it in the background
+// does: the ask in the background, the turn's Stop with it running, then
+// Claude Code's idle prompt; once answered, the agent works again.
 function askScript(s, title, questions) {
-  const hook = (ev) => `printf '%s' '${JSON.stringify({ hook_event_name: ev, session_id: s.sid, cwd: s.folder, transcript_path: s.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) })}' | '${BIN}' hook --assistant claude >/dev/null 2>&1`;
+  const hook = (ev, more = null) => `printf '%s' '${JSON.stringify({ hook_event_name: ev, session_id: s.sid, cwd: s.folder, transcript_path: s.transcript, ...(more || (ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' })) })}' | '${BIN}' hook --assistant claude >/dev/null 2>&1`;
   const f = path.join(WORK, `session-${s.sid.slice(0, 4)}.sh`);
   fs.writeFileSync(f, [
     hook('SessionStart'), hook('UserPromptSubmit'),
     `printf '\\033]0;✳ ${title}\\007'`,
-    ...questions.flatMap(([go, q]) => [
+    ...questions.flatMap(([go, q, bg]) => [
       `while [ ! -f '${path.join(WORK, go)}' ]; do sleep 0.3; done`,
-      `'${BIN}' ask '${q}' --option 'Yes' --option 'Not yet' --timeout 30m >>"$HOME/.ask-${s.sid.slice(0, 4)}" 2>&1`,
+      `'${BIN}' ask '${q}' --option 'Yes' --option 'Not yet' --timeout 30m >>"$HOME/.ask-${s.sid.slice(0, 4)}" 2>&1${bg ? ' &' : ''}`,
+      ...(bg ? [
+        'sleep 2',
+        hook('Stop', { stop_hook_active: false, background_tasks: [{ id: `b${go}`, type: 'shell', status: 'running', description: 'Ask on the board', command: 'ravenry ask' }] }),
+        'sleep 3',
+        hook('Notification', { notification_type: 'idle_prompt', message: 'Claude is waiting for your input' }),
+        'wait',
+        hook('UserPromptSubmit'),
+      ] : []),
     ]),
     'exec sleep 100000',
   ].join('\n') + '\n', { mode: 0o755 });
@@ -103,7 +127,9 @@ try {
     env: { MC_NO_EVENTS: '0', MC_ALERT_COOLDOWN_MS: '0', RAVENRY_DAEMON_BIN: BIN, RAVENRY_STATE_DIR: path.join(WORK, 'hub-state'), RAVENRY_HUB_NAME: 'MacBook Pro', RAVENRY_PHONE_HOSTS: '10.0.2.2', RAVENRY_PHONE_PORT: String(await freePort()) },
   });
   const S = hub.sessions;
-  const QS = [['go-1', 'Ship the beta to the testers on Friday?'], ['go-2', 'Turn on the offline sync for everyone?'], ['go-3', 'Keep the old export button for a week?'], ['go-4', 'Rename the Sync tab to Backup?'], ['go-5', 'Sync the attachments too?']];
+  const QS = [['go-1', 'Ship the beta to the testers on Friday?'], ['go-2', 'Turn on the offline sync for everyone?'], ['go-3', 'Keep the old export button for a week?'], ['go-4', 'Rename the Sync tab to Backup?'], ['go-5', 'Sync the attachments too?'],
+    // Asked in the background (the last cases).
+    ['go-6', 'Move the sync button to the top bar?', true], ['go-7', 'Keep a week of sync history?', true], ['go-8', 'Show the last sync time on the card?', true]];
   const QW = [['go-w', 'Show the wind in knots or in km/h?']];
   const askF = askScript(S['notes-app'], 'Sync settings', QS);
   execFileSync(BIN, ['new', '--cwd', S['notes-app'].folder, '--name', 'Sync settings', '--size', '90x30', '--label', 'ravenry.session=claude', '--', '/bin/sh', askF], { env: localEnv, encoding: 'utf8' });
@@ -195,6 +221,7 @@ try {
   let asked = 0;
   async function ask(which = null) {
     const [go, q] = which || QS[asked++];
+    if (which === null && asked > QS.length) throw new Error('no question left');
     fs.writeFileSync(path.join(WORK, go), '1');
     const cp = await until(async () => (await hubCps()).find((c) => c.state === 'open' && (c.title || c.question || '').includes(q)), 30000, 500);
     if (!cp) throw new Error(`the ask did not open: ${q}`);
@@ -316,6 +343,66 @@ try {
     const left = await until(() => (adb('shell', 'dumpsys', 'notification', '--noredact').includes(`|${APP}|3|null|`) ? null : 1), 20000, 1000);
     check(!!left, 'both answered, their alerts and the summary leave the shade');
   }
+  await backInFront();
+
+  // ------------------------------------------------------------ asked in the background
+  // The session rests while its card waits (the hub's project in Needs
+  // you): the card's alert is the only one in the shade, and each way of
+  // opening "the notification" opens the card.
+  const sessionAlerts = () => [...adb('shell', 'dumpsys', 'notification', '--noredact').matchAll(new RegExp(`\\|${APP}\\|2\\|(s:notes-app:[^|]*)\\|`, 'g'))].map((m) => m[1]);
+  async function askBg() {
+    const c = await ask();
+    const rest = await until(async () => { const p = (await hub.state()).projects.find((x) => x.id === 'notes-app'); return p && p.state === 'you' ? p : null; }, 30000, 500);
+    check(!!rest, `the asking session is at rest while its card waits (the project in Needs you): ${c.q}`, rest ? '' : JSON.stringify(((await hub.state()).projects.find((x) => x.id === 'notes-app') || {}).state));
+    // The hub's tick has seen it (an alert of the session's own would have gone out by now).
+    await sleep(6000);
+    const extra = sessionAlerts();
+    check(extra.length === 0, 'one alert for the wait: the card\'s, none of the session\'s own', extra.join(', '));
+    return c;
+  }
+  // The top alert in the shade, the one the person taps: the newest.
+  async function tapTop() {
+    adb('shell', 'cmd', 'statusbar', 'expand-notifications');
+    await sleep(1500);
+    const top = await until(() => screen().filter((x) => x.pkg === 'com.android.systemui' && / (asks|needs you)$/.test(x.text || '')).sort((x, y) => x.y - y.y)[0] || null, 20000, 800);
+    if (!top) throw new Error(`no alert in the shade: ${screen().map((x) => x.text).filter(Boolean).join(' | ')}`);
+    console.log(`the top alert: ${top.text}`);
+    tap(top);
+  }
+  // Warm: Home a few seconds, the top alert tapped.
+  await away(1500);
+  const b1 = await askBg();
+  shot(`${++n}-background-shade.png`);
+  await tapTop();
+  await expectCp('asked in the background, warm: the top alert', b1);
+  shot(`${++n}-background-warm.png`);
+  await answer(b1.id);
+  await backInFront();
+  // The stack's summary (Android 16 folds, One UI too): it opens the newest.
+  await away(1500);
+  const b2 = await askBg();
+  adb('shell', 'am', 'start', '-n', `${APP}/.MainActivity`, '-a', 'open:newest', '-f', '0x30000000', '--ez', 'dev.ravenry.app.NEWEST', 'true');
+  await expectCp('asked in the background: the summary\'s tap', b2);
+  shot(`${++n}-background-summary.png`);
+  await answer(b2.id);
+  await backInFront();
+  // Cold: the process ended, the top alert tapped.
+  await away(1500);
+  const b3 = await askBg();
+  check(!!(await killApp()), 'asked in the background, cold: the app\'s process ended, its alert still in the shade');
+  await tapTop();
+  await expectCp('asked in the background, cold: the top alert', b3);
+  shot(`${++n}-background-cold.png`);
+  await answer(b3.id);
+  // A card's alert tapped once the card was answered (one whose close the
+  // phone missed): its screen says it was answered, never the board alone.
+  await backInFront();
+  await away(1500);
+  const raw = JSON.stringify({ v: 1, type: 'alert', id: `cp:${b3.id}`, kind: 'ask', title: 'notes-app asks', body: b3.q, checkpoint: { id: b3.id, kind: 'ask' }, actions: [], reply: null });
+  adb('shell', `am start -n ${APP}/.MainActivity -a open:cp:${b3.id} -f 0x30000000 --es dev.ravenry.app.ALERT '${raw}'`);
+  const done = await until(async () => { const x = await board(`(() => ({ u: location.pathname + location.hash, done: !!document.querySelector('.pcp.done') || /no longer open/.test(document.body.innerText), text: document.body.innerText.slice(0, 300) }))()`); return x && x.done && x.u.includes(b3.id) ? x : null; }, 20000, 800);
+  check(!!done, 'an answered card\'s alert tapped: its screen says it was answered', done || await where());
+  shot(`${++n}-answered-card.png`);
 } catch (e) {
   check(false, 'the run', String(e.stack || e).slice(0, 1500));
 } finally {

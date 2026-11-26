@@ -508,7 +508,7 @@ function makeTrigger({ on, start }) {
   const cooled = new Map();    // projectId -> when it was last alerted
   const gates = new Set();     // gateKey of every plan gate seen (alerted, or there before)
   let firstAt = null;
-  return (projects, { now = Date.now(), boardUrl = null } = {}) => {
+  return (projects, { now = Date.now(), boardUrl = null, carded = null } = {}) => {
     if (firstAt == null) firstAt = now;
     const priming = now - firstAt < PRIME_MS;
     const out = [];
@@ -531,6 +531,12 @@ function makeTrigger({ on, start }) {
         kind = kindOf(p);
         if (!kind) continue;
         const s = p.sessions.find((x) => x.surfaceId === p.primary);
+        // At rest while its own card is open (an agent that runs `ravenry
+        // ask` in the background and ends its turn, then Claude Code's
+        // idle prompt a minute later): the card is what waits, and its
+        // alert went out when it opened. A second alert for the session,
+        // titled the same, opened the project instead of the card.
+        if (carded && carded.has(s.surfaceId) && (s.state === 'asked' || s.state === 'handback')) continue;
         const key = `${s.sessionId || s.surfaceId}|${kind}`;
         const moment = s.since || '';
         if (seen.has(key) && seen.get(key) === moment) continue;
@@ -584,6 +590,8 @@ export async function testDesktop() {
 
 // Called with each tick's projects. Returns the phone alerts it started,
 // with the Mac notifications it started as `.desktop` (tests).
+// `opts.carded`: the sessions (surfaceIds) whose own card is open; one of
+// them at rest is alerted by its card, never again by itself.
 export function observe(projects, opts = {}) {
   const out = phoneTrigger(projects, opts);
   out.desktop = desktopTrigger(projects, opts);
