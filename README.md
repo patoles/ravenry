@@ -2,33 +2,38 @@
 
 # Ravenry
 
-The open-source terminal for Claude Code, Codex, OpenCode and Antigravity CLI.
-
-Ravenry runs your coding agents in real terminals, on your Mac and on your
-other machines over ssh, and puts every session on one board, sorted by
-what needs you. When an agent needs a choice, a go-ahead or a secret, it
-stops and asks, and the question shows up on your Mac and on your phone at
-the same time. Answer from either one.
+Your coding agents are only as fast as your decisions. Run several at
+once and it’s easy to miss the one that stopped to ask. **Ravenry is an
+open-source terminal that brings every decision to one place**, in a
+simple interface made for deciding fast. Answer from your Mac or your phone.
 
 <p align="center"><img src="site/assets/og-image.png" alt="The Ravenry Mac app: the board of sessions beside a terminal, and the phone with the same question" width="720"></p>
 
-- **A real terminal.** Native on the Mac (Swift and Metal), with tabs and
-  splits. Sessions keep running when you quit or update the app.
-- **One board.** Every session, grouped as Needs you, Working and Idle,
-  with its live screen.
-- **Your phone.** The Android and iPhone apps show every project, start new
-  sessions and answer from the notification.
-- **Your machines.** Linux and Mac machines over ssh, on the same board.
+## How it works
 
-A short video: [docs/media/ravenry-30s.mp4](docs/media/ravenry-30s.mp4).
+1. **Run your agents as usual.** Start Claude Code, Codex, OpenCode or
+   Antigravity CLI in Ravenry on your Mac. Sessions on Linux and Mac
+   machines connected over SSH appear on the same board. The terminals
+   keep running when you quit or update the Mac app.
+2. **Stop hunting through tabs.** Say Claude Code wants to commit a change
+   while Codex is still writing tests. Ravenry uses agent events and the
+   live terminal screen to put Claude’s request under **Needs you**, with
+   the command and what led up to it.
+3. **Decide on the spot.** Each request becomes a card made for that kind
+   of decision: options as buttons, a command to approve or decline,
+   designs side by side. Your response goes to the session that asked. You
+   can also save a project decision for future sessions to check before
+   they ask again.
+
+[Watch the 30-second demo](docs/media/ravenry-30s.mp4).
 
 ## Download
 
-Ravenry is in an early test: get the Mac app (Apple silicon, macOS 13 or
-later), the Android app and the iPhone and iPad app from
-**https://patoles.github.io/ravenry/**.
-The Mac app updates itself. It works with Claude Code, Codex, OpenCode and
-Antigravity CLI, installed and signed in.
+Start with the Mac app (Apple silicon, macOS 13 or later) and a supported
+coding agent installed and signed in. To answer away from your desk, pair
+the Android or iPhone/iPad app over the same Wi-Fi or through Tailscale.
+Ravenry is in early testing. The Mac app updates itself.
+[Download Ravenry](https://patoles.github.io/ravenry/).
 
 ## Build from source
 

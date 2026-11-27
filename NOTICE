@@ -85,3 +85,11 @@ HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
 ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Ravenry Dark, Ravenry Light and Paper are Ravenry's own.
+
+The download page's agent logos (site/assets/agents/) show what Ravenry
+works with. The Claude, OpenAI and OpenCode marks are from Simple Icons
+(https://github.com/simple-icons/simple-icons), whose files are under
+CC0 1.0; the Antigravity mark is from https://antigravity.google. Each is
+redrawn in one colour. The names and logos are trademarks of their owners
+(Anthropic, OpenAI, the OpenCode project and Google) and are not licensed
+under either of this repository's licences.
